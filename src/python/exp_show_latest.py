@@ -71,6 +71,6 @@ if __name__ == '__main__':
         #show all exp results
         get_exps(args.result_dir_prefix, exps)
     else:
-        exps = args.exps 
+        exps = [os.path.join(args.result_dir_prefix, exp) for exp in args.exps ]
     for exp in exps: 
         print_latest_exp(exp, filters)
