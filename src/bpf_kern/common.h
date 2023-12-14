@@ -2,7 +2,7 @@
 #define EBPF_DEMO_COMMON_H
 
 #include "vmlinux.h"
-#include <bpf/bpf_helpers.h>
+#include <bpf_helpers.h>
 
 #ifndef LOG_LEVEL
 #define LOG_LEVEL 2
@@ -53,13 +53,13 @@
 	#define log_warn(fmt, ...)	 ({})									
 #endif
 
-#if LOG_LEVEL >= LOG_LEVEL_DEBUG		
-	#define log_debug(FMT, ...)											\
+#if LOG_LEVEL >= LOG_LEVEL_ERROR		
+	#define log_error(FMT, ...)											\
 	({																	\
 		bpf_printk("[DEBUG]" FMT, ##__VA_ARGS__);						\
 	})										
 #else
-	#define log_debug(fmt, ...)	 ({})									
+	#define log_error(fmt, ...)	 ({})									
 #endif
 
 #endif 
