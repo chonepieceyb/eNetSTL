@@ -1,16 +1,12 @@
 #include <linux/init.h> 
-#include <linux/module.h> 
 #include <linux/printk.h>
-#include <linux/bpf.h>
-#include <linux/bpf_custom_map.h>
 #include <linux/string.h>
 #include <linux/math.h>
+#include "../cmap_common.h"
      
 static const char* hello_world = "bpf custom map demo hello world\n";
-#define ID 101
-
-extern int bpf_register_custom_map(struct bpf_custom_map_ops *cmap);
-extern void bpf_unregister_custom_map(struct bpf_custom_map_ops *cmap);
+// extern int bpf_register_custom_map(struct bpf_custom_map_ops *cmap);
+// extern void bpf_unregister_custom_map(struct bpf_custom_map_ops *cmap);
 
 static void *demo_alloc(union bpf_attr *attr)
 {
@@ -33,27 +29,26 @@ static struct bpf_custom_map_ops cmap_ops = {
 	.cmap_alloc = demo_alloc,
 	.cmap_free = demo_free,
 	.cmap_lookup_elem = demo_lookup_elem,
-        
-        .id = ID,
 	.name = "custom_map_demo",
 	.owner = THIS_MODULE,
 };
 
+#define BASE_ID 100
+
+#define BPF_CMAP_TYPES(fn)	\
+fn(cmap_ops)			
+
+BPF_CMAPS_SEC(demo_cmaps, BPF_CMAP_TYPES)
 
 static int __init custom_map_demo_init(void) {
-        int ret;
-	ret = bpf_register_custom_map(&cmap_ops);
-	if (ret < 0) {
-		pr_err("failed to reigster custom_map_demo with id %d, err: %d\n", ID, ret);
-		return -1;
-	}
-	pr_info("register custom_map_demo, id : %d\n", ID);
-	return 0;
+	pr_info("register demo_cmaps");
+	init_cmaps_attr();
+	return register_cmaps(demo_cmaps, __NR_BPF_CMAP_TYPE);
 }
 
 static void __exit custom_map_demo_exit(void) {
-	bpf_unregister_custom_map(&cmap_ops);
-        pr_info("unregister custom_map_demo id : %d\n", ID);
+	pr_info("unregister demo_cmaps");
+	unregister_cmaps(demo_cmaps, __NR_BPF_CMAP_TYPE);
 }
 
 /* Register module functions */

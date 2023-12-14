@@ -1,4 +1,4 @@
-OBJ_NAME := bpf_custom_map_demo
+OBJ_NAME := empty_cmap
 
 obj-m := ${OBJ_NAME}.o
 #lkm_example-y := x.o

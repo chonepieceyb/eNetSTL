@@ -24,6 +24,15 @@ else()
     message(STATUS "using libbpf in ${LIBBPF_PATH}")
 endif()
 
+#compile options
+
+set(USE_CMAP OFF CACHE BOOL "should compile cmap")
+message(STATUS "USE_CMAP: ${USE_CMAP}")
+
+set(LOG_LEVEL 2 CACHE STRING "should compile cmap")
+add_compile_definitions(LOG_LEVEL=${LOG_LEVEL})
+message(STATUS "LOG_LEVEL: ${LOG_LEVEL}")
+
 add_subdirectory("${BPF_KERN_SRC_FILES}")
 add_subdirectory("${C_FILES}")
 
