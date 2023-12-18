@@ -7,10 +7,11 @@ char _license[] SEC("license") = "GPL";
 *********************PKTBKT PERCPU**************
 ************************************************/
 
-typedef __u32 bitmap_type;
-#define PER_LONG_BITS_SHIFT 5  //64 per long
-#define __ffs __ffs32
-#define BITS_PER_LONG sizeof(bitmap_type)
+typedef __u64 bitmap_type;
+#define PER_LONG_BITS_SHIFT 6  //64 per long
+#define __ffs __ffs64
+#define BITS_PER_LONG 64
+#define __inline __noinline
 
 #ifndef PKT_BKT_SIZE_SHIFT 
 #define PKT_BKT_SIZE_SHIFT 8
@@ -94,7 +95,7 @@ static __always_inline __bitmap_type hpiq_front_idx_lvl_4__##_name(struct hpiq__
 #define hpiq_front_idx_lvl(level, _name, __bitmap_type) hpiq_front_idx_lvl_##level(_name, __bitmap_type)
 
 #define hpiq_get_idx_offset_lvl_1(__bitmap_type, bucket)                           \
-        __bitmap_type __tmp = (bucket);                                           \
+        __bitmap_type __tmp = (__bitmap_type)(bucket);                                           \
         __bitmap_type __off1 =  BOUND_INDEX(__tmp, PER_LONG_BITS_SHIFT);          
 
 #define hpiq_get_idx_offset_lvl_2(__bitmap_type, bucket)      \
@@ -118,34 +119,34 @@ static __always_inline __bitmap_type hpiq_front_idx_lvl_4__##_name(struct hpiq__
 static __always_inline void hpiq_insert_lvl_1__##_name(struct hpiq__##_name *hpiq, __u32 bucket)    \
 {                                                                                                   \
         hpiq_get_idx_offset_lvl(1, __bitmap_type, bucket)                                                       \
-        hpiq->bitmap_lvl_1 |= (__bitmap_type)(1 << __off1);                            \
+        hpiq->bitmap_lvl_1 |= ((__bitmap_type)1 << __off1);                            \
 }    
 
 #define hpiq_insert_lvl_2(_name, __bitmap_type)                                              \
 static __always_inline void hpiq_insert_lvl_2__##_name(struct hpiq__##_name *hpiq, __u32 bucket)    \
 {                                                                                                   \
         hpiq_get_idx_offset_lvl(2, __bitmap_type, bucket)                                                       \
-        hpiq->bitmap_lvl_1 |= (__bitmap_type)(1 << __off2);                            \
-        hpiq->bitmap_lvl_2[__off2] |= (__bitmap_type)(1 << __off1);                            \
+        hpiq->bitmap_lvl_1 |= (__bitmap_type)((__bitmap_type)1 << __off2);                            \
+        hpiq->bitmap_lvl_2[__off2] |= ((__bitmap_type)1 << __off1);                            \
 }    
 
 #define hpiq_insert_lvl_3(_name, __bitmap_type)                                              \
 static __always_inline void hpiq_insert_lvl_3__##_name(struct hpiq__##_name *hpiq, __u32 bucket)    \
 {                                                                                                   \
         hpiq_get_idx_offset_lvl(3, __bitmap_type, bucket)                                                       \
-        hpiq->bitmap_lvl_1 |= (__bitmap_type)(1 << __off3);                            \
-        hpiq->bitmap_lvl_2[__off3] |= (__bitmap_type)(1 << __off2);                            \
-        hpiq->bitmap_lvl_3[__off2] |= (__bitmap_type)(1 << __off1);                            \
+        hpiq->bitmap_lvl_1 |= ((__bitmap_type)1 << __off3);                            \
+        hpiq->bitmap_lvl_2[__off3] |= ((__bitmap_type)1 << __off2);                            \
+        hpiq->bitmap_lvl_3[__off2] |= ((__bitmap_type)1 << __off1);                            \
 }    
 
 #define hpiq_insert_lvl_4(_name, __bitmap_type)                                              \
 static __always_inline void hpiq_insert_lvl_4__##_name(struct hpiq__##_name *hpiq, __u32 bucket)    \
 {                                                                                                   \
         hpiq_get_idx_offset_lvl(4, __bitmap_type, bucket)                                                       \
-        hpiq->bitmap_lvl_1 |= (__bitmap_type)(1 << __off4);                            \
-        hpiq->bitmap_lvl_2[__off4] |= (__bitmap_type)(1 << __off3);                            \
-        hpiq->bitmap_lvl_3[__off3] |= (__bitmap_type)(1 << __off2);                            \
-        hpiq->bitmap_lvl_4[__off2] |= (__bitmap_type)(1 << __off1);                            \
+        hpiq->bitmap_lvl_1 |= ((__bitmap_type)1 << __off4);                            \
+        hpiq->bitmap_lvl_2[__off4] |= ((__bitmap_type)1 << __off3);                            \
+        hpiq->bitmap_lvl_3[__off3] |= ((__bitmap_type)1 << __off2);                            \
+        hpiq->bitmap_lvl_4[__off2] |= ((__bitmap_type)1 << __off1);                            \
 }    
  
 #define hpiq_insert_lvl(level, _name, __bitmap_type) hpiq_insert_lvl_##level(_name, __bitmap_type)
@@ -154,40 +155,40 @@ static __always_inline void hpiq_insert_lvl_4__##_name(struct hpiq__##_name *hpi
 static __always_inline void hpiq_delete_lvl_1__##_name(struct hpiq__##_name *hpiq, __u32 bucket)    \
 {                                                                                                   \
         hpiq_get_idx_offset_lvl(1, __bitmap_type, bucket)                                                       \
-        hpiq->bitmap_lvl_1 &= ~(__bitmap_type)(1 << __off1);                            \
+        hpiq->bitmap_lvl_1 &= ~((__bitmap_type)1 << __off1);                            \
 }    
 
 #define hpiq_delete_lvl_2(_name, __bitmap_type)                                              \
 static __always_inline void hpiq_delete_lvl_2__##_name(struct hpiq__##_name *hpiq, __u32 bucket)    \
 {                                                                                                   \
         hpiq_get_idx_offset_lvl(2, __bitmap_type, bucket)                                                       \
-        hpiq->bitmap_lvl_2[__off2] &= ~(__bitmap_type)(1 << __off1);                            \
+        hpiq->bitmap_lvl_2[__off2] &= ~((__bitmap_type)1 << __off1);                            \
         if (hpiq->bitmap_lvl_2[__off2] == 0)                                  \
-                hpiq->bitmap_lvl_1 &= ~(__bitmap_type)(1 << __off2);                            \
+                hpiq->bitmap_lvl_1 &= ~((__bitmap_type)1 << __off2);                            \
 } 
 
 #define hpiq_delete_lvl_3(_name, __bitmap_type)                                              \
 static __always_inline void hpiq_delete_lvl_3__##_name(struct hpiq__##_name *hpiq, __u32 bucket)    \
 {                                                                                                   \
         hpiq_get_idx_offset_lvl(3, __bitmap_type, bucket)                                                       \
-        hpiq->bitmap_lvl_3[__off2] &= ~(__bitmap_type)(1 << __off1);                            \
+        hpiq->bitmap_lvl_3[__off2] &= ~((__bitmap_type)1 << __off1);                            \
         if (hpiq->bitmap_lvl_3[__off2] == 0)                                  \
-                hpiq->bitmap_lvl_2[__off3] &= ~(__bitmap_type)(1 << __off2);                            \
+                hpiq->bitmap_lvl_2[__off3] &= ~((__bitmap_type)1 << __off2);                            \
         if (hpiq->bitmap_lvl_2[__off3] == 0)                                  \
-                hpiq->bitmap_lvl_1 &= ~(__bitmap_type)(1 << __off3);                            \
+                hpiq->bitmap_lvl_1 &= ~((__bitmap_type)1 << __off3);                            \
 } 
 
 #define hpiq_delete_lvl_4(_name, __bitmap_type)                                              \
 static __always_inline void hpiq_delete_lvl_4__##_name(struct hpiq__##_name *hpiq, __u32 bucket)    \
 {                                                                                                   \
         hpiq_get_idx_offset_lvl(4, __bitmap_type, bucket)                                                       \
-        hpiq->bitmap_lvl_4[__off2] &= ~(__bitmap_type)(1 << __off1);                            \
+        hpiq->bitmap_lvl_4[__off2] &= ~((__bitmap_type)1 << __off1);                            \
         if (hpiq->bitmap_lvl_4[__off2] == 0)                                  \
-                hpiq->bitmap_lvl_3[__off3] &= ~(__bitmap_type)(1 << __off2);                            \
+                hpiq->bitmap_lvl_3[__off3] &= ~((__bitmap_type)1 << __off2);                            \
         if (hpiq->bitmap_lvl_3[__off3] == 0)                                  \
-                hpiq->bitmap_lvl_2[__off4] &= ~(__bitmap_type)(1 << __off3);                            \
+                hpiq->bitmap_lvl_2[__off4] &= ~((__bitmap_type)1 << __off3);                            \
         if (hpiq->bitmap_lvl_2[__off4] == 0)                                  \
-                hpiq->bitmap_lvl_1 &= ~(__bitmap_type)(1 << __off4);                            \
+                hpiq->bitmap_lvl_1 &= ~((__bitmap_type)1 << __off4);                            \
 } 
 
 #define hpiq_delete_lvl(level, _name, __bitmap_type) hpiq_delete_lvl_##level(_name, __bitmap_type)
@@ -231,7 +232,7 @@ struct {
 
 #define BUCKET_NUM HBITMAP_LEVEL_2
 
-static __noinline int cffs_enqueue(struct cffs_piq *cffs, void * bucket_buffer_map, __u32 prio, const struct __packet_type* pkt)
+static __inline int cffs_enqueue(struct cffs_piq *cffs, void * bucket_buffer_map, __u32 prio, const struct __packet_type* pkt)
 {
         if (unlikely(prio > (cffs->h_index + 2 * BUCKET_NUM))) {
                 prio = cffs->h_index + 2 * BUCKET_NUM;
@@ -267,7 +268,7 @@ static __noinline int cffs_enqueue(struct cffs_piq *cffs, void * bucket_buffer_m
         return 0;
 }
 
-static __noinline struct simple_rbuf__pkt_bkt* cffs_first_bkt(struct cffs_piq *cffs, void * bucket_buffer_map, __u32 *bktnum)
+static __inline struct simple_rbuf__pkt_bkt* cffs_first_bkt(struct cffs_piq *cffs, void * bucket_buffer_map, __u32 *bktnum)
 {
         bool prime = cffs->prime;
         asm_bound_check(prime, 2); 
@@ -275,7 +276,8 @@ static __noinline struct simple_rbuf__pkt_bkt* cffs_first_bkt(struct cffs_piq *c
         if (unlikely(phpiq->bitmap_lvl_1) == 0) {
                 struct hpiq__cffs *snd_hpiq = &cffs->hpiq[!prime];
                 if (snd_hpiq->bitmap_lvl_1 == 0) {
-                        //non packet 
+                        //non packet
+                        log_debug("cffs is empty") ;
                         return NULL; 
                 } else {
                         //switch the primary 
@@ -293,7 +295,7 @@ static __noinline struct simple_rbuf__pkt_bkt* cffs_first_bkt(struct cffs_piq *c
         return bpf_map_lookup_elem(bucket_buffer_map, &key);
 }
 
-static __noinline void cffs_dequeue(struct cffs_piq *cffs, struct simple_rbuf__pkt_bkt * bucket_buffer, __u32 bktnum)
+static __inline void cffs_dequeue(struct cffs_piq *cffs, struct simple_rbuf__pkt_bkt * bucket_buffer, __u32 bktnum)
 {
         /*bktnum is the retparam of cffs_first_bkt it should come from the primary hffs and should not be empty 
         * 1. unset hffs 
@@ -302,7 +304,7 @@ static __noinline void cffs_dequeue(struct cffs_piq *cffs, struct simple_rbuf__p
         bool prime = cffs->prime;
         asm_bound_check(prime, 2);
         hpiq_delete__cffs(&cffs->hpiq[prime], bktnum);
-        if (cffs->hpiq[prime].bitmap_lvl_1 == 0) {
+        if (unlikely(cffs->hpiq[prime].bitmap_lvl_1 == 0)) {
                 //switch prime 
                 cffs->prime = !(prime);
         }

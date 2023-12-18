@@ -88,7 +88,7 @@
         _result;                                                                                   \
     })
 
-#define SHIFT_TO_SIZE(_shift)  (1 << (_shift))
+#define SHIFT_TO_SIZE(_shift)  ((unsigned long)1 << (_shift))
 
 #define BOUND_INDEX(idx, shift)			\
 ({typeof(idx) __idx; __idx = (idx) & (SHIFT_TO_SIZE(shift) - 1);})				
