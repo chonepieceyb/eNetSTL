@@ -192,6 +192,17 @@ static __always_inline __u32 __ffs32(__u32 word)
 	return num;
 }
 
+#define STR(s) #s
+#define XSTR(s) STR(s)
+
+#define asm_bound_check(variable, max_size)     \
+({      \
+        asm volatile (  \
+                "%[tmp] &= " XSTR(max_size - 1) " \n"   \
+                :[tmp]"+&r"(variable)                   \
+        );                                              \
+})
+
 #endif
 
 
