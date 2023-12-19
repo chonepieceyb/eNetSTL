@@ -56,7 +56,7 @@
 #if LOG_LEVEL >= LOG_LEVEL_ERROR		
 	#define log_error(FMT, ...)											\
 	({																	\
-		bpf_printk("[DEBUG]" FMT, ##__VA_ARGS__);						\
+		bpf_printk("[ERROR]" FMT, ##__VA_ARGS__);						\
 	})										
 #else
 	#define log_error(fmt, ...)	 ({})									
