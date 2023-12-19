@@ -37,6 +37,7 @@ foreach(TF ${TARGET_LIST})
         target_include_directories(${TN} PUBLIC "${LINUX_PATH}/tools/lib")
     endif()
     target_link_libraries(${TN} ${LIBBPF})
+    add_dependencies(${TN} bpf_skel)
 endforeach()
 
 set(CMAKE_C_FLAGS

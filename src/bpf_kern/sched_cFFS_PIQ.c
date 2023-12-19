@@ -390,7 +390,6 @@ int test_hffs1(struct xdp_md *ctx) {
         xdp_assert((__pkt2 != NULL), "cffs first bucket ringbuffer is empty");
         xdp_assert((__pkt2->data == pkt2.data), "pkt2 is not the same");
         log_info("test5 success");
-
         log_info("test all success");
         return XDP_PASS;
 xdp_error:;
