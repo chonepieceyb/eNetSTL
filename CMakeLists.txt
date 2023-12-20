@@ -35,4 +35,3 @@ message(STATUS "LOG_LEVEL: ${LOG_LEVEL}")
 
 add_subdirectory("${BPF_KERN_SRC_FILES}")
 add_subdirectory("${C_FILES}")
-

@@ -5,14 +5,14 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "bpf_skel/empty_xdp.skel.h"
+#include "bpf_skel/sched_cFFS_PIQ.skel.h"
 #include <net/if.h>
 #include <linux/if_link.h>
 
 #define IF_NAME "ens4np0"
 
 int main() {
-        struct empty_xdp * skel = NULL;
+        struct sched_cFFS_PIQ * skel = NULL;
         struct bpf_program *prog;
         int fd, ifindex, res;
         res = 0;
@@ -21,13 +21,13 @@ int main() {
                 printf("failed to get ifindex %s\n", strerror(errno));
                 return -1;
         }
-        skel = empty_xdp__open();
+        skel = sched_cFFS_PIQ__open();
         if (skel == NULL) {
                 printf("faild to open and load hw_demo\n");
                 return -1; 
         }
         prog = skel->progs.xdp_main;
-        res = empty_xdp__load(skel);
+        res = sched_cFFS_PIQ__load(skel);
         if (res) {
                 printf("faild to load, res %d %s\n", res, strerror(errno));
                 goto clean;
@@ -42,6 +42,6 @@ int main() {
                 goto clean;
         }
 clean:;
-        empty_xdp__destroy(skel);
+        sched_cFFS_PIQ__destroy(skel);
         return res;
 }

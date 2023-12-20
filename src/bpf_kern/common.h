@@ -56,10 +56,185 @@
 #if LOG_LEVEL >= LOG_LEVEL_ERROR		
 	#define log_error(FMT, ...)											\
 	({																	\
-		bpf_printk("[DEBUG]" FMT, ##__VA_ARGS__);						\
+		bpf_printk("[ERROR]" FMT, ##__VA_ARGS__);						\
 	})										
 #else
 	#define log_error(fmt, ...)	 ({})									
 #endif
 
-#endif 
+#ifndef likely
+#define likely(X) __builtin_expect(!!(X), 1)
+#endif
+
+#ifndef unlikely
+#define unlikely(X) __builtin_expect(!!(X), 0)
+#endif
+
+#ifndef build_bug_on
+#define build_bug_on(E) ((void)sizeof(char[1 - 2 * !!(E)]))
+#endif
+
+#ifndef lock_xadd
+#define lock_xadd(P, V) ((void)__sync_fetch_and_add((P), (V)))
+#endif
+
+#define LOG2(x)                                                                                    \
+    ({                                                                                             \
+        unsigned _x = (x);                                                                         \
+        unsigned _result = 0;                                                                      \
+        while (_x >>= 1) {                                                                         \
+            _result++;                                                                             \
+        }                                                                                          \
+        _result;                                                                                   \
+    })
+
+#define SHIFT_TO_SIZE(_shift)  ((unsigned long)1 << (_shift))
+
+#define BOUND_INDEX(idx, shift)			\
+({typeof(idx) __idx; __idx = (idx) & (SHIFT_TO_SIZE(shift) - 1);})				
+
+#define DECLARE_SIMPLE_RINGBUF(_name, _value_type, _size_shift)                  \
+struct simple_rbuf__##_name {                                                 \
+        _value_type data[SHIFT_TO_SIZE((_size_shift))];                                \
+        __u64 cons;                                                             \
+        __u64 prod;                                                             \
+};                                                                              \
+static __always_inline bool _name##__simple_rbuf_full(struct simple_rbuf__##_name *rb)    \
+{                            \
+        return (rb)->prod - (rb)->cons == SHIFT_TO_SIZE(_size_shift);                                           \
+}                                                                                            \
+static __always_inline bool _name##__simple_rbuf_empty(struct simple_rbuf__##_name *rb)        \
+{                                                                                               \
+        return (rb)->prod == (rb)->cons;                                                        \
+}                                                                                               \
+static __always_inline _value_type* _name##__simple_rbuf_cons(struct simple_rbuf__##_name *rb)   \
+{                                                                               \
+        if (unlikely(_name##__simple_rbuf_empty((rb)))) {                         \
+                return NULL;   /*ringbuf is empty*/                              \
+        } else {                                                                 \
+                return &((rb)->data[BOUND_INDEX((rb)->cons, (_size_shift))]);   \
+        }                                                                        \
+}               \
+static __always_inline void _name##__simple_rbuf_release(struct simple_rbuf__##_name *rb)        \
+{                                                                       \
+        ++((rb)->cons);                                                 \
+}                                                                       \
+static __always_inline _value_type* _name##__simple_rbuf_prod(struct simple_rbuf__##_name *rb)   \
+{                                                                               \
+        if (unlikely(_name##__simple_rbuf_full((rb)))) {                         \
+                return NULL;   /*ringbuf is full*/                              \
+        } else {                                                                 \
+                return &((rb)->data[BOUND_INDEX((rb)->prod, (_size_shift))]);   \
+        }                                                                        \
+} \
+static __always_inline void _name##__simple_rbuf_submit(struct simple_rbuf__##_name *rb)        \
+{                                                                       \
+        if (unlikely((rb)->prod == (~0UL))) {                                       \
+                __u64 len = (rb)->prod - (rb)->cons;            \
+                (rb)->cons = 0;                                 \
+                (rb)->prod = len;                               \
+        }                                                       \
+        ++((rb)->prod);                                                 \
+}             
+
+/* linux __ffs software implementation*/
+static __always_inline __u64 __ffs64(__u64 word)
+{
+	int num = 0;
+
+	if ((word & 0xffffffff) == 0) {
+		num += 32;
+		word >>= 32;
+	}
+	if ((word & 0xffff) == 0) {
+		num += 16;
+		word >>= 16;
+	}
+	if ((word & 0xff) == 0) {
+		num += 8;
+		word >>= 8;
+	}
+	if ((word & 0xf) == 0) {
+		num += 4;
+		word >>= 4;
+	}
+	if ((word & 0x3) == 0) {
+		num += 2;
+		word >>= 2;
+	}
+	if ((word & 0x1) == 0)
+		num += 1;
+	return num;
+}
+
+
+static __always_inline __u32 __ffs32(__u32 word)
+{
+	int num = 0;
+	if ((word & 0xffff) == 0) {
+		num += 16;
+		word >>= 16;
+	}
+	if ((word & 0xff) == 0) {
+		num += 8;
+		word >>= 8;
+	}
+	if ((word & 0xf) == 0) {
+		num += 4;
+		word >>= 4;
+	}
+	if ((word & 0x3) == 0) {
+		num += 2;
+		word >>= 2;
+	}
+	if ((word & 0x1) == 0)
+		num += 1;
+	return num;
+}
+
+#define STR(s) #s
+#define XSTR(s) STR(s)
+
+#define asm_bound_check(variable, max_size)     \
+({      \
+        asm volatile (  \
+                "%[tmp] &= " XSTR(max_size - 1) " \n"   \
+                :[tmp]"+&r"(variable)                   \
+        );                                              \
+})
+
+#define xdp_assert(expr, name)   \
+({                               \
+        if (unlikely(!(expr)))  {                            \
+                log_error("[xdp assert failed]: unexpected %s", name);                  \
+                goto xdp_error;                                         \
+        };                                              \
+})  
+
+#define xdp_assert_eq(expected, actual, name)   \
+({                               				                                                                                            \
+	typeof(actual) ___act = (actual);				                                                                                    \
+	typeof(expected) ___exp = (expected);				                                                                                    \
+	bool ___ok = ___act == ___exp;					                                                                                    \
+        if (unlikely(!___ok))  {                                                                                                                            \
+                log_error("[xdp assert failed]: unexpected %s: actual %lld != expected %lld\n", name, (long long)___act, (long long)___exp);                  \
+                goto xdp_error;                                                                                                                             \
+        };                                                                                                                                                  \
+}) 
+
+#define min(x, y) ({				\
+	typeof(x) _min1 = (x);			\
+	typeof(y) _min2 = (y);			\
+	(void) (&_min1 == &_min2);		\
+	_min1 < _min2 ? _min1 : _min2; })
+ 
+#define max(x, y) ({				\
+	typeof(x) _max1 = (x);			\
+	typeof(y) _max2 = (y);			\
+	(void) (&_max1 == &_max2);		\
+	_max1 > _max2 ? _max1 : _max2; })
+
+#endif
+
+
+
