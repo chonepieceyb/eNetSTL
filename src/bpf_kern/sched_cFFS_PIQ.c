@@ -7,10 +7,10 @@ char _license[] SEC("license") = "GPL";
 *********************PKTBKT PERCPU**************
 ************************************************/
 
-typedef __u32 bitmap_type;
-#define PER_LONG_BITS_SHIFT 5  //64 per long
-#define __ffs __ffs32
-#define BITS_PER_LONG 32
+typedef __u64 bitmap_type;
+#define PER_LONG_BITS_SHIFT 6  //64 per long
+#define __ffs __ffs64
+#define BITS_PER_LONG 64
 #define __inline __noinline
 
 #ifndef PKT_BKT_SIZE_SHIFT 
@@ -231,27 +231,31 @@ struct {
 } pkt_buf_percpu_map SEC(".maps");
 
 #define BUCKET_NUM HBITMAP_LEVEL_2
+#define BUCKET_NUM_SHIFT (PER_LONG_BITS_SHIFT + PER_LONG_BITS_SHIFT)
 
 static __inline int cffs_enqueue(struct cffs_piq *cffs, void * bucket_buffer_map, __u32 prio, const struct __packet_type* pkt)
 {
-        if (unlikely(prio > (cffs->h_index + 2 * BUCKET_NUM))) {
-                prio = cffs->h_index + 2 * BUCKET_NUM;
+        __u32 bktnum = prio;
+        if (unlikely(prio >= (cffs->h_index + 2 * BUCKET_NUM))) {
+                bktnum = cffs->h_index + 2 * BUCKET_NUM - 1;
         } else if (unlikely(prio < cffs->h_index)) {
-                prio = cffs->h_index;
+                bktnum = cffs->h_index;
         }
-        prio -= cffs->h_index;  //bounded to [0, 2 * BUCKET_NUM], real prio is h_index + prio
-
-        log_debug("bounded prio : %u", prio);
-        //prime:True used_prime:True => True, prime:True, use_prime:False => False. prime:False, use_prime:True => False, prime: False, use_prime:False => True
-        bool use_prime = (prio < (cffs->h_index + BUCKET_NUM));
-        bool idx = !(use_prime ^ cffs->prime);
-        __u32 __prio = prio - (!(use_prime)) * BUCKET_NUM;
-        log_debug("use prime :%d, current prime: %d, cal idx :%d", use_prime, cffs->prime, idx);
         
-        int key = (int)prio;
-        log_debug("percpu bkt key: %d", key);
-        log_debug("__prio: %u", __prio);
+        bktnum -= cffs->h_index;  //bounded to [0, 2 * BUCKET_NUM], real prio is h_index + prio
 
+        //prime:True used_prime:True => True, prime:True, use_prime:False => False. prime:False, use_prime:True => False, prime: False, use_prime:False => True
+        bool use_prime = (bktnum < BUCKET_NUM);
+        bool idx = !(use_prime ^ cffs->prime);
+        __u32 __bktnum = bktnum - (!(use_prime)) * BUCKET_NUM;
+        int key = idx * BUCKET_NUM + __bktnum;
+
+        log_debug("bktnum : %u", bktnum);
+        log_debug("__bucket_num: %u", __bktnum);
+        log_debug("hindex: %u", cffs->h_index);
+        log_debug("use prime :%d, current prime: %d, cal idx :%d", use_prime, cffs->prime, idx);
+        log_debug("percpu bkt key: %d", key);
+        
         struct simple_rbuf__pkt_bkt *pktbuf;
         pktbuf = bpf_map_lookup_elem(bucket_buffer_map, &key);
         if (pktbuf == NULL)
@@ -261,7 +265,7 @@ static __inline int cffs_enqueue(struct cffs_piq *cffs, void * bucket_buffer_map
         if (prod == NULL)  
                 return -2;       //ring buffer is full 
         asm_bound_check(idx, 2); //to make the verifier happy 
-        hpiq_insert__cffs(&cffs->hpiq[idx], __prio);
+        hpiq_insert__cffs(&cffs->hpiq[idx], __bktnum);
         log_debug("cffs_enqueue: prime hpiq first level: %x", cffs->hpiq[idx].bitmap_lvl_1);
         __builtin_memcpy(prod, pkt, sizeof(*prod));
         pkt_bkt__simple_rbuf_submit(pktbuf);
@@ -324,13 +328,6 @@ struct {
 } cffs_piq_map SEC(".maps");
 
 
-#define xdp_assert(expr, str)   \
-({                               \
-        if (unlikely(!(expr)))  {                            \
-                log_error("[xdp assert failed]: %s %s", str);                  \
-                goto xdp_error;                                         \
-        };                                              \
-})              
 
 SEC("xdp")
 int test_hffs1(struct xdp_md *ctx) {
@@ -351,21 +348,21 @@ int test_hffs1(struct xdp_md *ctx) {
         log_debug("test insert prio %u", prio);
         res = cffs_enqueue(cffs, (void*)&pkt_buf_percpu_map, prio, &pkt);
         log_debug("cffs_enqueue res %d", res);
-        xdp_assert((res == 0), "cffs enqueue failed");
+        xdp_assert_eq(0, res, "cffs enqueue failed");
         log_info("test1 success");
 
         //get the pkt right now
         __u32 bktnum = 0;
         pktbuf = cffs_first_bkt(cffs, (void*)&pkt_buf_percpu_map, &bktnum);
         log_debug("cffs_first_bkt, bktnum: %u", bktnum);
-        xdp_assert((cffs->h_index == 0), "cffs_first_bkt hindex is not correct");
+        xdp_assert_eq(0, cffs->h_index, "cffs_first_bkt hindex is not correct");
         xdp_assert((pktbuf != NULL), "cffs_first_bkt return NULL");
 
         //get ringbuffer 
         struct __packet_type *__pkt;
         __pkt = pkt_bkt__simple_rbuf_cons(pktbuf);
         xdp_assert((__pkt != NULL), "cffs first bucket ringbuffer is empty");
-        xdp_assert((__pkt->data == pkt.data), "pkt is not the same");
+        xdp_assert_eq(pkt.data, __pkt->data, "pkt is not the same");
         log_debug("cffs_first_bkt, hindex: %u", cffs->h_index);
         log_info("test2 success");
 
@@ -375,13 +372,13 @@ int test_hffs1(struct xdp_md *ctx) {
                 .data = (__u64)prio2
         };
         res = cffs_enqueue(cffs, (void*)&pkt_buf_percpu_map, prio2, &pkt2);
-        xdp_assert((res == 0), "cffs enqueue2 failed");
+        xdp_assert_eq(0, res, "cffs enqueue2 fail");
         log_info("test3 success");
 
         //dequeue the first one 
         cffs_dequeue(cffs, pktbuf, bktnum);
-        xdp_assert((pkt_bkt__simple_rbuf_empty(pktbuf)), "ring buffer should be empty");
-        xdp_assert((cffs->prime == 1), "prime not switching");
+        xdp_assert((pkt_bkt__simple_rbuf_empty(pktbuf)), "ring buffer not empty");
+        xdp_assert_eq(1, cffs->prime, "prime not switch");
         log_info("test4 success");
 
         //lookup the current front 
@@ -390,14 +387,14 @@ int test_hffs1(struct xdp_md *ctx) {
         pktbuf2 = cffs_first_bkt(cffs, (void*)&pkt_buf_percpu_map, &bktnum2);
         log_debug("cffs_first_bkt2, bktnum2: %u", bktnum2);
         log_debug("cffs_first_bkt2, hindex: %u", cffs->h_index);
-        xdp_assert((cffs->prime == 1), "prime not switching");
-        xdp_assert((cffs->h_index == BUCKET_NUM), "hindex is not correct");
+        xdp_assert_eq(1, cffs->prime, "prime is not correct");
+        xdp_assert_eq(BUCKET_NUM, cffs->h_index, "hindex is not correct");
         xdp_assert((pktbuf2 != NULL), "cffs_first_bkt2 return NULL");
-        xdp_assert((bktnum2 == (prio2 - BUCKET_NUM)), "prio2 not correct");  
+        xdp_assert_eq((prio2 - BUCKET_NUM), bktnum2, "prio2 not correct");  
         struct __packet_type *__pkt2;
         __pkt2 = pkt_bkt__simple_rbuf_cons(pktbuf2);
-        xdp_assert((__pkt2 != NULL), "cffs first bucket ringbuffer is empty");
-        xdp_assert((__pkt2->data == pkt2.data), "pkt2 is not the same");
+        xdp_assert((__pkt2 != NULL), "cffs first bucket2 ringbuffer is empty");
+        xdp_assert_eq(pkt2.data, __pkt2->data, "pkt2 is not the same");
         log_info("test5 success");
         log_info("test all success");
         return XDP_PASS;
@@ -407,40 +404,61 @@ xdp_error:;
 }
 
 
-
 SEC("xdp")
 int test_hffs2(struct xdp_md *ctx) {
         int key = 0, res;
         struct cffs_piq *cffs;
-        struct simple_rbuf__pkt_bkt *pktbuf;
         cffs = bpf_map_lookup_elem(&cffs_piq_map, &key);
         if (cffs == NULL) {
                 log_error("failed to get cffs map");
                 goto xdp_error;
         }
         //enquene
-        __u32 prio = bpf_get_prandom_u32() % BUCKET_NUM;;
+        __u32 prio1 = bpf_get_prandom_u32() % (2 * BUCKET_NUM) + cffs->h_index;
+        __u32 prio2 = bpf_get_prandom_u32() % (2 * BUCKET_NUM) + cffs->h_index;
 
-        log_debug("prio: %u", prio);
-        log_debug("hindex: %u", cffs->h_index);
-        struct __packet_type pkt = {
-                .data = (__u64)prio
+        __u32 min_prio = min(prio1, prio2);
+        __u32 max_prio = max(prio1, prio2);
+
+        log_debug("prio1: %u", prio1);
+        log_debug("prio2: %u", prio2);
+        struct __packet_type pkt1 = {
+                .data = (__u64)prio1
         };
-        res = cffs_enqueue(cffs, (void*)&pkt_buf_percpu_map, prio, &pkt);
-        xdp_assert((res == 0), "cffs enqueue failed");
+        struct __packet_type pkt2 = {
+                .data = (__u64)prio2
+        };
+        res = cffs_enqueue(cffs, (void*)&pkt_buf_percpu_map, prio1, &pkt1);
+        xdp_assert_eq(0, res, "cffs enqueue1 failed");
+        res = cffs_enqueue(cffs, (void*)&pkt_buf_percpu_map, prio2, &pkt2);
+        xdp_assert_eq(0, res, "cffs enqueue2 failed");
 
-        //dequeue
+        //dequeue1
         __u32 bktnum = 0;
-        pktbuf = cffs_first_bkt(cffs, (void*)&pkt_buf_percpu_map, &bktnum);
-        xdp_assert((pktbuf != NULL), "cffs_first_bkt return NULL");
-
         struct __packet_type *__pkt;
+        struct simple_rbuf__pkt_bkt *pktbuf;
+
+        pktbuf = cffs_first_bkt(cffs, (void*)&pkt_buf_percpu_map, &bktnum);
+        xdp_assert((pktbuf != NULL), "cffs_first_bkt1 return NULL");
+        
         __pkt = pkt_bkt__simple_rbuf_cons(pktbuf);
-        xdp_assert((__pkt != NULL), "cffs first bucket ringbuffer is empty");
+        xdp_assert((__pkt != NULL), "cffs first bucket1 ringbuffer is empty");
+        xdp_assert_eq(min_prio, __pkt->data, "not the pkt with min prio");
+        log_info("test1 success");
 
         cffs_dequeue(cffs, pktbuf, bktnum);
 
+        pktbuf = cffs_first_bkt(cffs, (void*)&pkt_buf_percpu_map, &bktnum);
+        xdp_assert((pktbuf != NULL), "cffs_first_bkt2 return NULL");
+
+        __pkt = pkt_bkt__simple_rbuf_cons(pktbuf);
+        xdp_assert((__pkt != NULL), "cffs first bucket2 ringbuffer is empty");
+        xdp_assert_eq(max_prio, __pkt->data, "not the pkt with max prio");
+        log_info("test2 success");
+
+        cffs_dequeue(cffs, pktbuf, bktnum);
         return XDP_PASS;
+
 xdp_error:
         return XDP_DROP;        
 }

@@ -203,6 +203,37 @@ static __always_inline __u32 __ffs32(__u32 word)
         );                                              \
 })
 
+#define xdp_assert(expr, name)   \
+({                               \
+        if (unlikely(!(expr)))  {                            \
+                log_error("[xdp assert failed]: unexpected %s", name);                  \
+                goto xdp_error;                                         \
+        };                                              \
+})  
+
+#define xdp_assert_eq(expected, actual, name)   \
+({                               				                                                                                            \
+	typeof(actual) ___act = (actual);				                                                                                    \
+	typeof(expected) ___exp = (expected);				                                                                                    \
+	bool ___ok = ___act == ___exp;					                                                                                    \
+        if (unlikely(!___ok))  {                                                                                                                            \
+                log_error("[xdp assert failed]: unexpected %s: actual %lld != expected %lld\n", name, (long long)___act, (long long)___exp);                  \
+                goto xdp_error;                                                                                                                             \
+        };                                                                                                                                                  \
+}) 
+
+#define min(x, y) ({				\
+	typeof(x) _min1 = (x);			\
+	typeof(y) _min2 = (y);			\
+	(void) (&_min1 == &_min2);		\
+	_min1 < _min2 ? _min1 : _min2; })
+ 
+#define max(x, y) ({				\
+	typeof(x) _max1 = (x);			\
+	typeof(y) _max2 = (y);			\
+	(void) (&_max1 == &_max2);		\
+	_max1 > _max2 ? _max1 : _max2; })
+
 #endif
 
 

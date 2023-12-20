@@ -55,7 +55,7 @@ void test2() {
 		.data_size_in = sizeof(pkt_v4),
 		.data_out = buf,
 		.data_size_out = sizeof(buf),
-		.repeat = 2,
+		.repeat = 100,
 	);
 
         struct sched_cFFS_PIQ * skel = NULL;

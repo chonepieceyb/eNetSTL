@@ -93,7 +93,7 @@ for ((i=0; i<${#IRQS[@]}; i++)); do
     if ! ls /proc/irq/$irq/$IRQ_NAME_FMT* >>/dev/null 2>/dev/null; then
         continue
     fi
-
+numactl -m 0 -N 0 ethtool -G ​$ETHNAME​ rx 512 tx 512
     # Set cpu_list variable to a comma-separated list of CPU IDs
     cpu_list=$(echo "${CPUS[*]}" | tr ' ' ',')
 
