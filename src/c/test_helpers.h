@@ -9,6 +9,8 @@
 #include <linux/in.h>
 #include <bpf/bpf_endian.h>
 #include <stdio.h>
+#include <linux/types.h>
+#include <errno.h>
 
 #define MAGIC_BYTES 123
 
@@ -29,8 +31,8 @@ struct ipv4_packet pkt_v4 = {
 };
 
 static inline void set_prog_flags_test(struct bpf_program* prog) {
-    	u32 flags = bpf_program__flags(prog) | BPF_F_TEST_RND_HI32;
-	bpf_program__set_flags(prog, flags);
+    	__u32 flags = bpf_program__flags(prog) | BPF_F_TEST_RND_HI32;
+		bpf_program__set_flags(prog, flags);
 }
 
 #define CHECK_FAIL(condition) ({					\

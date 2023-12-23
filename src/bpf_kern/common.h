@@ -222,6 +222,18 @@ static __always_inline __u32 __ffs32(__u32 word)
         };                                                                                                                                                  \
 }) 
 
+#define xdp_assert_neq(noexpected, actual, name)   \
+({                               				                                                                                            \
+	typeof(actual) ___act = (actual);				                                                                                    \
+	typeof(noexpected) ___noexp = (noexpected);				                                                                                    \
+	bool ___ok = ___act != ___noexp;					                                                                                    \
+        if (unlikely(!___ok))  {                                                                                                                            \
+                log_error("[xdp assert failed]: unexpected %s: actual %lld == non expected %lld\n", name, (long long)___act, (long long)___noexp);                  \
+                goto xdp_error;                                                                                                                             \
+        };                                                                                                                                                  \
+}) 
+
+
 #define min(x, y) ({				\
 	typeof(x) _min1 = (x);			\
 	typeof(y) _min2 = (y);			\
@@ -233,6 +245,14 @@ static __always_inline __u32 __ffs32(__u32 word)
 	typeof(y) _max2 = (y);			\
 	(void) (&_max1 == &_max2);		\
 	_max1 > _max2 ? _max1 : _max2; })
+
+#define typecheck(type,x) \
+({	type __dummy; \
+	typeof(x) __dummy2; \
+	(void)(&__dummy == &__dummy2); \
+	1; \
+})
+
 
 #endif
 
