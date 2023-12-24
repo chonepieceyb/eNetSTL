@@ -25,8 +25,11 @@ list(REMOVE_ITEM BPF_SRC_LIST ${BLACK_LIST})
 #compile all .o files
 add_library(ebpf_demo OBJECT ${BPF_SRC_LIST})
 
+set(BPF_TOOL "bpftool")
+
 if (EXISTS "${LINUX_PATH}")
     target_include_directories(ebpf_demo PUBLIC "${LINUX_PATH}/tools/lib/bpf")
+    set(BPF_TOOL "${LINUX_PATH}/tools/bpf/bpftool/bpftool")
 else()
     target_include_directories(ebpf_demo PUBLIC "${LIBBPF_PATH}/src")
 endif()
@@ -41,6 +44,7 @@ add_custom_target(bpf_copy ALL
 
 add_custom_target(bpf_skel ALL
     COMMAND "${CMAKE_COMMAND}"
+          -DBPF_TOOL_PATH="${BPF_TOOL}"
           -DTARGET_DEST="${BPF_KERN_TARGETS}"
           -DTARGET_SKEL_HEADER_DIR="${BPF_SKEL_HEADERS}"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/skeleton.cmake"
@@ -52,6 +56,7 @@ add_custom_target(bpf_install
           -DTARGET_DEST="${BPF_KERN_TARGETS}"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/copy_bpf_objs.cmake"
     COMMAND "${CMAKE_COMMAND}"
+          -DBPF_TOOL_PATH="${BPF_TOOL}"
           -DTARGET_DEST="${BPF_KERN_TARGETS}"
           -DTARGET_SKEL_HEADER_DIR="${BPF_SKEL_HEADERS}"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/skeleton.cmake"
