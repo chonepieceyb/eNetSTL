@@ -57,7 +57,6 @@ static __always_inline unsigned long get_current_time() {
         return (unsigned long)bpf_ktime_get_ns() >> 10;
 }
 
-
 static int add_timer_on(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt_map, unsigned long expires) {
 	unsigned long idx = expires - base->clk;
         struct time_wheel_bkt_list *tl; 
@@ -99,6 +98,7 @@ static int add_timer_on(__u32 cpu, struct time_wheel_queue *base, void *timer_bk
 struct __run_timerlist_ctx {
         struct bpf_list_head *head; 
 	struct bpf_spin_lock *lock;
+	struct time_wheel_queue *twq;
 };
 
 
@@ -122,9 +122,9 @@ static int __run_timerlist(u32 index, void *ctx) {
         /*** get the elem ******/
         log_debug("pop elem expires %lu", elem->expires);
         bpf_obj_drop(elem);
+	__ctx->twq->cnt -= 1;
         return 0;
 }
-
 
 static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt_map) {
 
@@ -148,6 +148,7 @@ static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt
                 struct __run_timerlist_ctx ctx;
                 ctx.head = &tl->head;
 		ctx.lock = &tl->lock;
+		ctx.twq = base;
                 res = bpf_loop(base->cnt, &__run_timerlist, &ctx, 0);
                 if (res < 0) {
                         log_error(" failed to run bpf_loop");
