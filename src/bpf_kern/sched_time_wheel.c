@@ -10,13 +10,22 @@ char _license[] SEC("license") = "GPL";
 
 /*TW implementation from linux 2.6.11*/
 
+//#define TVN_BITS 6
+//#define TVR_BITS 8
+
+#if LOG_LEVEL > LOG_LEVEL_DEBUG
+#define TVN_BITS 2
+#define TVR_BITS 2
+#else  
 #define TVN_BITS 6
 #define TVR_BITS 8
+#endif 
+
 #define TVN_SIZE (1 << TVN_BITS)
 #define TVR_SIZE (1 << TVR_BITS)
 #define TVN_MASK (TVN_SIZE - 1)
 #define TVR_MASK (TVR_SIZE - 1)
-#define TIMER_MAX_LOOKS 20
+#define TIMER_MAX_LOOKS 64
 #define CPU_NUM 40
 
 #define time_after(a,b)		\
@@ -32,7 +41,9 @@ char _license[] SEC("license") = "GPL";
 #define time_before_eq(a,b)	time_after_eq(b,a)
 
 
-#define BKT_NUM_PER_CPU (TVR_SIZE)
+/* Two level time wheel*/
+
+#define BKT_NUM_PER_CPU (TVR_SIZE + TVN_SIZE)
 
 /*elem of the time list*/
 struct bpf_time_list {
@@ -51,22 +62,36 @@ struct time_wheel_queue {
         int init;
 };
 
+#if LOG_LEVEL > LOG_LEVEL_DEBUG
+unsigned long current_time_g = 0;
+#endif 
+
 static __always_inline unsigned long get_current_time() {
-        //return (unsigned long)bpf_jiffies64();
-        //current per 1024ns is one tick
-        return (unsigned long)bpf_ktime_get_ns() >> 10;
+#if LOG_LEVEL > LOG_LEVEL_DEBUG
+	return current_time_g;
+#else  
+	//return (unsigned long)bpf_jiffies64();
+        //current per 256ns is one tick
+        return (unsigned long)bpf_ktime_get_ns() >> 9;
+#endif 
 }
 
-static int add_timer_on(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt_map, unsigned long expires) {
+static int add_timer_on(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt_map, struct bpf_time_list *elem) {
+	unsigned long expires = elem->expires;
 	unsigned long idx = expires - base->clk;
         struct time_wheel_bkt_list *tl; 
 	int i, key, res;
 
         if (idx < TVR_SIZE) {
                 i = expires & TVR_MASK;
-        } else {
-                expires = base->clk + (TVR_SIZE - 1);
-                i = expires & TVR_MASK;
+		log_debug("add timer to lv1 index %d", i);
+        } else if (idx < 1 << (TVR_BITS + TVN_BITS)) {
+		i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;      /*index is lv1 + offset in lv2*/
+		log_debug("add timer to lv2 index %d", i);
+	} else {
+		expires = base->clk + (1 << (TVR_BITS + TVN_BITS)) - 1;
+                i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;
+		log_debug("add timer to lv2(max) index %d", i);
         }
 
 	key = cpu * BKT_NUM_PER_CPU + i;
@@ -76,20 +101,13 @@ static int add_timer_on(__u32 cpu, struct time_wheel_queue *base, void *timer_bk
 		return -1;
 	}
 
-	struct bpf_time_list *elem;
-	elem = bpf_obj_new(typeof(*elem));
-	if (elem == NULL) {
-		log_error("failed to bpf_obj_new(elem)");
-		return -2;
-	}
-	elem->expires = expires;
 	bpf_spin_lock(&tl->lock);
 	res = bpf_list_push_back(&tl->head, &elem->node);
 	bpf_spin_unlock(&tl->lock);
 
 	if (res < 0) {
 		log_error("failed to push list back res: %d", res);
-		return res; 
+		return -22; 
 	}
 	base->cnt += 1;
         return 0;
@@ -103,7 +121,7 @@ struct __run_timerlist_ctx {
 
 
 /*impl expires action here*/
-static int __run_timerlist(u32 index, void *ctx) {
+static int __run_timerlist_loop(u32 index, void *ctx) {
         struct __run_timerlist_ctx *__ctx = (struct __run_timerlist_ctx*)ctx;
         struct bpf_list_node *n;
         struct bpf_time_list *elem;
@@ -126,17 +144,98 @@ static int __run_timerlist(u32 index, void *ctx) {
         return 0;
 }
 
+struct __cascade_ctx {
+	struct time_wheel_queue *twq;
+	struct time_wheel_bkt_list *tl; 
+	void *timer_bkt_map;
+	__u32 cpu;
+	int res;
+};
+
+static int __cascade_loop(u32 index, void *ctx) {
+        struct __cascade_ctx *__ctx = (struct __cascade_ctx*)ctx;\
+	struct time_wheel_bkt_list *tl = __ctx->tl;
+	struct time_wheel_queue *twq = __ctx->twq;
+        struct bpf_list_node *n;
+        struct bpf_time_list *elem;
+	int res;
+
+        /* pop node from list*/
+	bpf_spin_lock(&tl->lock);
+        n = bpf_list_pop_front(&tl->head);
+	bpf_spin_unlock(&tl->lock);
+
+        if (n == NULL) {
+                /*skip the loop*/
+                return 1;
+        }
+        elem = container_of(n, struct bpf_time_list, node);
+        
+        /*** get the elem ******/
+	__ctx->twq->cnt -= 1;
+	/*re add to timer*/
+	res = add_timer_on(__ctx->cpu, twq, __ctx->timer_bkt_map, elem);
+	if (res != 0 ) {
+		if (res != -22)
+			bpf_obj_drop(elem);
+		log_error("failed to re add to timer res: %d", res);
+		__ctx->res = res;  /*failed*/
+		return 1;
+	}
+	log_debug("cascade elem to up level, clk %lu", twq->clk);
+	__ctx->twq->cnt += 1;
+        return 0;
+}
+
+static int cascade(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt_map, int idx_off, int idx_base)
+{
+	/* cascade all the timers from tv up one level */
+        struct time_wheel_bkt_list *tl; 
+	int key = cpu * BKT_NUM_PER_CPU + (idx_base + idx_off);
+	int res; 
+	tl = bpf_map_lookup_elem(timer_bkt_map, &key);
+	if (tl == NULL) {
+		log_error("cascade failed to lookup bkt with key %d", key);
+		return -1; 
+	}
+
+	struct __cascade_ctx ctx = {
+		.twq = base,
+		.tl = tl,
+		.timer_bkt_map = timer_bkt_map,
+		.cpu = cpu,
+		.res = 0,
+	};
+	
+	res = bpf_loop(base->cnt, &__cascade_loop, &ctx, 0);
+	if (res < 0 || ctx.res < 0) {
+		log_error(" failed to run bpf_loop, res: %d, ctx res: %d", res, ctx.res);
+		return res; 
+	}
+	return idx_off;
+}
+
+#define INDEX(N) (base->clk >> (TVR_BITS + N * TVN_BITS)) & TVN_MASK
+
 static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt_map) {
 
         unsigned long current_time = get_current_time();
-        int __i, res; 
+        int __i, res, should_warn = true; 
 	log_debug("__run_timer current time %lu", current_time);
         for (__i = 0; __i < TIMER_MAX_LOOKS; __i++) {
                 if (time_before(current_time, base->clk)) {
+			should_warn = false;
                         break;
                 }
                 struct time_wheel_bkt_list *tl;
-                int index = base->clk  & TVR_MASK;  /*current timer bkt idx*/\
+                int index = base->clk  & TVR_MASK;  /*current timer bkt idx*/
+
+		if (!index) {
+			//cascade
+			cascade(cpu, base, timer_bkt_map, INDEX(0), TVR_SIZE);
+		}	
+
+
 		int key = cpu * BKT_NUM_PER_CPU + index; 
 		tl = bpf_map_lookup_elem(timer_bkt_map, &key);
 		if (tl == NULL) {
@@ -149,17 +248,18 @@ static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt
                 ctx.head = &tl->head;
 		ctx.lock = &tl->lock;
 		ctx.twq = base;
-                res = bpf_loop(base->cnt, &__run_timerlist, &ctx, 0);
+                res = bpf_loop(base->cnt, &__run_timerlist_loop, &ctx, 0);
                 if (res < 0) {
                         log_error(" failed to run bpf_loop");
                         return res; 
                 }
 		base->clk += 1;
-                log_debug("bpf_loop clk index %d run %d times", index, res);
+                log_debug("__run_timer plus 1 tick: bpf_loop clk index %d run %d times", index, res);
         }
+	if (should_warn) 
+		log_warn("time wheel faild to catch up ticks: current time %lu, clk: %lu", current_time, base->clk);
         return 0;
 }
-
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -178,6 +278,7 @@ struct {
 SEC("tc")
 int test_timewheel(void *ctx)
 {
+	__u64 begin_time = bpf_ktime_get_ns();
 	int key = 0, res;
 	__u32 cpu = bpf_get_smp_processor_id();
 	unsigned long ct = get_current_time();
@@ -185,21 +286,68 @@ int test_timewheel(void *ctx)
 	tq = bpf_map_lookup_elem(&time_wheel_map, &key);
 	xdp_assert_neq(NULL, tq, "failed to lookup time_wheel_map");
 
-	if (!tq->init) {
-		log_debug("init current time %lu", ct);
-		tq->cnt = 0;
-		tq->clk = ct;
-		tq->init = 1;
-	}
+	log_debug("init current time %lu", ct);
+	tq->cnt = 0;
+	tq->clk = ct;
+	tq->init = 1;
 
-	unsigned long expires = ct + 3;
-	res = add_timer_on(cpu, tq, &time_wheel_bkt_map, expires);
-	xdp_assert_eq(0, res, "failed add timer");
+	struct bpf_time_list *elem;
+	elem = bpf_obj_new(typeof(*elem));
+	xdp_assert_neq(NULL, elem, "elem = bpf_obj_new() failed ");
+
+	elem->expires = ct + 2;
 	
-	log_info("wait timer...");
+	res = add_timer_on(cpu, tq, &time_wheel_bkt_map, elem);
+	if (res != 0 && res != -22) {
+		bpf_obj_drop(elem);
+	}
+	xdp_assert_eq(0, res, "failed add timer");
 
 	res = __run_timer(cpu, tq, &time_wheel_bkt_map);
 	xdp_assert_eq(0, res, "failed run timer");
+	log_debug("current clk  %lu", tq->clk);
+	__u64 end_time = bpf_ktime_get_ns();
+	log_info("init clk: %lu, curr clk: %lu, test1 cost %lu", ct, tq->clk, end_time - begin_time);
+	return 0;
+
+xdp_error:;
+	return 1;
+}
+
+SEC("tc")
+int test_timewheel2(void *ctx)
+{
+	int key = 0, res;
+	__u32 cpu = bpf_get_smp_processor_id();
+	unsigned long ct = get_current_time();
+	struct time_wheel_queue *tq;
+	tq = bpf_map_lookup_elem(&time_wheel_map, &key);
+	xdp_assert_neq(NULL, tq, "failed to lookup time_wheel_map");
+
+	log_debug("init current time %lu", ct);
+	tq->cnt = 0;
+	tq->clk = ct;
+	tq->init = 1;
+
+	struct bpf_time_list *elem;
+	elem = bpf_obj_new(typeof(*elem));
+	xdp_assert_neq(NULL, elem, "elem = bpf_obj_new() failed ");
+
+	elem->expires = ct + 4;
+	
+	res = add_timer_on(cpu, tq, &time_wheel_bkt_map, elem);
+	if (res != 0 && res != -22) {
+		bpf_obj_drop(elem);
+	}
+	xdp_assert_eq(0, res, "failed add timer");
+	
+	#if LOG_LEVEL > LOG_LEVEL_DEBUG
+		current_time_g += 4;
+	#endif 
+
+	res = __run_timer(cpu, tq, &time_wheel_bkt_map);
+	xdp_assert_eq(0, res, "failed run timer");
+	log_debug("current clk  %lu", tq->clk);
 	return 0;
 
 xdp_error:;
