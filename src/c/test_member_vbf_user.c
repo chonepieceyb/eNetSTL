@@ -6,7 +6,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "bpf_skel/static_member_vbf.skel.h"
+#include "bpf_skel/member_vbf.skel.h"
 #include <net/if.h>
 #include <linux/if_link.h>
 #include <math.h>
@@ -82,10 +82,10 @@ void vbf_test() {
 	.repeat = 1,
 	);
 
-	struct static_member_vbf * skel = NULL;
+	struct member_vbf * skel = NULL;
 	struct bpf_program *prog;
 	int res = 0, prog_fd;
-	skel = static_member_vbf__open();
+	skel = member_vbf__open();
 	if (skel == NULL) {
 		fprintf(stdout, "faild to open and load hw_demo\n");
 		return; 
@@ -148,7 +148,7 @@ void vbf_test() {
 
 	prog = skel->progs.test_vbf;
 	set_prog_flags_test(prog);
-	res = static_member_vbf__load(skel);
+	res = member_vbf__load(skel);
 	if (CHECK_FAIL(res)) {
 		goto clean;
 	}
@@ -157,7 +157,7 @@ void vbf_test() {
 	res = bpf_prog_test_run_opts(prog_fd, &topts);
 
 clean:;
-	static_member_vbf__destroy(skel);
+	member_vbf__destroy(skel);
 	return;
 }
 

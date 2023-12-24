@@ -112,13 +112,9 @@ test_bit(__u32 bit_loc)
 inline void
 set_bit(__u32 bit_loc, __s32 set)
 {
-
 	__u32 a = 32 >> MUL_SHIFT;
 	__u32 key = 0;
 	key = bit_loc >> DIV_SHIFT;
-	// log_info("setbit() key: %x\n", key);
-	// log_info("setbit() bit_loc: %x\n", bit_loc);
-	// log_info("setbit() DIV_SHIFT: %x\n", DIV_SHIFT);
 	__u32 *value = bpf_map_lookup_elem(&map, &key);
 	__u32 value_new;
 	if (value == NULL) {
@@ -128,128 +124,74 @@ set_bit(__u32 bit_loc, __s32 set)
 		value_new = *value;
 	}
 	value_new |= 1UL << (((bit_loc & (a - 1)) << MUL_SHIFT) + set - 1);
-	// log_info("setbit() value_new: %u\n", value_new);
 	bpf_map_update_elem(&map, &key, &value_new, BPF_ANY);
-	// log_info("setbit() update key: %x\n", key);
 }
 
 /* vBF API implementation */
-// int
-// member_lookup_vbf(__u32 *key, __u32 key_len, __s32 *set_id)
-// {
-// 	__u32 j;
-// 	if (key == NULL || set_id == NULL) {
-// 		return 0;
-// 	}
-// 	__u32 h1 = jhash(key, key_len, HASH_SEED_1);
-// 	__u32 h2 = jhash(key, key_len, HASH_SEED_2);
-// 	// __u32 h1 = *key;
-// 	// __u32 h2 = *key;
-// 	// log_info("key_len: %u\n", key_len);
-// 	// log_info("key: %u\n", key);
-// 	__u32 mask = ~0;
-// 	__u32 bit_loc;
+static __always_inline int
+member_lookup_vbf(__u32 *key, __u32 key_len, __s32 *set_id)
+{
+	__u32 j;
+	if (key == NULL || set_id == NULL) {
+		return 0;
+	}
+	__u32 h1 = jhash(key, key_len, HASH_SEED_1);
+	__u32 h2 = jhash(&h1, key_len, HASH_SEED_2);
+	__u32 mask = ~0;
+	__u32 bit_loc;
 
-// 	for (j = 0; j < NUM_HASHES; j++) {
-// 		bit_loc = (h1 + j * h2) & BIT_MASK;
-// 		mask &= test_bit(bit_loc);
-// 	}
+	for (j = 0; j < NUM_HASHES; j++) {
+		bit_loc = (h1 + j * h2) & BIT_MASK;
+		mask &= test_bit(bit_loc);
+	}
 
-// 	if (mask) {
-// 		*set_id = ctz32(mask) + 1;
-// 		log_info("key founded, set_id: %d\n", *set_id);
-// 		return 1;
-// 	}
+	if (mask) {
+		*set_id = ctz32(mask) + 1;
+		log_info("key %d founded, set_id: %d\n", key, set_id);
+		return 1;
+	} else {
+		*set_id = MEMBER_NO_MATCH;
+		log_info("key %d not founded, set_id: %d\n", key, set_id);
+		return 0;
+	}
+}
 
-// 	*set_id = MEMBER_NO_MATCH;
-// 	return 0;
-// }
+static __always_inline int
+member_add_vbf(__u32 *key, __u32 key_len, __s32 set_id)
+{
+	__u32 i, h1, h2;
+	__u32 bit_loc;
 
-// int
-// member_add_vbf(__u32 *key, __u32 key_len, __s32 set_id)
-// {
-// 	__u32 i, h1, h2;
-// 	__u32 bit_loc;
+	if (set_id > NUM_SET || set_id == MEMBER_NO_MATCH)
+		return -1;
 
-// 	if (set_id > NUM_SET || set_id == MEMBER_NO_MATCH)
-// 		return -1;
+	h1 = jhash(key, key_len, HASH_SEED_1);
+	h2 = jhash(&h1, sizeof(__u32), HASH_SEED_2);
 
-// 	h1 = jhash(key, key_len, HASH_SEED_1);
-// 	h2 = jhash(&h1, sizeof(__u32), HASH_SEED_2);
-
-// 	for (i = 0; i < NUM_HASHES; i++) {
-// 		bit_loc = (h1 + i * h2) & BIT_MASK;
-// 		set_bit(bit_loc, set_id);
-// 	}
-// 	return 0;
-// }
+	for (i = 0; i < NUM_HASHES; i++) {
+		bit_loc = (h1 + i * h2) & BIT_MASK;
+		set_bit(bit_loc, set_id);
+	}
+	return 0;
+}
 
 /* test program */
 SEC("xdp")
 int test_vbf(struct xdp_md *ctx) {
-
-	// __u32 v1 = 123;
-	// __u32 v2 = 456;
-	// __u32 hash_vaule1 = jhash(&v1, sizeof(v1), 0xdeadbeef);
-	// __u32 hash_vaule2 = jhash(&v2, sizeof(v1), 0xdeadbeef);
-	// log_info("hash_vaule1: %u\n", hash_vaule1);
-	// log_info("hash_vaule2: %u\n", hash_vaule2);
-	// hash_vaule1 = jhash(&v1, sizeof(v1), 0xaaaabbbb);
-	// hash_vaule2 = jhash(&v2, sizeof(v2), 0xaaaabbbb);
-	// log_info("after hash_vaule1: %u\n", hash_vaule1);
-	// log_info("after hash_vaule2: %u\n", hash_vaule2);
 
 	__s32 set_id = 1;
 	__u32 key_len = sizeof(__u32);
 	__u32 i, j, h1, h2;
 	__u32 bit_loc;
 	__u32 mask;
-	// member_add_vbf(&key, sizeof(key), set_id);
-	// member_lookup_vbf( &key, sizeof(key), &set_id);
 
-/* member_add_vbf implementation */
-	// __u32 i, h1, h2;
-	// __u32 bit_loc;
-
-	// if (set_id > NUM_SET || set_id == MEMBER_NO_MATCH)
-	// 	return -1;
-
-	// h1 = jhash(&key, key_len, HASH_SEED_1);
-	// h2 = jhash(&h1, sizeof(h1), HASH_SEED_2);
-
-	// for (i = 0; i < NUM_HASHES; i++) {
-	// 	bit_loc = (h1 + i * h2) & BIT_MASK;
-	// 	set_bit(bit_loc, set_id);
-	// }
-
-/* member_lookup_vbf implementation */
-	// __u32 j;
-	// h1 = jhash(&key, key_len, HASH_SEED_1);
-	// h2 = jhash(&h1, sizeof(h1), HASH_SEED_2);
-	// __u32 mask = ~0;
-	// bit_loc;
-
-	// for (j = 0; j < NUM_HASHES; j++) {
-	// 	bit_loc = (h1 + j * h2) & BIT_MASK;
-	// 	mask &= test_bit(bit_loc);
-	// }
-
-	// if (mask) {
-	// 	set_id = ctz32(mask) + 1;
-	// 	log_info("key founded, set_id: %d\n", set_id);
-	// 	return 1;
-	// }
-
-	// set_id = MEMBER_NO_MATCH;
-	// log_info("set_id: %d\n", set_id);
-
-
-
-	for (int k = 0; k < 10; k += 2) {
+	for (int k = 10; k < 20; k += 2) {
 		MEMBER_ADD_VBF(k, key_len, set_id)
+		// member_add_vbf(&i, key_len, set_id);
 	}
-	for (int k = 0; k < 10; k++) {
-		MEMBER_LOOKUP_VBF(k, key_len, set_id)
+	for (int v = 10; v < 20; v++) {
+		MEMBER_LOOKUP_VBF(v, key_len, set_id)
+		// member_lookup_vbf(&v, key_len, &set_id);
 	}
 	return XDP_PASS;
 }
