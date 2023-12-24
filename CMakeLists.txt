@@ -29,6 +29,9 @@ endif()
 set(USE_CMAP OFF CACHE BOOL "should compile cmap")
 message(STATUS "USE_CMAP: ${USE_CMAP}")
 
+set(USE_EXP ON CACHE BOOL "should compile experimental")
+message(STATUS "USE_EXP: ${USE_EXP}")
+
 set(LOG_LEVEL 2 CACHE STRING "should compile cmap")
 add_compile_definitions(LOG_LEVEL=${LOG_LEVEL})
 message(STATUS "LOG_LEVEL: ${LOG_LEVEL}")
