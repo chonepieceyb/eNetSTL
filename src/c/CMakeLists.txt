@@ -67,5 +67,5 @@ foreach(TF ${TARGET_LIST})
 endforeach()
 
 set(CMAKE_C_FLAGS
-    "${CMAKE_C_FLAGS} -O2"
+    "${CMAKE_C_FLAGS} -O2 -lm"
 )
