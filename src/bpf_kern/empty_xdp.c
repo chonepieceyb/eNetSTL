@@ -1,5 +1,4 @@
 #include "common.h"
-#include "vmlinux.h"
 
 char _license[] SEC("license") = "GPL";
 

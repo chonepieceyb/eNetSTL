@@ -1,5 +1,4 @@
 #include "common.h"
-#include "vmlinux.h"
 
 char _license[] SEC("license") = "GPL";
 
@@ -326,7 +325,6 @@ struct {
 	__type(value, struct cffs_piq);  
 	__uint(max_entries, 1);
 } cffs_piq_map SEC(".maps");
-
 
 
 SEC("xdp")
