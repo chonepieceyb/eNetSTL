@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 
 project(ebpf_demo_user VERSION 1.0)
 
+set(EXP_LIST "${C_FILES}/test_linked_list_user.c;${C_FILES}/test_time_wheel_user.c")
+
 set(EXECUTABLE_OUTPUT_PATH "${BIN_TARGETS}")
 
 if (EXISTS "${LINUX_PATH}")
@@ -23,6 +25,11 @@ if(${USE_CMAP} AND EXISTS "${LINUX_PATH}")
     set(SRC_LIST "${SRC_LIST};${CMAP_SRC_LIST}")
     set(BLACK_LIST "${SRC_LIST};${CMAP_BLACK_LIST}")
     set(TARGET_LIST "${TARGET_LIST};${CMAP_TARGET_LIST}")
+endif()
+
+if (NOT ${USE_EXP})
+    list(REMOVE_ITEM TARGET_LIST ${EXP_LIST})
+    list(REMOVE_ITEM SRC_LIST ${EXP_LIST})
 endif()
 
 list(REMOVE_ITEM SRC_LIST ${TARGET_LIST})
