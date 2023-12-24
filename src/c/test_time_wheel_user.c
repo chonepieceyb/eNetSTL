@@ -30,7 +30,7 @@ void test1() {
                 fprintf(stdout, "faild to open and load hw_demo\n");
                 return; 
         }
-        prog = skel->progs.map_list_push_pop;
+        prog = skel->progs.test_timewheel;
         set_prog_flags_test(prog);
         res = sched_time_wheel__load(skel);
         if (CHECK_FAIL(res)) {
