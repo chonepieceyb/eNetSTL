@@ -9,6 +9,7 @@ set(CMAKE_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/install")
 set(BIN_TARGETS "${PROJECT_SOURCE_DIR}/bin")
 set(LINUX_PATH "${PROJECT_SOURCE_DIR}/linux/")
 set(LIBBPF_PATH "${PROJECT_SOURCE_DIR}/deps/libbpf")
+set(BPF_TOOL_PATH "${PROJECT_SOURCE_DIR}/deps/bpftool")
 
 #some custom vars 
 

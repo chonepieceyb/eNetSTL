@@ -29,6 +29,7 @@ if [ -d "./linux" ]; then
     popd > /dev/null
 else
     echo -e "${COLOR_GREEN} [INFO] using libbpf $LIBBPF_TAG from https://github.com/libbpf/libbpf.git${COLOR_OFF}"
+    echo -e "${COLOR_GREEN} [INFO] using bpftool $LIBBPF_TAG from https://github.com/libbpf/bpftool.git${COLOR_OFF}"
     echo -e "${COLOR_GREEN} [INFO] you may also using libbpf from linux source tree by create soft link of linux source code in ./linux${COLOR_OFF}"
     echo -e "${COLOR_GREEN} [INFO] builing ./deps/libbpf/${COLOR_OFF}"
     pushd "./deps/libbpf/" > /dev/null
@@ -51,18 +52,23 @@ else
     export all_proxy=$__all_proxy
 
     popd > /dev/null
-    set +e
-    dpkg --list | grep linux-tools-$(uname -r)
-    if (( $? != 0 )); then 
-        echo -e "${COLOR_GREEN} [INFO] try to install linux-tools-$(uname -r)${COLOR_OFF}"
-        set -e
-        sudo apt-get install linux-tools-$(uname -r)
-    else 
-        echo -e "${COLOR_GREEN} [INFO] found linux-tools-$(uname -r)${COLOR_OFF}"
-        set -e 
-    fi     
+    # set +e
+    # dpkg --list | grep linux-tools-$(uname -r)
+    # if (( $? != 0 )); then 
+    #     echo -e "${COLOR_GREEN} [INFO] try to install linux-tools-$(uname -r)${COLOR_OFF}"
+    #     set -e
+    #     sudo apt-get install linux-tools-$(uname -r)
+    # else 
+    #     echo -e "${COLOR_GREEN} [INFO] found linux-tools-$(uname -r)${COLOR_OFF}"
+    #     set -e 
+    # fi     
+    pushd "./deps/bpftool" > /dev/null
+    git submodule update --init 
+    cd src
+    make -j $cpu 
+    popd > /dev/null
 fi 
-echo -e "${COLOR_GREEN} [INFO] installing libbpf finish ${COLOR_OFF}"
+echo -e "${COLOR_GREEN} [INFO] installing libbpf bpftool finish ${COLOR_OFF}"
 
 #install bcc
 echo -e "${COLOR_GREEN} [INFO] installing bcc $BCC_TAG. .. ${COLOR_OFF}"
