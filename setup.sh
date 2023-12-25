@@ -50,7 +50,8 @@ else
     export http_proxy=$__http_proxy
     export https_proxy=$__https_proxy
     export all_proxy=$__all_proxy
-
+    sudo make install 
+    
     popd > /dev/null
     # set +e
     # dpkg --list | grep linux-tools-$(uname -r)
