@@ -11,7 +11,6 @@
 
 #include "test_helpers.h"
 
-
 void test1() {
         char buf[128];                  //store the output packet 
         LIBBPF_OPTS(bpf_test_run_opts, topts,
