@@ -1,14 +1,14 @@
-OBJ_NAME := bpf_custom_map_demo
+OBJ_NAME := empty_scmap
 
 obj-m := ${OBJ_NAME}.o
 #lkm_example-y := x.o
 
 #KDIR ?= /home/chonepieceyb/CODING/Src/linux-6.0
-#KDIR ?= /lib/modules/$(shell uname -r)/build
-KDIR ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
+KDIR ?= /lib/modules/$(shell uname -r)/build
+
 
 default:
-	make -C $(KDIR) M=$(PWD) modules
+	bear -- make -C $(KDIR) M=$(PWD) modules
 clean:
 	make -C $(KDIR) M=$(PWD) clean
 test:

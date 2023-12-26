@@ -9,6 +9,7 @@ set(CMAKE_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/install")
 set(BIN_TARGETS "${PROJECT_SOURCE_DIR}/bin")
 set(LINUX_PATH "${PROJECT_SOURCE_DIR}/linux/")
 set(LIBBPF_PATH "${PROJECT_SOURCE_DIR}/deps/libbpf")
+set(BPF_TOOL_PATH "${PROJECT_SOURCE_DIR}/deps/bpftool")
 
 #some custom vars 
 
@@ -34,6 +35,10 @@ message(STATUS "USE_EXP: ${USE_EXP}")
 
 set(LOG_LEVEL 2 CACHE STRING "should compile cmap")
 add_compile_definitions(LOG_LEVEL=${LOG_LEVEL})
+
+set(USE_STATIC OFF CACHE BOOL "should compile with static library")
+message(STATUS "USE_STATIC: ${USE_STATIC}")
+
 message(STATUS "LOG_LEVEL: ${LOG_LEVEL}")
 
 add_subdirectory("${BPF_KERN_SRC_FILES}")

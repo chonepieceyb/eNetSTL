@@ -12,7 +12,7 @@ static void *demo_alloc(union bpf_attr *attr)
 {
 	//demo alloc we just alloc char[hello world]
 	void *map_data; 
-	map_data = kmalloc(roundup(strlen(hello_world) + 1, 8), GFP_KERNEL);
+	map_data = kmalloc(64, GFP_KERNEL);
         strcpy(map_data, hello_world);
 	return map_data;
 }
@@ -25,10 +25,16 @@ static void *demo_lookup_elem(void *map, void *key) {
 	return map;
 }
 
+static u64 demo_mem_usage(const void  *map) 
+{
+	return 64;
+}
+
 static struct bpf_custom_map_ops cmap_ops = {
 	.cmap_alloc = demo_alloc,
 	.cmap_free = demo_free,
 	.cmap_lookup_elem = demo_lookup_elem,
+	.cmap_mem_usage = demo_mem_usage,
 	.name = "custom_map_demo",
 	.owner = THIS_MODULE,
 };

@@ -25,13 +25,12 @@ list(REMOVE_ITEM BPF_SRC_LIST ${BLACK_LIST})
 #compile all .o files
 add_library(ebpf_demo OBJECT ${BPF_SRC_LIST})
 
-set(BPF_TOOL "bpftool")
-
 if (EXISTS "${LINUX_PATH}")
     target_include_directories(ebpf_demo PUBLIC "${LINUX_PATH}/tools/lib/bpf")
     set(BPF_TOOL "${LINUX_PATH}/tools/bpf/bpftool/bpftool")
 else()
     target_include_directories(ebpf_demo PUBLIC "${LIBBPF_PATH}/src")
+    set(BPF_TOOL "${BPF_TOOL_PATH}/src/bpftool")
 endif()
 
 #install(FILES $<TARGET_OBJECTS:ebpf_demo> DESTINATION "${BPF_KERN_TARGETS}")

@@ -401,7 +401,6 @@ xdp_error:;
         return XDP_DROP;
 }
 
-
 SEC("xdp")
 int test_hffs2(struct xdp_md *ctx) {
         int key = 0, res;
