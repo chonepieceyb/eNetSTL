@@ -274,7 +274,7 @@ struct {
 	__uint(max_entries, CPU_NUM * BKT_NUM_PER_CPU);
 } time_wheel_bkt_map SEC(".maps");
 
-SEC("tc")
+SEC("xdp")
 int test_timewheel(void *ctx)
 {
 	__u64 begin_time = bpf_ktime_get_ns();

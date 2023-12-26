@@ -4,6 +4,8 @@
 #include <linux/bpf.h>
 #include <linux/bpf_custom_map.h>
 #include <linux/module.h> 
+#include <linux/vmalloc.h>
+#include <linux/slab.h>
 
 /**********************************************************
  * ************COMMON PARTS********************************

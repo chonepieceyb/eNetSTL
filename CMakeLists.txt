@@ -35,6 +35,10 @@ message(STATUS "USE_EXP: ${USE_EXP}")
 
 set(LOG_LEVEL 2 CACHE STRING "should compile cmap")
 add_compile_definitions(LOG_LEVEL=${LOG_LEVEL})
+
+set(USE_STATIC OFF CACHE BOOL "should compile with static library")
+message(STATUS "USE_STATIC: ${USE_STATIC}")
+
 message(STATUS "LOG_LEVEL: ${LOG_LEVEL}")
 
 add_subdirectory("${BPF_KERN_SRC_FILES}")

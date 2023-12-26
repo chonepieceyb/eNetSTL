@@ -10,7 +10,7 @@
 #include <linux/if_link.h>
 
 #define IF_NAME "eno2"
-#define CMAP_ID 101
+#define CMAP_ID 100
 
 int main() {
         struct cmap_demo * skel = NULL;

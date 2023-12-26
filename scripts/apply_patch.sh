@@ -14,7 +14,17 @@ patches=$(ls $PATCH_PATH)
 
 cd $PROJECT_DIR$LINUX
 
-for p in $patches
-do
-    patch -p1 < $PATCH_PATH$p
-done
+set -e
+
+if (( $# == 2 ))
+then
+    pushd $PATCH_PATH > /dev/null 
+    p=$(ls | grep -e "^${2}")
+    echo $PATCH_PATH$p
+else
+    for p in $patches
+    do
+        echo $PATCH_PATH$p
+        patch -p1 < $PATCH_PATH$p
+    done
+fi
