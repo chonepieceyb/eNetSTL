@@ -103,28 +103,28 @@ static __always_inline __bitmap_type hpiq_front_idx_lvl_3__##_name(struct hpiq__
 static __always_inline __bitmap_type hpiq_front_idx_lvl_4__##_name(struct hpiq__##_name *hpiq)    \
 {                                                                                                   \
         hpiq_cal_idx_lvl(3, _name, __bitmap_type)                                               \
-        return  (__idx1 << HBITMAP_LEVEL_3_SHIFT) + (__idx2 << HBITMAP_LEVEL_2) + (__idx3 << HBITMAP_LEVEL_1) + __ffs(hpiq->bitmap_lvl_4[__idx3]);        \
+        return  (__idx1 << HBITMAP_LEVEL_3_SHIFT) + (__idx2 << HBITMAP_LEVEL_2_SHIFT) + (__idx3 << HBITMAP_LEVEL_1_SHIFT) + __ffs(hpiq->bitmap_lvl_4[__idx3]);        \
 } 
 #define hpiq_front_idx_lvl(level, _name, __bitmap_type) hpiq_front_idx_lvl_##level(_name, __bitmap_type)
 
 #define hpiq_get_idx_offset_lvl_1(__bitmap_type, bucket)                           \
         __bitmap_type __tmp = (__bitmap_type)(bucket);                                           \
-        __bitmap_type __off1 = __tmp;          
+        __bitmap_type __off1 =  BOUND_INDEX(__tmp, PER_LONG_BITS_SHIFT);          
 
 #define hpiq_get_idx_offset_lvl_2(__bitmap_type, bucket)      \
         hpiq_get_idx_offset_lvl_1(__bitmap_type, bucket)                          \
         __tmp = (__tmp >> PER_LONG_BITS_SHIFT);                                             \
-        __bitmap_type __off2 =  __tmp;
+        __bitmap_type __off2 =  BOUND_INDEX(__tmp, PER_LONG_BITS_SHIFT);
 
 #define hpiq_get_idx_offset_lvl_3( __bitmap_type, bucket)      \
         hpiq_get_idx_offset_lvl_2(__bitmap_type, bucket)                          \
         __tmp = (__tmp >> PER_LONG_BITS_SHIFT);                                             \
-        __bitmap_type __off3 =  __tmp;
+        __bitmap_type __off3 =  BOUND_INDEX(__tmp, PER_LONG_BITS_SHIFT);
 
 #define hpiq_get_idx_offset_lvl_4(__bitmap_type, bucket)      \
         hpiq_get_idx_offset_lvl_3(__bitmap_type, bucket)                          \
         __tmp = (___tmp >> PER_LONG_BITS_SHIFT);                                             \
-        __bitmap_type __off4 = __tmp;
+        __bitmap_type __off4 =  BOUND_INDEX(__tmp, PER_LONG_BITS_SHIFT);
 
 #define hpiq_get_idx_offset_lvl(level, __bitmap_type, bucke) hpiq_get_idx_offset_lvl_##level(__bitmap_type, bucket)
 
@@ -259,7 +259,7 @@ struct __cffs_value_type {
 int cffs_piq_alloc_check(union bpf_attr *attr) {
 	if (attr->key_size != sizeof(struct __cffs_key_type) 
                 || attr->value_size != sizeof(struct __cffs_value_type)
-                || attr->max_entries != BUCKET_NUM ) {
+                || attr->max_entries != BUCKET_NUM) {
                 return -EINVAL;
         }
         return 0;
@@ -369,6 +369,7 @@ static long cffs_piq_update_elem(struct bpf_map *map, void *key, void *value, u6
         __bktnum = bktnum - (!(use_prime)) * BUCKET_NUM;
         __bkt_idx = idx * BUCKET_NUM + __bktnum;
 
+        pr_debug("prio :%u", prio);
         pr_debug("bktnum : %u", bktnum);
         pr_debug("__bucket_num: %u", __bktnum);
         pr_debug("hindex: %u", cffs->h_index);
@@ -390,15 +391,6 @@ static long cffs_piq_update_elem(struct bpf_map *map, void *key, void *value, u6
         memcpy(prod, __value, sizeof(*prod));
         pkt_bkt__simple_rbuf_submit(pktbuf);
         return 0;
-}
-
-static __inline void cffs_dequeue(struct cffs_piq *cffs, struct simple_rbuf__pkt_bkt * bucket_buffer, __u32 bktnum)
-{
-        /*bktnum is the retparam of cffs_first_bkt it should come from the primary hffs and should not be empty 
-        * 1. unset hffs 
-        * 2. consume ringbuffer 
-        */
-
 }
 
 static long cffs_piq_pop_elem(struct bpf_map *map, void *value) 
@@ -429,6 +421,7 @@ static long cffs_piq_pop_elem(struct bpf_map *map, void *value)
         pr_debug("cffs_first_bkt: current prime: %d", cffs->prime);
         __bktnum  =(__u32)hpiq_front_idx__cffs(phpiq);
         pr_debug("cffs_first_bkt: front bkt %u", __bktnum);
+        
         bkt_idx = (u32)cffs->prime * BUCKET_NUM + (int)(__bktnum);
         
         pktbuf = this_cpu_ptr(cmap->bkts[bkt_idx]);

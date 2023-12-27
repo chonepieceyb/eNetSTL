@@ -99,7 +99,7 @@ static __always_inline __bitmap_type hpiq_front_idx_lvl_3__##_name(struct hpiq__
 static __always_inline __bitmap_type hpiq_front_idx_lvl_4__##_name(struct hpiq__##_name *hpiq)    \
 {                                                                                                   \
         hpiq_cal_idx_lvl(3, _name, __bitmap_type)                                               \
-        return  (__idx1 << HBITMAP_LEVEL_3_SHIFT) + (__idx2 << HBITMAP_LEVEL_2) + (__idx3 << HBITMAP_LEVEL_1) + __ffs(hpiq->bitmap_lvl_4[__idx3]);        \
+        return  (__idx1 << HBITMAP_LEVEL_3_SHIFT) + (__idx2 << HBITMAP_LEVEL_2_SHIFT) + (__idx3 << HBITMAP_LEVEL_1_SHIFT) + __ffs(hpiq->bitmap_lvl_4[__idx3]);        \
 } 
 #define hpiq_front_idx_lvl(level, _name, __bitmap_type) hpiq_front_idx_lvl_##level(_name, __bitmap_type)
 
