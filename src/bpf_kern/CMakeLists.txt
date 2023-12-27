@@ -16,6 +16,13 @@ if(${USE_CMAP} AND EXISTS "${LINUX_PATH}")
     set(BLACK_LIST "${BLACK_LIST};${BLACK_LIST_CMAP}")
 endif()
 
+if(${USE_HYPERCOM} AND EXISTS "${LINUX_PATH}")
+    aux_source_directory("${BPF_KERN_SRC_FILES}/hypercom" BPF_SRC_LIST_HC)
+    file(GLOB BLACK_LIST_HC "${BPF_KERN_SRC_FILES}/hypercom/*.black")
+    set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_HC}")
+    set(BLACK_LIST "${BLACK_LIST};${BLACK_LIST_HC}")
+endif()
+
 if (NOT ${USE_EXP})
     list(REMOVE_ITEM BPF_SRC_LIST ${EXP_LIST})
 endif()

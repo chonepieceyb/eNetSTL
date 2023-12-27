@@ -1,12 +1,18 @@
-#include "common.h"
-#include "sched_hpiq.h"
-#include "simple_ringbuf.h"
+#include "../common.h"
+#include "../sched_hpiq.h"
+#include "../simple_ringbuf.h"
 
 char _license[] SEC("license") = "GPL";
 
 /***********************************************
 *********************PKTBKT PERCPU**************
 ************************************************/
+
+extern __u64 bpf_ffs(__u64 val) __ksym;
+
+
+#undef __ffs
+#define __ffs bpf_ffs
 
 struct __packet_type {
         __u64 data; 
@@ -124,81 +130,7 @@ struct {
 
 
 SEC("xdp")
-int test_hffs1(struct xdp_md *ctx) {
-        //test insert 
-        int key = 0, res;
-        struct cffs_piq *cffs;
-        struct simple_rbuf__pkt_bkt *pktbuf;
-        struct simple_rbuf__pkt_bkt *pktbuf2;
-        cffs = bpf_map_lookup_elem(&cffs_piq_map, &key);
-        if (cffs == NULL) {
-                log_error("failed to get cffs map");
-                goto xdp_error;
-        }
-        __u32 prio = bpf_get_prandom_u32() % BUCKET_NUM;
-        struct __packet_type pkt = {
-                .data = (__u64)prio
-        };
-        log_debug("test insert prio %u", prio);
-        res = cffs_enqueue(cffs, (void*)&pkt_buf_percpu_map, prio, &pkt);
-        log_debug("cffs_enqueue res %d", res);
-        xdp_assert_eq(0, res, "cffs enqueue failed");
-        log_info("test1 success");
-
-        //get the pkt right now
-        __u32 bktnum = 0;
-        pktbuf = cffs_first_bkt(cffs, (void*)&pkt_buf_percpu_map, &bktnum);
-        log_debug("cffs_first_bkt, bktnum: %u", bktnum);
-        xdp_assert_eq(0, cffs->h_index, "cffs_first_bkt hindex is not correct");
-        xdp_assert((pktbuf != NULL), "cffs_first_bkt return NULL");
-
-        //get ringbuffer 
-        struct __packet_type *__pkt;
-        __pkt = pkt_bkt__simple_rbuf_cons(pktbuf);
-        xdp_assert((__pkt != NULL), "cffs first bucket ringbuffer is empty");
-        xdp_assert_eq(pkt.data, __pkt->data, "pkt is not the same");
-        log_debug("cffs_first_bkt, hindex: %u", cffs->h_index);
-        log_info("test2 success");
-
-        //update the second prio in [BUCKET_NUM, 2*BUCKET_NUM)
-        __u32 prio2 = (bpf_get_prandom_u32() % BUCKET_NUM) + BUCKET_NUM;
-        struct __packet_type pkt2 = {
-                .data = (__u64)prio2
-        };
-        res = cffs_enqueue(cffs, (void*)&pkt_buf_percpu_map, prio2, &pkt2);
-        xdp_assert_eq(0, res, "cffs enqueue2 fail");
-        log_info("test3 success");
-
-        //dequeue the first one 
-        cffs_dequeue(cffs, pktbuf, bktnum);
-        xdp_assert((pkt_bkt__simple_rbuf_empty(pktbuf)), "ring buffer not empty");
-        xdp_assert_eq(1, cffs->prime, "prime not switch");
-        log_info("test4 success");
-
-        //lookup the current front 
-        //get the pkt right now
-        __u32 bktnum2 = 0;
-        pktbuf2 = cffs_first_bkt(cffs, (void*)&pkt_buf_percpu_map, &bktnum2);
-        log_debug("cffs_first_bkt2, bktnum2: %u", bktnum2);
-        log_debug("cffs_first_bkt2, hindex: %u", cffs->h_index);
-        xdp_assert_eq(1, cffs->prime, "prime is not correct");
-        xdp_assert_eq(BUCKET_NUM, cffs->h_index, "hindex is not correct");
-        xdp_assert((pktbuf2 != NULL), "cffs_first_bkt2 return NULL");
-        xdp_assert_eq((prio2 - BUCKET_NUM), bktnum2, "prio2 not correct");  
-        struct __packet_type *__pkt2;
-        __pkt2 = pkt_bkt__simple_rbuf_cons(pktbuf2);
-        xdp_assert((__pkt2 != NULL), "cffs first bucket2 ringbuffer is empty");
-        xdp_assert_eq(pkt2.data, __pkt2->data, "pkt2 is not the same");
-        log_info("test5 success");
-        log_info("test all success");
-        return XDP_PASS;
-xdp_error:;
-        //log_error("res: %d", res);
-        return XDP_DROP;
-}
-
-SEC("xdp")
-int test_hffs2(struct xdp_md *ctx) {
+int test_hffs(struct xdp_md *ctx) {
         int key = 0, res;
         struct cffs_piq *cffs;
         cffs = bpf_map_lookup_elem(&cffs_piq_map, &key);
@@ -283,25 +215,6 @@ int xdp_main(struct xdp_md *ctx) {
         __pkt = pkt_bkt__simple_rbuf_cons(pktbuf);
         cffs_dequeue(cffs, pktbuf, bktnum);
 
-        return XDP_DROP;
-xdp_error:
-        log_error("xdp_error");
-        return XDP_DROP;        
-}
-
-SEC("xdp")
-int xdp_ffs_insert(struct xdp_md *ctx) {
-        int key = 0;
-        struct cffs_piq *cffs;
-        cffs = bpf_map_lookup_elem(&cffs_piq_map, &key);
-        if (cffs == NULL) {
-                goto xdp_error;
-        }
-        struct hpiq__cffs *hffs; 
-        hffs = &cffs->hpiq[0];
-        //enquene
-        __u32 prio = 10;
-        hpiq_insert__cffs(hffs, prio);
         return XDP_DROP;
 xdp_error:
         log_error("xdp_error");
