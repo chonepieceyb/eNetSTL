@@ -4,11 +4,13 @@ obj-m := ${OBJ_NAME}.o
 #lkm_example-y := x.o
 
 #KDIR ?= /home/chonepieceyb/CODING/Src/linux-6.0
+KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
 KDIR ?= /lib/modules/$(shell uname -r)/build
-
 
 default:
 	bear -- make -C $(KDIR) M=$(PWD) modules
+dbg:
+	bear -- make -C $(KDIR_DBG) M=$(PWD) modules
 clean:
 	make -C $(KDIR) M=$(PWD) clean
 test:

@@ -7,10 +7,10 @@ obj-m := ${OBJ_NAME}.o
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
 KDIR ?= /lib/modules/$(shell uname -r)/build
 
-dbg:
-	bear -- make -C $(KDIR_DBG) M=$(PWD) modules
 default:
 	bear -- make -C $(KDIR) M=$(PWD) modules
+dbg:
+	bear -- make -C $(KDIR_DBG) M=$(PWD) modules
 clean:
 	make -C $(KDIR) M=$(PWD) clean
 test:
