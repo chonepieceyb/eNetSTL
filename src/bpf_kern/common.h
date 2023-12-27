@@ -129,13 +129,8 @@ static __always_inline _value_type* _name##__simple_rbuf_prod(struct simple_rbuf
 } \
 static __always_inline void _name##__simple_rbuf_submit(struct simple_rbuf__##_name *rb)        \
 {                                                                       \
-        if (unlikely((rb)->prod == (~0UL))) {                                       \
-                __u64 len = (rb)->prod - (rb)->cons;            \
-                (rb)->cons = 0;                                 \
-                (rb)->prod = len;                               \
-        }                                                       \
         ++((rb)->prod);                                                 \
-}             
+}
 
 /* linux __ffs software implementation*/
 static __always_inline __u64 __ffs64(__u64 word)

@@ -1,4 +1,4 @@
-OBJ_NAME := empty_scmap
+OBJ_NAME := sched_cffs
 
 obj-m := ${OBJ_NAME}.o
 #lkm_example-y := x.o
@@ -15,7 +15,7 @@ clean:
 	make -C $(KDIR) M=$(PWD) clean
 test:
 	# We put a — in front of the rmmod command to tell make to ignore
-	# an error in case the module isn’t loaded.
+	# an error in case the module isn't loaded.
 	-sudo rmmod $(OBJ_NAME)
 	# Clear the kernel log without echo
 	sudo dmesg -C
