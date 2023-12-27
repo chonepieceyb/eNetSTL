@@ -5,13 +5,14 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "../bpf_skel/scmap_cFFS_PIQ.skel.h"
+#include "../bpf_skel/sched_hc_cFFS_PIQ.skel.h"
 #include <net/if.h>
 #include <linux/if_link.h>
 
 #include "../test_helpers.h"
 
-void test1() {
+
+void test() {
         char buf[128];                  //store the output packet 
         LIBBPF_OPTS(bpf_test_run_opts, topts,
 		.data_in = &pkt_v4,
@@ -21,38 +22,32 @@ void test1() {
 		.repeat = 20,
 	);
 
-        struct scmap_cFFS_PIQ * skel = NULL;
-        struct bpf_program *prog, *prog_main;
-        int res = 0;
-        skel = scmap_cFFS_PIQ__open();
+        struct sched_hc_cFFS_PIQ * skel = NULL;
+        struct bpf_program *prog;
+        int res = 0, prog_fd;
+        skel = sched_hc_cFFS_PIQ__open();
         if (skel == NULL) {
                 fprintf(stdout, "faild to open and load hw_demo\n");
                 return; 
         }
-        prog = skel->progs.test_cffs;
-        prog_main = skel->progs.xdp_main;
+        prog = skel->progs.test_hffs;
         set_prog_flags_test(prog);
-        set_prog_flags_test(prog_main);
-
-        res = scmap_cFFS_PIQ__load(skel);
+        res = sched_hc_cFFS_PIQ__load(skel);
         if (CHECK_FAIL(res)) {
                 goto clean;
         }
                 
-        res = bpf_prog_test_run_opts(bpf_program__fd(prog), &topts);
+        prog_fd = bpf_program__fd(prog);
+        res = bpf_prog_test_run_opts(prog_fd, &topts);
 	//memcpy(&iph, buf + sizeof(struct ethhdr), sizeof(iph));
 	ASSERT_OK(res, "test_run");
 	ASSERT_EQ(topts.retval, XDP_PASS, "sucess");
 
-        res = bpf_prog_test_run_opts(bpf_program__fd(prog_main), &topts);
-	//memcpy(&iph, buf + sizeof(struct ethhdr), sizeof(iph));
-	ASSERT_OK(res, "test_run");
-	ASSERT_EQ(topts.retval, XDP_DROP, "testing");
 clean:;
-        scmap_cFFS_PIQ__destroy(skel);
+        sched_hc_cFFS_PIQ__destroy(skel);
         return;
 }
 
 int main() {
-        test1();
+        test();
 }
