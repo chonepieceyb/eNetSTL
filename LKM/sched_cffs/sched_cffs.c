@@ -4,12 +4,6 @@
 #include <linux/bpf.h>
 #include <linux/bitops.h>
 #include "../simple_ringbuf.h"
-#include "asm/percpu.h"
-#include "linux/cache.h"
-#include "linux/compiler_attributes.h"
-#include "linux/container_of.h"
-#include "linux/err.h"
-#include "linux/percpu.h"
 
 extern int bpf_register_static_cmap(struct bpf_map_ops *map, struct module *onwer);
 extern void bpf_unregister_static_cmap(struct module *onwer);
