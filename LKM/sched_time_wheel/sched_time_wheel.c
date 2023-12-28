@@ -64,6 +64,23 @@ static __always_inline unsigned long get_current_time(void)
 {
         return (unsigned long)(ktime_get_mono_fast_ns() >> TIME_SHIFT);
 }
+
+__bpf_kfunc u64 bpf_get_current_time(void) 
+{
+	return get_current_time();
+}
+EXPORT_SYMBOL_GPL(bpf_get_current_time);
+
+
+BTF_SET8_START(bpf_time_wheel_kfunc_ids)
+BTF_ID_FLAGS(func, bpf_get_current_time)
+BTF_SET8_END(bpf_time_wheel_kfunc_ids)
+
+static const struct btf_kfunc_id_set bpf_time_wheel_kfunc_set = {
+	.owner = THIS_MODULE,
+	.set   = &bpf_time_wheel_kfunc_ids,
+};
+
 #else
 static unsigned long current_time_g = 0;
 static __always_inline unsigned long get_current_time(void) 
@@ -310,6 +327,12 @@ static struct bpf_map_ops tw_piq_ops = {
 static int __init static_time_wheel_init(void) 
 {
 	pr_info("register static time wheel");
+        int ret;
+        ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_XDP, &bpf_time_wheel_kfunc_set);
+	if (ret < 0) {
+		pr_err("failed to reigster time wheel kfunc set\n");
+		return ret;
+	}
 	return bpf_register_static_cmap(&tw_piq_ops, THIS_MODULE);
 }
 #else
@@ -354,7 +377,7 @@ static ssize_t testing_operation(struct file *flip, char __user *ubuf, size_t co
         struct bpf_map *map;
         struct __tw_value_type value, expire_res = {0};
         int res = 0;
-        
+
         unsigned long ct = get_current_time();
 
         pr_info("testing time wheel operation\n");

@@ -3,6 +3,9 @@
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
+#include <net/if.h>
+#include <linux/if_link.h>
+#include <stdio.h>
 
 #define BPF_XDP_SKEL_LOADER(__skel, _ifname, _prog, mode)                           \
         struct __skel * skel = NULL;                                                \
