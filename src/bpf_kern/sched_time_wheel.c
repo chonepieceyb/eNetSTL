@@ -24,7 +24,7 @@ char _license[] SEC("license") = "GPL";
 #define TVR_SIZE (1 << TVR_BITS)
 #define TVN_MASK (TVN_SIZE - 1)
 #define TVR_MASK (TVR_SIZE - 1)
-#define TIMER_MAX_LOOKS 64
+#define TIMER_MAX_LOOKS 128
 #define CPU_NUM 40
 
 #define time_after(a,b)		\
@@ -71,7 +71,7 @@ static __always_inline unsigned long get_current_time() {
 #else  
 	//return (unsigned long)bpf_jiffies64();
         //current per 256ns is one tick
-        return (unsigned long)bpf_ktime_get_ns() >> 9;
+        return (unsigned long)bpf_ktime_get_ns() >> 13;
 #endif 
 }
 
@@ -255,7 +255,7 @@ static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt
 		base->clk += 1;
                 log_debug("__run_timer plus 1 tick: bpf_loop clk index %d run %d times", index, res);
         }
-	if (should_warn) 
+	if (unlikely(should_warn)) 
 		log_warn("time wheel faild to catch up ticks: current time %lu, clk: %lu", current_time, base->clk);
         return 0;
 }
@@ -274,7 +274,7 @@ struct {
 	__uint(max_entries, CPU_NUM * BKT_NUM_PER_CPU);
 } time_wheel_bkt_map SEC(".maps");
 
-SEC("xdp")
+SEC("tc")
 int test_timewheel(void *ctx)
 {
 	__u64 begin_time = bpf_ktime_get_ns();
@@ -351,4 +351,42 @@ int test_timewheel2(void *ctx)
 
 xdp_error:;
 	return 1;
+}
+
+/*for performance testing*/
+SEC("xdp")
+int xdp_main(void *ctx)
+{
+	int key = 0, res;
+	__u32 cpu = bpf_get_smp_processor_id();
+	struct time_wheel_queue *tq;
+	tq = bpf_map_lookup_elem(&time_wheel_map, &key);
+	xdp_assert_neq(NULL, tq, "failed to lookup time_wheel_map");
+	unsigned long ct = get_current_time();
+	log_debug("init current time %lu", ct);
+	if (unlikely(tq->init == 0)) {
+		tq->cnt = 0;
+		tq->clk = ct;
+		tq->init = 1;
+	}
+
+	struct bpf_time_list *elem;
+	elem = bpf_obj_new(typeof(*elem));
+	xdp_assert_neq(NULL, elem, "elem = bpf_obj_new() failed ");
+
+	elem->expires = ct + 1;
+	
+	res = add_timer_on(cpu, tq, &time_wheel_bkt_map, elem);
+	if (res != 0 && res != -22) {
+		bpf_obj_drop(elem);
+	}
+	xdp_assert_eq(0, res, "failed add timer");
+
+	res = __run_timer(cpu, tq, &time_wheel_bkt_map);
+	xdp_assert_eq(0, res, "failed run timer");
+	log_debug("current clk  %lu", tq->clk);
+	return XDP_DROP;
+
+xdp_error:;
+	return XDP_DROP;
 }
