@@ -5,12 +5,10 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "bpf_skel/sched_cFFS_PIQ.skel.h"
+#include "bpf_skel/sched_time_wheel.skel.h"
 #include <net/if.h>
 #include <linux/if_link.h>
 
-#define IF_NAME "ens4np0"
-
 int main() {
-        BPF_XDP_SKEL_LOADER(sched_cFFS_PIQ, "ens4np0", xdp_main, XDP_FLAGS_DRV_MODE)
+        BPF_XDP_SKEL_LOADER(sched_time_wheel, "ens4np0", xdp_main, XDP_FLAGS_DRV_MODE)
 }
