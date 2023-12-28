@@ -12,6 +12,8 @@ char _license[] SEC("license") = "GPL";
 //#define TVN_BITS 6
 //#define TVR_BITS 8
 
+#define TIME_SHIFT 13
+
 #if LOG_LEVEL > LOG_LEVEL_DEBUG
 #define TVN_BITS 2
 #define TVR_BITS 2
@@ -71,7 +73,7 @@ static __always_inline unsigned long get_current_time() {
 #else  
 	//return (unsigned long)bpf_jiffies64();
         //current per 256ns is one tick
-        return (unsigned long)bpf_ktime_get_ns() >> 13;
+        return (unsigned long)bpf_ktime_get_ns() >> TIME_SHIFT;
 #endif 
 }
 
@@ -87,10 +89,13 @@ static int add_timer_on(__u32 cpu, struct time_wheel_queue *base, void *timer_bk
         } else if (idx < 1 << (TVR_BITS + TVN_BITS)) {
 		i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;      /*index is lv1 + offset in lv2*/
 		log_debug("add timer to lv2 index %d", i);
+	} else if ((signed long) idx < 0) {
+		i = (base->clk & TVR_MASK);
+		log_warn("idx < 0 add timer to current clk %d", i);
 	} else {
 		expires = base->clk + (1 << (TVR_BITS + TVN_BITS)) - 1;
                 i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;
-		log_debug("add timer to lv2(max) index %d", i);
+		log_warn("add timer to lv2(max) index %d", i);
         }
 
 	key = cpu * BKT_NUM_PER_CPU + i;
