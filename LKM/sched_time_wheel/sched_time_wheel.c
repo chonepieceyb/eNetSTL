@@ -1,9 +1,5 @@
-#include "linux/compiler_attributes.h"
-#include "linux/cpumask.h"
-#include "linux/list.h"
-#include "linux/numa.h"
-#include "linux/percpu-defs.h"
-#include "linux/percpu.h"
+#include "linux/err.h"
+#include "linux/preempt.h"
 #include <linux/init.h> 
 #include <linux/printk.h>
 #include <linux/string.h>
@@ -18,8 +14,13 @@ extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 #define TIME_SHIFT 13
 
+#ifndef USE_DEBUG
 #define TVN_BITS 6
 #define TVR_BITS 8
+#else  
+#define TVN_BITS 2
+#define TVR_BITS 2
+#endif 
 
 #define TVN_SIZE (1 << TVN_BITS)
 #define TVR_SIZE (1 << TVR_BITS)
@@ -58,10 +59,18 @@ struct __timer_list {
 // extern int bpf_register_custom_map(struct bpf_custom_map_ops *cmap);
 // extern void bpf_unregister_custom_map(struct bpf_custom_map_ops *cmap);
 
+#ifndef USE_DEBUG
 static __always_inline unsigned long get_current_time(void) 
 {
         return (unsigned long)(ktime_get_mono_fast_ns() >> TIME_SHIFT);
 }
+#else
+static unsigned long current_time_g = 0;
+static __always_inline unsigned long get_current_time(void) 
+{
+        return current_time_g;
+}
+#endif 
 
 int tw_alloc_check(union bpf_attr *attr) {
 	if (attr->key_size != 4 
@@ -137,8 +146,15 @@ free_tmap:;
 }
 
 static void tw_free(struct bpf_map *map) {
-        struct time_wheel_map *tmap = container_of(map, struct time_wheel_map, map);
-        __free_timer_list(tmap->tw);
+        struct time_wheel_map *tmap; 
+        if (map == NULL) {
+                return;
+        }
+        tmap = container_of(map, struct time_wheel_map, map);
+        int cpu;
+        for_each_possible_cpu(cpu) {
+                __free_timer_list(per_cpu_ptr(tmap->tw, cpu));
+        }
         free_percpu(tmap->tw);
         bpf_map_area_free(tmap);
         return;
@@ -211,6 +227,7 @@ static int __cascade(struct cascade_time_wheel *tw, __tvec_t *tv, int index)
 		tmp = list_entry(curr, struct __timer_list, entry);
 		curr = curr->next;
 		internal_add_timer(tw, tmp);
+                pr_debug("cascade elem to up level, clk %lu, expires %lu", tw->clk, tmp->expires);
 	}
 	INIT_LIST_HEAD(head);
 	return index;
@@ -279,6 +296,8 @@ static u64 tw_mem_usage(const struct bpf_map *map)
         return sizeof(struct cascade_time_wheel) * num_possible_cpus();
 }
 
+#ifndef USE_DEBUG
+
 static struct bpf_map_ops tw_piq_ops = {
 	.map_alloc_check = tw_alloc_check,
 	.map_alloc = tw_alloc,
@@ -288,18 +307,115 @@ static struct bpf_map_ops tw_piq_ops = {
 	.map_mem_usage = tw_mem_usage
 };
 
-//extern int bpf_register_static_cmap(struct bpf_map_ops *map, struct module *onwer);
-//extern void bpf_unregister_static_cmap(struct module *onwer);
-
-static int __init static_time_wheel_init(void) {
+static int __init static_time_wheel_init(void) 
+{
 	pr_info("register static time wheel");
 	return bpf_register_static_cmap(&tw_piq_ops, THIS_MODULE);
 }
+#else
+/* testing */
 
-static void __exit static_time_wheel_exit(void) {
+#include "../test_helpers.h"
+#include <linux/proc_fs.h>
+
+static struct proc_dir_entry *ent;
+ 
+static int testing_alloc(struct inode *inode, struct file *filp)
+{
+        struct bpf_map *map;
+        if (!try_module_get(THIS_MODULE)) {
+                return -ENODEV;
+        }
+        /*testing alloc here*/
+        pr_info("start testing alloc time wheel map");
+        current_time_g = 0;
+        map =  tw_alloc(NULL);
+
+        if (IS_ERR_OR_NULL(map)) {
+                return PTR_ERR(map);
+        }
+        pr_info("alloc time wheel map success");
+        filp->private_data = (void*)map;
+        return 0;
+}
+         
+static int testing_release(struct inode *inode, struct file *file)
+{
+        /*testing free here*/
+        struct bpf_map *map = (struct bpf_map*)file->private_data;
+        tw_free(map);
+        module_put(THIS_MODULE);
+        return 0;
+}
+
+static ssize_t testing_operation(struct file *flip, char __user *ubuf, size_t count, loff_t *ppos) 
+{
+	/* testing data structure operation*/
+        struct bpf_map *map;
+        struct __tw_value_type value, expire_res = {0};
+        int res = 0;
+        
+        unsigned long ct = get_current_time();
+
+        pr_info("testing time wheel operation\n");
+        map = (struct bpf_map *)(flip->private_data);
+             
+        value.expires = ct + 4;
+
+        preempt_disable();
+        res = tw_push_elem(map, (void*)&value, 0);
+        preempt_enable();
+        
+        lkm_assert_eq(0, res, "time wheel failed to push elem");
+        
+        current_time_g += 4;
+
+        preempt_disable();
+        res = tw_pop_elem(map, (void*)&expire_res);
+        preempt_enable();
+
+        lkm_assert_eq(0, res, "time wheel failed to pop elem");
+        res = -2;
+        lkm_assert_eq(1, *((u64*)&expire_res), "time wheel does not expire successfully");
+
+        pr_info("testing time wheel success\n");
+        return 0;      /*always not insert the mod*/
+
+lkm_test_error:
+        pr_err("testing time wheel failed with res %d\n", res);
+        return 0;
+}
+ 
+static struct proc_ops testing_ops = 
+{
+        .proc_open = testing_alloc,
+        .proc_read = testing_operation,
+        .proc_release = testing_release,
+};
+
+
+static int __init static_time_wheel_init(void) 
+{
+        ent = proc_create("testing_tw",0440,NULL,&testing_ops);
+        if (IS_ERR_OR_NULL(ent))
+                return -2;
+	return 0;
+}
+
+#endif 
+
+#ifndef USE_DEBUG
+static void __exit static_time_wheel_exit(void) 
+{
 	pr_info("unregister static time wheel");
 	bpf_unregister_static_cmap(THIS_MODULE);
 }
+#else 
+static void __exit static_time_wheel_exit(void) {
+        proc_remove(ent);
+        return;
+}
+#endif 
 
 /* Register module functions */
 module_init(static_time_wheel_init);

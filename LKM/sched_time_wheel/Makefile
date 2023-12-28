@@ -1,4 +1,5 @@
 OBJ_NAME := sched_time_wheel
+USE_DEBUG := 0
 
 obj-m := ${OBJ_NAME}.o
 #lkm_example-y := x.o
@@ -6,6 +7,10 @@ obj-m := ${OBJ_NAME}.o
 #KDIR ?= /home/chonepieceyb/CODING/Src/linux-6.0
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
 KDIR ?= /lib/modules/$(shell uname -r)/build
+
+ifeq (${USE_DEBUG},1)
+ccflags-y += -DUSE_DEBUG 
+endif
 
 default:
 	bear -- make -C $(KDIR) M=$(PWD) modules
