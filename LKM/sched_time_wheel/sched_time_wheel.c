@@ -195,12 +195,12 @@ static void internal_add_timer(struct cascade_time_wheel *tw, struct __timer_lis
 		 * or you set a timer to go off in the past
 		 */
 		vec = tw->tv1.vec + (tw->clk & TVR_MASK);
-                pr_warn("idx < 0 add timer to current clk");
+                pr_debug("idx < 0 add timer to current clk");
 	} else {
                 expires = tw->clk + (1 << (TVR_BITS + TVN_BITS)) - 1;
                 int i = ((expires >> TVR_BITS) & TVN_MASK);
 		vec = tw->tv2.vec + i;
-                pr_warn("add timer to lv2(max) index %d", i);
+                pr_debug("add timer to lv2(max) index %d", i);
 	}
 	/*
 	 * Timers are FIFO:
