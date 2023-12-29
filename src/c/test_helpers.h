@@ -108,7 +108,7 @@ static inline void set_prog_flags_test(struct bpf_program* prog) {
 	}											\
 	res = bpf_prog_test_run_opts(bpf_program__fd(prog), &topts);				\
 	ASSERT_OK(res, "bpf_prog_test_run_opts res");						\
-	ASSERT_EQ(topts.retval, XDP_PASS, _name ":" #_prog);					\
+	ASSERT_EQ(topts.retval, expected_res, _name ":" #_prog);					\
 clean:;												\
 	__skel##__destroy(skel);								\
 	return; 

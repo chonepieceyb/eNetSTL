@@ -4,9 +4,32 @@
 
 char _license[] SEC("license") = "GPL";
 
-/***********************************************
-*********************PKTBKT PERCPU**************
-************************************************/
+#define FRONT_TAIL_BIT_POS 0     //bit pos, set means front 
+#define INS_LOOK_BIT_POS 1     //bit pos, set means insert
+
+#define bktlist_lookup_flag(ins_look, front_tail)			\
+({									\
+	u32 __flags = 0;						\
+	u32 __ins_look = !!(ins_look);					\
+	u32 __front_tail = !!(front_tail);				\
+	__flags |= (__ins_look << INS_LOOK_BIT_POS);			\
+	__flags |= (__front_tail << FRONT_TAIL_BIT_POS);		\
+})
+
+#define bktlist_delete_flag(front_tail)				        \
+({									\
+	u32 __flags = 0;						\
+	u32 __front_tail = !!(front_tail);				\
+	__flags |= (__front_tail << FRONT_TAIL_BIT_POS);			\
+})
+
+
+#define bktlist_flag_lookup_front  bktlist_lookup_flag(0, 1)
+#define bktlist_flag_lookup_tail   bktlist_lookup_flag(0, 0)
+#define bktlist_flag_ins_front  bktlist_lookup_flag(1, 1)
+#define bktlist_flag_ins_tail	bktlist_lookup_flag(1, 0)
+#define bktlist_flag_delete_front	bktlist_delete_flag(1)
+#define bktlist_flag_delete_tail	bktlist_delete_flag(0)
 
 extern __u64 bpf_ffs(__u64 val) __ksym;
 
