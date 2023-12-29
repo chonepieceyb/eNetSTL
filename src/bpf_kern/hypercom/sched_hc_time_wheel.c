@@ -252,7 +252,6 @@ static int __run_timer(struct time_wheel_queue *base, void *timer_bkt_map) {
         return 0;
 }
 
-
 struct {
 	__uint(type, BPF_MAP_TYPE_STATIC_CUSTOM_MAP);
 	__type(key, struct __bktlist_key_type);
@@ -317,12 +316,12 @@ int xdp_main(void *ctx)
         }
 
         unsigned long expires = ct + 1;
-        struct bpf_time_list *timer = __add_timer_on(twq, &time_wheel_map, expires);
+        struct bpf_time_list *timer = __add_timer_on(twq, &timer_bkt, expires);
         xdp_assert_neq(NULL, timer, "__add_timer_on failed");
         timer->expires = expires;
         twq->cnt += 1;
         
-        res = __run_timer(twq, &time_wheel_map);
+        res = __run_timer(twq, &timer_bkt);
 	xdp_assert_eq(0, res, "failed run timer");
 	log_debug("current clk  %lu", twq->clk);
 	return XDP_DROP;
