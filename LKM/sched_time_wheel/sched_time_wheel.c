@@ -1,5 +1,3 @@
-#include "linux/err.h"
-#include "linux/preempt.h"
 #include <linux/init.h> 
 #include <linux/printk.h>
 #include <linux/string.h>
@@ -159,6 +157,7 @@ static struct bpf_map *tw_alloc(union bpf_attr *attr)
 
 	return (struct bpf_map*)tmap;
 free_tmap:;
+        bpf_map_area_free(tmap);
         return res_ptr;
 }
 
@@ -374,6 +373,7 @@ static int testing_release(struct inode *inode, struct file *file)
 static ssize_t testing_operation(struct file *flip, char __user *ubuf, size_t count, loff_t *ppos) 
 {
 	/* testing data structure operation*/
+        preempt_disable();
         struct bpf_map *map;
         struct __tw_value_type value, expire_res = {0};
         int res = 0;
@@ -385,26 +385,25 @@ static ssize_t testing_operation(struct file *flip, char __user *ubuf, size_t co
              
         value.expires = ct + 4;
 
-        preempt_disable();
+ 
         res = tw_push_elem(map, (void*)&value, 0);
-        preempt_enable();
         
         lkm_assert_eq(0, res, "time wheel failed to push elem");
         
         current_time_g += 4;
 
-        preempt_disable();
         res = tw_pop_elem(map, (void*)&expire_res);
-        preempt_enable();
-
+ 
         lkm_assert_eq(0, res, "time wheel failed to pop elem");
         res = -2;
         lkm_assert_eq(1, *((u64*)&expire_res), "time wheel does not expire successfully");
 
+        preempt_enable();
         pr_info("testing time wheel success\n");
         return 0;      /*always not insert the mod*/
 
 lkm_test_error:
+        preempt_enable();
         pr_err("testing time wheel failed with res %d\n", res);
         return 0;
 }
