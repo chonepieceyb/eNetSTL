@@ -82,4 +82,36 @@ static inline void set_prog_flags_test(struct bpf_program* prog) {
 	___ok;								\
 })
 
+
+#define BPF_PROG_TEST_RUNNER(_name, __skel, pkt, _prog, _repeat, expected_res)           \
+	char buf[128];                  				\
+	LIBBPF_OPTS(bpf_test_run_opts, topts,			\
+		.data_in = &pkt,							\
+		.data_size_in = sizeof(pkt),				\
+		.data_out = buf,							\
+		.data_size_out = sizeof(buf),				\
+		.repeat = _repeat,							\
+	);												\
+	struct __skel * skel = NULL;					\
+	struct bpf_program *prog;						\
+	int res = 0, prog_fd;							\
+	skel = __skel##__open();						\
+	if (skel == NULL) {								\
+		fprintf(stdout, "faild to open and load %s\n", #__skel);			\
+		return; 									\
+	}											\
+	prog = skel->progs._prog;								\
+	set_prog_flags_test(prog);								\
+	res = __skel##__load(skel);							\
+	if (CHECK_FAIL(res)) {									\
+		goto clean;									\
+	}											\
+	res = bpf_prog_test_run_opts(bpf_program__fd(prog), &topts);				\
+	ASSERT_OK(res, "bpf_prog_test_run_opts res");						\
+	ASSERT_EQ(topts.retval, XDP_PASS, _name ":" #_prog);					\
+clean:;												\
+	__skel##__destroy(skel);								\
+	return; 
+
+
 #endif 

@@ -1,14 +1,5 @@
 #include "../common.h" 
-#include <stdio.h>
-#include <assert.h> 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include "../bpf_skel/cmap_demo.skel.h"
-#include <net/if.h>
-#include <linux/if_link.h>
-
 #include "../test_helpers.h"
 
 #define CMAP_ID 100
