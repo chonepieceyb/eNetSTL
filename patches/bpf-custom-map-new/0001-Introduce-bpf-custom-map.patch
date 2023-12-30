@@ -1,4 +1,4 @@
-From c83d001321087960318208ead3c828bc660c9b4c Mon Sep 17 00:00:00 2001
+From 639edaec5a02533d07d45dad157398d3f920f4b0 Mon Sep 17 00:00:00 2001
 From: chonepieceyb <1759315491@qq.com>
 Date: Mon, 20 Feb 2023 17:33:19 +0800
 Subject: [PATCH 1/3] Introduce bpf custom map
@@ -10,9 +10,10 @@ Subject: [PATCH 1/3] Introduce bpf custom map
  kernel/bpf/Kconfig             |   6 +
  kernel/bpf/Makefile            |   2 +
  kernel/bpf/custom_map.c        | 625 +++++++++++++++++++++++++++++++++
+ kernel/bpf/memalloc.c          |  11 +
  kernel/bpf/syscall.c           |   9 +
  kernel/bpf/verifier.c          |   7 +-
- 8 files changed, 703 insertions(+), 2 deletions(-)
+ 9 files changed, 714 insertions(+), 2 deletions(-)
  create mode 100644 include/linux/bpf_custom_map.h
  create mode 100644 kernel/bpf/custom_map.c
 
@@ -757,6 +758,97 @@ index 000000000000..70c4ead30329
 +}
 +EXPORT_SYMBOL_GPL(bpf_unregister_static_cmap);
 \ No newline at end of file
+diff --git a/kernel/bpf/memalloc.c b/kernel/bpf/memalloc.c
+index d93ddac283d4..680dcbb3114c 100644
+--- a/kernel/bpf/memalloc.c
++++ b/kernel/bpf/memalloc.c
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ /* Copyright (c) 2022 Meta Platforms, Inc. and affiliates. */
++#include "linux/export.h"
+ #include <linux/mm.h>
+ #include <linux/llist.h>
+ #include <linux/bpf.h>
+@@ -598,6 +599,7 @@ int bpf_mem_alloc_init(struct bpf_mem_alloc *ma, int size, bool percpu)
+ 		bpf_mem_alloc_destroy(ma);
+ 	return err;
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_alloc_init);
+ 
+ static void drain_mem_cache(struct bpf_mem_cache *c)
+ {
+@@ -753,6 +755,7 @@ void bpf_mem_alloc_destroy(struct bpf_mem_alloc *ma)
+ 		destroy_mem_alloc(ma, rcu_in_progress);
+ 	}
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_alloc_destroy);
+ 
+ /* notrace is necessary here and in other functions to make sure
+  * bpf programs cannot attach to them and cause llist corruptions.
+@@ -869,6 +872,7 @@ void notrace *bpf_mem_alloc(struct bpf_mem_alloc *ma, size_t size)
+ 	ret = unit_alloc(this_cpu_ptr(ma->caches)->cache + idx);
+ 	return !ret ? NULL : ret + LLIST_NODE_SZ;
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_alloc);
+ 
+ void notrace bpf_mem_free(struct bpf_mem_alloc *ma, void *ptr)
+ {
+@@ -883,6 +887,7 @@ void notrace bpf_mem_free(struct bpf_mem_alloc *ma, void *ptr)
+ 
+ 	unit_free(this_cpu_ptr(ma->caches)->cache + idx, ptr);
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_free);
+ 
+ void notrace bpf_mem_free_rcu(struct bpf_mem_alloc *ma, void *ptr)
+ {
+@@ -897,6 +902,7 @@ void notrace bpf_mem_free_rcu(struct bpf_mem_alloc *ma, void *ptr)
+ 
+ 	unit_free_rcu(this_cpu_ptr(ma->caches)->cache + idx, ptr);
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_free_rcu);
+ 
+ void notrace *bpf_mem_cache_alloc(struct bpf_mem_alloc *ma)
+ {
+@@ -905,6 +911,7 @@ void notrace *bpf_mem_cache_alloc(struct bpf_mem_alloc *ma)
+ 	ret = unit_alloc(this_cpu_ptr(ma->cache));
+ 	return !ret ? NULL : ret + LLIST_NODE_SZ;
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_cache_alloc);
+ 
+ void notrace bpf_mem_cache_free(struct bpf_mem_alloc *ma, void *ptr)
+ {
+@@ -913,6 +920,7 @@ void notrace bpf_mem_cache_free(struct bpf_mem_alloc *ma, void *ptr)
+ 
+ 	unit_free(this_cpu_ptr(ma->cache), ptr);
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_cache_free);
+ 
+ void notrace bpf_mem_cache_free_rcu(struct bpf_mem_alloc *ma, void *ptr)
+ {
+@@ -921,6 +929,7 @@ void notrace bpf_mem_cache_free_rcu(struct bpf_mem_alloc *ma, void *ptr)
+ 
+ 	unit_free_rcu(this_cpu_ptr(ma->cache), ptr);
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_cache_free_rcu);
+ 
+ /* Directly does a kfree() without putting 'ptr' back to the free_llist
+  * for reuse and without waiting for a rcu_tasks_trace gp.
+@@ -939,6 +948,7 @@ void bpf_mem_cache_raw_free(void *ptr)
+ 
+ 	kfree(ptr - LLIST_NODE_SZ);
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_cache_raw_free);
+ 
+ /* When flags == GFP_KERNEL, it signals that the caller will not cause
+  * deadlock when using kmalloc. bpf_mem_cache_alloc_flags() will use
+@@ -964,6 +974,7 @@ void notrace *bpf_mem_cache_alloc_flags(struct bpf_mem_alloc *ma, gfp_t flags)
+ 
+ 	return !ret ? NULL : ret + LLIST_NODE_SZ;
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_cache_alloc_flags);
+ 
+ static __init int bpf_mem_cache_adjust_size(void)
+ {
 diff --git a/kernel/bpf/syscall.c b/kernel/bpf/syscall.c
 index d77b2f8b9364..6e5da58be7d3 100644
 --- a/kernel/bpf/syscall.c

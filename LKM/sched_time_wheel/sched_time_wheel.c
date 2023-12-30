@@ -1,5 +1,5 @@
-#include "linux/err.h"
 #include "linux/preempt.h"
+#include <linux/bpf_mem_alloc.h>
 #include <linux/init.h> 
 #include <linux/printk.h>
 #include <linux/string.h>
@@ -44,7 +44,8 @@ struct cascade_time_wheel {
 
 struct time_wheel_map {
         struct bpf_map map;
-        struct cascade_time_wheel __percpu *tw;
+        struct bpf_mem_alloc ma;
+        struct cascade_time_wheel __percpu *tw ____cacheline_aligned_in_smp;
 };
 
 struct __tw_value_type {
@@ -113,24 +114,27 @@ static __always_inline void __init_timer_list(struct cascade_time_wheel *tw)
         }        
 }
 
-static __always_inline void __free_timer_list(struct cascade_time_wheel *tw) 
+static __always_inline void __free_timer_list(struct time_wheel_map *tmap, struct cascade_time_wheel *tw) 
 {
         int i;
         struct __timer_list *timer, *n;
+        migrate_disable();
         for (i = 0; i < TVR_SIZE; i++) {
                 list_for_each_entry_safe(timer, n, tw->tv1.vec + i , entry) {
                         /* timer is allocated in update elem, free here*/
                         list_del(&timer->entry);
-                        bpf_map_area_free(timer);
+                        bpf_mem_cache_free(&tmap->ma, timer);
+
                 }
         }     
         for (i = 0; i < TVN_SIZE; i++) {
                 list_for_each_entry_safe(timer, n, tw->tv2.vec + i , entry) {
                         /* timer is allocated in update elem, free here*/
                         list_del(&timer->entry);
-                        bpf_map_area_free(timer);
+                        bpf_mem_cache_free(&tmap->ma, timer);
                 }
-        }      
+        }
+        migrate_enable();
 }
 
 static struct bpf_map *tw_alloc(union bpf_attr *attr)
@@ -143,10 +147,15 @@ static struct bpf_map *tw_alloc(union bpf_attr *attr)
         if (tmap == NULL) {
                 return ERR_PTR(-ENOMEM);
         }
+        if (bpf_mem_alloc_init(&tmap->ma, sizeof(struct __timer_list), false)) {
+		/* alloc mem_alloc_cache*/
+		res_ptr = ERR_PTR(-ENOMEM);
+		goto free_tmap;
+	}
         tmap->tw = __alloc_percpu_gfp(sizeof(struct cascade_time_wheel), __alignof__(u64), GFP_USER | __GFP_NOWARN);
         if (tmap->tw == NULL) {
                 res_ptr = ERR_PTR(-ENOMEM);
-                goto free_tmap;
+                goto destory_ma;
         }
         for_each_possible_cpu(cpu) {
                 struct cascade_time_wheel *__tw;
@@ -158,7 +167,12 @@ static struct bpf_map *tw_alloc(union bpf_attr *attr)
         }
 
 	return (struct bpf_map*)tmap;
+
+destory_ma:;
+        bpf_mem_alloc_destroy(&tmap->ma);
+
 free_tmap:;
+        bpf_map_area_free(tmap);
         return res_ptr;
 }
 
@@ -170,7 +184,7 @@ static void tw_free(struct bpf_map *map) {
         tmap = container_of(map, struct time_wheel_map, map);
         int cpu;
         for_each_possible_cpu(cpu) {
-                __free_timer_list(per_cpu_ptr(tmap->tw, cpu));
+                __free_timer_list(tmap, per_cpu_ptr(tmap->tw, cpu));
         }
         free_percpu(tmap->tw);
         bpf_map_area_free(tmap);
@@ -217,7 +231,7 @@ static long tw_push_elem(struct bpf_map *map, void *value, u64 flags)
         struct cascade_time_wheel *tw;
 
         /* alloc __timer_list, free in map_free or pop_elem/run_timer*/
-        timer = bpf_map_area_alloc(sizeof(*timer), NUMA_NO_NODE);
+        timer = bpf_mem_cache_alloc(&tmap->ma);
         if (timer == NULL) {
                 /*failed to alloc timer*/
                 return -ENOMEM;
@@ -253,7 +267,7 @@ static int __cascade(struct cascade_time_wheel *tw, __tvec_t *tv, int index)
 
 #define INDEX(N) (tw->clk >> (TVR_BITS + N * TVN_BITS)) & TVN_MASK
 
-static void __run_timers(struct cascade_time_wheel *tw, u64 *cnt)
+static void __run_timers(struct time_wheel_map *tmap, struct cascade_time_wheel *tw, u64 *cnt)
 {
 	struct __timer_list *timer;
         unsigned long current_time = get_current_time();
@@ -288,7 +302,7 @@ repeat:
                         pr_debug("timer expires: %lu, current clk %lu", timer->expires, tw->clk);
                         *cnt += 1;
 			list_del(&timer->entry);
-                        bpf_map_area_free(timer);
+                        bpf_mem_cache_free(&tmap->ma, timer);
 			goto repeat;
 		}
                 pr_debug("__run_timer plus 1 tick, %lu", tw->clk);
@@ -304,7 +318,7 @@ static long tw_pop_elem(struct bpf_map *map, void *value)
         struct time_wheel_map *tmap = container_of(map, struct time_wheel_map, map);
         struct cascade_time_wheel *tw = this_cpu_ptr(tmap->tw);
         u64 * expire_timers = (u64 *)value;
-        __run_timers(tw, expire_timers);
+        __run_timers(tmap, tw, expire_timers);
         return 0;
 }
 
@@ -374,6 +388,7 @@ static int testing_release(struct inode *inode, struct file *file)
 static ssize_t testing_operation(struct file *flip, char __user *ubuf, size_t count, loff_t *ppos) 
 {
 	/* testing data structure operation*/
+        preempt_disable();
         struct bpf_map *map;
         struct __tw_value_type value, expire_res = {0};
         int res = 0;
@@ -385,26 +400,25 @@ static ssize_t testing_operation(struct file *flip, char __user *ubuf, size_t co
              
         value.expires = ct + 4;
 
-        preempt_disable();
+ 
         res = tw_push_elem(map, (void*)&value, 0);
-        preempt_enable();
         
         lkm_assert_eq(0, res, "time wheel failed to push elem");
         
         current_time_g += 4;
 
-        preempt_disable();
         res = tw_pop_elem(map, (void*)&expire_res);
-        preempt_enable();
-
+ 
         lkm_assert_eq(0, res, "time wheel failed to pop elem");
         res = -2;
         lkm_assert_eq(1, *((u64*)&expire_res), "time wheel does not expire successfully");
 
+        preempt_enable();
         pr_info("testing time wheel success\n");
         return 0;      /*always not insert the mod*/
 
 lkm_test_error:
+        preempt_enable();
         pr_err("testing time wheel failed with res %d\n", res);
         return 0;
 }
