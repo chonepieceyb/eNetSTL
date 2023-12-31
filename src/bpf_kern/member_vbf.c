@@ -9,7 +9,7 @@ char _license[] SEC("license") = "GPL";
 #include <bpf/bpf_tracing.h>
 
 /* static vars */
-#define MAX_ENTRY 32
+#define MAX_ENTRY 128
 #define HASH_SEED_1 0xdeadbeef
 #define HASH_SEED_2 0xaaaabbbb
 #define MEMBER_NO_MATCH 0
@@ -26,16 +26,7 @@ char _license[] SEC("license") = "GPL";
 #define MUL_SHIFT 3
 #define DIV_SHIFT 2
 
-/* datastruct params which injected by userspace */
-// __u32 num_keys;
-// __u32 num_set;
-// __u32 num_keys_per_bf;
-// __u32 bits;
-// __u32 bit_mask;
-// __u32 num_hashes;
-// __u32 mul_shift;
-// __u32 div_shift;
-
+#define TEST_RANGE 20
 /* bitwise operation */
 static inline __u32
 ctz32(__u32 v)
@@ -45,38 +36,8 @@ ctz32(__u32 v)
 	| ( ( v & 0xCCCCCCCC ) != 0 ? ( v &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( v & 0xAAAAAAAA ) != 0 ) );
 }
 
-/* function macro */
-#define MEMBER_LOOKUP_VBF(table, key, key_len, set_id)		\
-	j, h1, h2;																			\
-	bit_loc;																				\
-	mask = ~0;																			\
-	h1 = jhash(&key, key_len, HASH_SEED_1);					\
-	h2 = jhash(&h1, sizeof(h1), HASH_SEED_2);				\
-	for (j = 0; j < NUM_HASHES; j++) {							\
-		bit_loc = (h1 + j * h2) & BIT_MASK;						\
-		mask &= test_bit(table, bit_loc);										\
-	}																								\
-	if (mask) {																			\
-		set_id = ctz32(mask) + 1;											\
-		log_info("key %d founded, set_id: %d\n", key, set_id);\
-	} else {																				\
-		set_id = MEMBER_NO_MATCH;											\
-		log_info("key %d not founded, set_id: %d\n", key, set_id);							\
-	}																								\
-
-#define MEMBER_ADD_VBF(table, key, key_len, set_id)			\
-	i, h1, h2;																			\
-	bit_loc;																				\
-	if (set_id > NUM_SET || set_id == MEMBER_NO_MATCH)	\
-		return -1;																		\
-	h1 = jhash(&key, key_len, HASH_SEED_1);					\
-	h2 = jhash(&h1, sizeof(h1), HASH_SEED_2);				\
-	for (i = 0; i < NUM_HASHES; i++) {							\
-		bit_loc = (h1 + i * h2) & BIT_MASK;						\
-		set_bit(table, bit_loc, set_id);											\
-	}																								\
-
 /* core malloc area */
+typedef __u16 set_t;
 struct vbf_memory {
 	__u32 table[MAX_ENTRY]
 };
@@ -92,8 +53,7 @@ static __always_inline __u32
 test_bit(__u32 *table, __u32 bit_loc)
 {
 	if ((bit_loc >> DIV_SHIFT) >= MAX_ENTRY) {
-		/* when lookup failed, will heat this */
-		log_debug("bit_loc error");
+		log_error("exceed max entry count at %d, bit_loc >> DIV_SHIFT: %d \n", __LINE__ ,bit_loc >> DIV_SHIFT);
 		return -EINVAL;
 	}
 	__u32 a = 32 >> MUL_SHIFT;
@@ -105,7 +65,7 @@ static __always_inline void
 set_bit(__u32 *table, __u32 bit_loc, __s32 set)
 {
 	if ((bit_loc >> DIV_SHIFT) >= MAX_ENTRY) {
-		log_error("bit_loc error");
+		log_error("exceed max entry count at %d, bit_loc >> DIV_SHIFT: %d \n", __LINE__ ,bit_loc >> DIV_SHIFT);
 		return;
 	}
 	__u32 a = 32 >> MUL_SHIFT;
@@ -115,17 +75,14 @@ set_bit(__u32 *table, __u32 bit_loc, __s32 set)
 
 /* vBF API implementation */
 static __always_inline int
-member_lookup_vbf(__u32 *table, __u32 *key, __u32 key_len, __s32 *set_id)
+member_lookup_vbf(__u32 *table, struct pkt_5tuple key, __u32 key_len, set_t *set_id)
 {
-	__u32 j;
-	if (key == NULL || set_id == NULL) {
-		return 0;
-	}
-	__u32 h1 = jhash(key, key_len, HASH_SEED_1);
-	__u32 h2 = jhash(&h1, key_len, HASH_SEED_2);
+	__u32 h1 = jhash_pkt(key, key_len, HASH_SEED_1);
+	__u32 h2 = jhash_u32(h1, sizeof(__u32), HASH_SEED_2);
 	__u32 mask = ~0;
 	__u32 bit_loc;
 
+	__u32 j;
 	for (j = 0; j < NUM_HASHES; j++) {
 		bit_loc = (h1 + j * h2) & BIT_MASK;
 		mask &= test_bit(table, bit_loc);
@@ -133,17 +90,15 @@ member_lookup_vbf(__u32 *table, __u32 *key, __u32 key_len, __s32 *set_id)
 
 	if (mask) {
 		*set_id = ctz32(mask) + 1;
-		log_info("key %d founded, set_id: %d\n", key, set_id);
 		return 1;
 	} else {
 		*set_id = MEMBER_NO_MATCH;
-		log_info("key %d not founded, set_id: %d\n", key, set_id);
 		return 0;
 	}
 }
 
 static __always_inline int
-member_add_vbf(__u32 *table, __u32 *key, __u32 key_len, __s32 set_id)
+member_add_vbf(__u32 *table, struct pkt_5tuple key, __u32 key_len, set_t set_id)
 {
 	__u32 i, h1, h2;
 	__u32 bit_loc;
@@ -151,8 +106,8 @@ member_add_vbf(__u32 *table, __u32 *key, __u32 key_len, __s32 set_id)
 	if (set_id > NUM_SET || set_id == MEMBER_NO_MATCH)
 		return -1;
 
-	h1 = jhash(key, key_len, HASH_SEED_1);
-	h2 = jhash(&h1, sizeof(__u32), HASH_SEED_2);
+	h1 = jhash_pkt(key, key_len, HASH_SEED_1);
+	h2 = jhash_u32(h1, sizeof(__u32), HASH_SEED_2);
 
 	for (i = 0; i < NUM_HASHES; i++) {
 		bit_loc = (h1 + i * h2) & BIT_MASK;
@@ -165,7 +120,7 @@ member_add_vbf(__u32 *table, __u32 *key, __u32 key_len, __s32 set_id)
 SEC("xdp")
 int test_vbf(struct xdp_md *ctx) {
 
-	__s32 set_id = 1;
+	set_t set_id = 1;
 	__u32 key_len = sizeof(__u32);
 	__u32 i, j, h1, h2;
 	__u32 bit_loc;
@@ -174,18 +129,39 @@ int test_vbf(struct xdp_md *ctx) {
 	int index = 0;
 	struct vbf_memory *__vbf = bpf_map_lookup_elem(&map, &index);
 	if (__vbf == NULL) {
-		log_error("memory initialization error");
+		log_error("memory initialization error at line %d\n", __LINE__);
 		return XDP_PASS;
 	}
 	__u32 *table = __vbf->table;
 
-	for (int k = 10; k < 20; k += 2) {
-		MEMBER_ADD_VBF(table, k, key_len, set_id)
-		// member_add_vbf(table, &i, key_len, set_id);
+	struct pkt_5tuple pkt = {0};
+	__u8 add_res[TEST_RANGE] = {0};
+	__u8 lookup_res[TEST_RANGE] = {0};
+
+	for (int i = 1; i < TEST_RANGE; i += 2) {
+		pkt.src_ip = i;
+		pkt.dst_ip = i;
+		pkt.src_port = i;
+		pkt.dst_port = i;
+		pkt.proto = 0x04;
+		add_res[i] = member_add_vbf(table, pkt, sizeof(struct pkt_5tuple), set_id);
+		if (add_res[i] == 0) {
+			log_info("add %d success\n", i);
+		} else {
+			log_error("add %d failed\n", i);
+		}
 	}
-	for (int v = 10; v < 20; v++) {
-		MEMBER_LOOKUP_VBF(table, v, key_len, set_id)
-		// member_lookup_vbf(table, &v, key_len, &set_id);
+
+	for (int i = 1; i < 20; i++) {
+		pkt.src_ip = i;
+		pkt.dst_ip = i;
+		pkt.src_port = i;
+		pkt.dst_port = i;
+		pkt.proto = 0x04;
+		lookup_res[i] = member_lookup_vbf(table, pkt, sizeof(struct pkt_5tuple), &set_id);
+		if (lookup_res[i] == 1) {
+			log_info("lookup %d success, set_id: %d\n", i, set_id);
+		}
 	}
 	return XDP_PASS;
 }
