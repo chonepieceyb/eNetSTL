@@ -1,6 +1,7 @@
 #include "../common.h"
 
 #define CUCKOO_HASH_MAX_ENTRIES 32
+#define CUCKOO_HASH_SIMD
 
 char _license[] SEC("license") = "GPL";
 
@@ -10,6 +11,10 @@ struct pkt_5tuple {
 	__be16 src_port;
 	__be16 dst_port;
 	uint8_t proto;
+#ifdef CUCKOO_HASH_SIMD
+	/* make this structure 16 bytes to use __cuckoo_hash_k16_cmp_eq */
+	uint8_t __pad[3];
+#endif
 } __attribute__((packed));
 
 struct {
