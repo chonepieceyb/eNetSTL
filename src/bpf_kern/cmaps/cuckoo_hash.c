@@ -1,7 +1,9 @@
 #include "../common.h"
 
-#define CUCKOO_HASH_MAX_ENTRIES 32
+#define CUCKOO_HASH_MAX_ENTRIES 512
 #define CUCKOO_HASH_SIMD
+
+#define ENOSPC 28 /* No space left on device */
 
 char _license[] SEC("license") = "GPL";
 
@@ -27,18 +29,27 @@ struct {
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx)
 {
-	struct pkt_5tuple key = {
-		.src_ip = bpf_get_prandom_u32(),
-		.dst_ip = bpf_get_prandom_u32(),
-		.src_port = bpf_get_prandom_u32(),
-		.dst_port = bpf_get_prandom_u32(),
-		.proto = bpf_get_prandom_u32(),
-	};
-	uint32_t value = bpf_get_prandom_u32(), *data;
+	uint32_t r1 = bpf_get_prandom_u32(), r2 = bpf_get_prandom_u32();
 
-	xdp_assert_eq(0, bpf_map_update_elem(&cuckoo_hash_map, &key, &value, 0),
-		      "cuckoo hash bpf_map_update_elem should succeed");
-	xdp_assert_neq(NULL, data = bpf_map_lookup_elem(&cuckoo_hash_map, &key),
+	struct pkt_5tuple key = {
+		.src_ip = r1,
+		.dst_ip = r1,
+		.src_port = r1,
+		.dst_port = r1,
+		.proto = 0x04,
+	};
+	uint32_t value = r2, *data;
+	int ret;
+
+	ret = bpf_map_update_elem(&cuckoo_hash_map, &key, &value, BPF_ANY);
+	if (ret == -ENOSPC) {
+		log_debug("cuckoo hash map has run out of space\n");
+		goto xdp_error;
+	}
+	xdp_assert_eq(0, ret, "cuckoo hash bpf_map_update_elem should succeed");
+
+	data = bpf_map_lookup_elem(&cuckoo_hash_map, &key);
+	xdp_assert_neq(NULL, data,
 		       "cuckoo hash bpf_map_lookup_elem should succeed");
 	xdp_assert_eq(
 		value, *data,
@@ -47,5 +58,5 @@ int xdp_main(struct xdp_md *ctx)
 	log_debug("cuckoo hash map test passed\n");
 
 xdp_error:
-	return XDP_PASS;
+	return XDP_DROP;
 }
