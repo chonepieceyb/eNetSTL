@@ -2,6 +2,7 @@
 
 #define CUCKOO_HASH_MAX_ENTRIES 512
 #define CUCKOO_HASH_SIMD
+#define CUCKOO_HASH_LOOKUP_ONLY
 
 #define ENOSPC 28 /* No space left on device */
 
@@ -41,6 +42,11 @@ int xdp_main(struct xdp_md *ctx)
 	uint32_t value = r2, *data;
 	int ret;
 
+#ifdef CUCKOO_HASH_LOOKUP_ONLY
+	data = bpf_map_lookup_elem(&cuckoo_hash_map, &key);
+	xdp_assert_eq(NULL, data,
+		      "cuckoo hash bpf_map_lookup_elem should return NULL");
+#else
 	ret = bpf_map_update_elem(&cuckoo_hash_map, &key, &value, BPF_ANY);
 	if (ret == -ENOSPC) {
 		log_debug("cuckoo hash map has run out of space\n");
@@ -54,6 +60,7 @@ int xdp_main(struct xdp_md *ctx)
 	xdp_assert_eq(
 		value, *data,
 		"cuckoo hash bpf_map_lookup_elem should return the correct value");
+#endif
 
 	log_debug("cuckoo hash map test passed\n");
 
