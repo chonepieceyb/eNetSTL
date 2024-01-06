@@ -1,6 +1,6 @@
 OBJ_NAME := cuckoo_hash
 USE_DEBUG ?= 1
-USE_SIMD ?= 0
+USE_SIMD ?= 1
 GCC_VERSION := 13
 
 obj-m := ${OBJ_NAME}.o
