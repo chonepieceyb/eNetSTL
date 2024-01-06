@@ -9,6 +9,10 @@
 
 #include <linux/types.h>
 
+// This macro is required to include <immintrin.h> in the kernel
+#define _MM_MALLOC_H_INCLUDED
+#include <immintrin.h>
+
 static inline uint32_t crc32c_sse42_u8(uint8_t data, uint32_t init_val)
 {
 	__asm__ volatile("crc32b %[data], %[init_val];"

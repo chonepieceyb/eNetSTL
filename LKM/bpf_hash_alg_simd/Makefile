@@ -1,4 +1,6 @@
 OBJ_NAME := bpf_hash_alg_simd
+FASTHASH_INLINE ?= 1
+XXHASH_INLINE ?= 1
 GCC_VERSION ?= 13
 CC_SIMD_OPTS ?= -mavx2
 
@@ -6,7 +8,23 @@ obj-m := ${OBJ_NAME}.o
 
 ${OBJ_NAME}-objs := module.o
 
+ifneq ($(FASTHASH_INLINE),1)
+$(OBJ_NAME)-objs += fasthash_simd.o
+endif
+
+ifneq ($(XXHASH_INLINE),1)
+$(OBJ_NAME)-objs += xxhash_simd.o
+endif
+
 ccflags-y += -I/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VERSION)/include $(CC_SIMD_OPTS)
+
+ifeq ($(FASTHASH_INLINE),1)
+ccflags-y += -DFASTHASH_INLINE
+endif
+
+ifeq ($(XXHASH_INLINE),1)
+ccflags-y += -DXXHASH_INLINE
+endif
 
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
 KDIR ?= /lib/modules/$(shell uname -r)/build
