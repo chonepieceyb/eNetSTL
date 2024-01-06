@@ -1,16 +1,18 @@
-#include "asm-generic/errno-base.h"
-#include "asm/processor.h"
-#include "linux/bpf.h"
-#include "linux/cpumask.h"
-#include "linux/err.h"
-#include "linux/gfp_types.h"
-#include "linux/list.h"
-#include "linux/poison.h"
-#include "linux/preempt.h"
-#include "linux/random.h"
-#include "linux/slab.h"
-#include "linux/stddef.h"
-#include "linux/time32.h"
+#include "linux/percpu-defs.h"
+#include <asm-generic/errno-base.h>
+#include <asm/fpu/api.h>
+#include <asm/processor.h>
+#include <linux/bpf.h>
+#include <linux/cpumask.h>
+#include <linux/err.h>
+#include <linux/gfp_types.h>
+#include <linux/list.h>
+#include <linux/poison.h>
+#include <linux/preempt.h>
+#include <linux/random.h>
+#include <linux/slab.h>
+#include <linux/stddef.h>
+#include <linux/time32.h>
 #include <linux/bitops.h>
 #include <linux/bpf.h>
 #include <linux/init.h>
@@ -261,11 +263,16 @@ typedef uint32_t cuckoo_hash_sig_t;
 static inline int __cuckoo_hash_k16_cmp_eq(const void *key1, const void *key2,
 					   size_t key_len)
 {
+	kernel_fpu_begin();
+
 	const __m128i k1 = _mm_loadu_si128((const __m128i *)key1);
 	const __m128i k2 = _mm_loadu_si128((const __m128i *)key2);
 	const __m128i x = _mm_xor_si128(k1, k2);
+	int ret = !_mm_test_all_zeros(x, x);
 
-	return !_mm_test_all_zeros(x, x);
+	kernel_fpu_end();
+
+	return ret;
 }
 
 /*
@@ -420,6 +427,7 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 #ifdef CUCKOO_HASH_SIMD
 	case 16:
 		h->cmp_jump_table_idx = KEY_16_BYTES;
+		cuckoo_log(debug, "using SIMD to compare keys (of 16B)\n");
 		break;
 #endif
 	default:
@@ -1067,8 +1075,20 @@ static long cuckoo_hash_update_elem(struct bpf_map *map, void *key, void *value,
 
 static u64 cuckoo_hash_mem_usage(const struct bpf_map *map)
 {
-	// FIXME:
-	return 0;
+	struct cuckoo_hash_bpf_map *cuckoo_hash_map =
+		(struct cuckoo_hash_bpf_map *)map;
+	struct cuckoo_hash *cuckoo_hash =
+		per_cpu_ptr(cuckoo_hash_map->cuckoo_hash, 0);
+	u64 size = 0, num_key_slots = cuckoo_hash->entries + 1;
+
+	size += sizeof(*map);
+	size += (sizeof(*cuckoo_hash) +
+		 sizeof(cuckoo_hash->free_slot_store[0]) * num_key_slots +
+		 sizeof(cuckoo_hash->buckets[0]) * cuckoo_hash->num_buckets +
+		 cuckoo_hash->key_entry_size * num_key_slots) *
+		num_possible_cpus();
+
+	return size;
 }
 
 static struct bpf_map_ops cuckoo_hash_ops = {
@@ -1094,6 +1114,10 @@ struct pkt_5tuple {
 	__be16 src_port;
 	__be16 dst_port;
 	uint8_t proto;
+#ifdef CUCKOO_HASH_SIMD
+	/* make this structure 16 bytes to use __cuckoo_hash_k16_cmp_eq */
+	uint8_t pad[3];
+#endif
 } __attribute__((packed));
 
 static int __testing_alloc(struct inode *inode, struct file *filp)
@@ -1164,17 +1188,17 @@ static ssize_t __testing_operation(struct file *flip, char __user *ubuf,
 	get_random_bytes(keys, sizeof(keys));
 	get_random_bytes(values, sizeof(values));
 
-	// It seems normal to get warnings like "BUG: using smp_processor_id() in
-	// preemptible ..." here as per-CPU data structures are used
-	// Reference: https://sourcegraph.com/github.com/torvalds/linux@a4ab2706bb1280693e7dff1c5c42a8cb9d70c177/-/blob/lib/smp_processor_id.c?L22-23
-
 	for (int i = 0; i < 32; ++i) {
+		preempt_disable();
 		ret = cuckoo_hash_update_elem(map, keys + i, values + i,
 					      BPF_ANY);
+		preempt_enable();
 		cuckoo_log(debug, "testing i = %d\n", i);
 		lkm_assert_eq(0, ret, "cuckoo_hash_lookup_elem should succeed");
 
+		preempt_disable();
 		data = cuckoo_hash_lookup_elem(map, keys + i);
+		preempt_enable();
 		lkm_assert_eq(0, IS_ERR_OR_NULL(data),
 			      "cuckoo_hash_lookup_elem should succeed");
 		lkm_assert_eq(
@@ -1182,14 +1206,18 @@ static ssize_t __testing_operation(struct file *flip, char __user *ubuf,
 			"cuckoo_hash_lookup_elem should return correct value");
 	}
 	for (int i = 32; i < 40; ++i) {
+		preempt_disable();
 		ret = cuckoo_hash_update_elem(map, keys + i, values + i,
 					      BPF_ANY);
+		preempt_enable();
 		cuckoo_log(debug, "testing i = %d\n", i);
 		lkm_assert_eq(
 			-ENOSPC, ret,
 			"cuckoo_hash_update_elem should fail with ENOSPC");
 
+		preempt_disable();
 		data = cuckoo_hash_lookup_elem(map, keys + i);
+		preempt_enable();
 		lkm_assert_eq(NULL, data,
 			      "cuckoo_hash_lookup_elem should return NULL");
 	}
