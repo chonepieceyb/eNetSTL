@@ -19,19 +19,19 @@ struct pkt_5tuple {
 extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 				     const struct btf_kfunc_id_set *kset);
 
-__bpf_kfunc __m256i bpf_xxh32_avx2_pkt5(const struct pkt_5tuple *buf,
-					const __m256i *seeds_vec)
+__bpf_kfunc void bpf_xxh32_avx2_pkt5(const struct pkt_5tuple *buf,
+				     const u32 *seeds, u32 *dest)
 {
-	return xxh32_avx2_pkt5(buf, seeds_vec);
+	*(__m256i *)dest = xxh32_avx2_pkt5(buf, (const __m256i *)seeds);
 }
 EXPORT_SYMBOL_GPL(bpf_xxh32_avx2_pkt5);
 
-__bpf_kfunc __m256i bpf_xxh32_avx2_pkt5_pkts(const __m256i *b0,
-					     const __m256i *b1,
-					     const __m256i *b2,
-					     const __m256i *b3, const u32 seed)
+__bpf_kfunc void bpf_xxh32_avx2_pkt5_pkts(const u32 *bytes, const u32 seed,
+					  u32 *dest)
 {
-	return xxh32_avx2_pkt5_pkts(b0, b1, b2, b3, seed);
+	*(__m256i *)dest = xxh32_avx2_pkt5_pkts(
+		(const __m256i *)bytes, (const __m256i *)bytes + 8,
+		(const __m256i *)bytes + 16, (const __m256i *)bytes + 24, seed);
 }
 EXPORT_SYMBOL_GPL(bpf_xxh32_avx2_pkt5_pkts);
 
