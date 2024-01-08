@@ -22,16 +22,22 @@ extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 __bpf_kfunc void bpf_xxh32_avx2_pkt5(const struct pkt_5tuple *buf,
 				     const u32 *seeds, u32 *dest)
 {
-	*(__m256i *)dest = xxh32_avx2_pkt5(buf, (const __m256i *)seeds);
+	__m256i seeds_vec = _mm256_loadu_si256((const __m256i_u *)seeds);
+	__m256i dest_vec = xxh32_avx2_pkt5(buf, &seeds_vec);
+	_mm256_storeu_si256((__m256i_u *)dest, dest_vec);
 }
 EXPORT_SYMBOL_GPL(bpf_xxh32_avx2_pkt5);
 
 __bpf_kfunc void bpf_xxh32_avx2_pkt5_pkts(const u32 *bytes, const u32 seed,
 					  u32 *dest)
 {
-	*(__m256i *)dest = xxh32_avx2_pkt5_pkts(
-		(const __m256i *)bytes, (const __m256i *)bytes + 8,
-		(const __m256i *)bytes + 16, (const __m256i *)bytes + 24, seed);
+	__m256i b0_vec = _mm256_loadu_si256((const __m256i_u *)bytes),
+		b1_vec = _mm256_loadu_si256((const __m256i_u *)bytes + 8),
+		b2_vec = _mm256_loadu_si256((const __m256i_u *)bytes + 16),
+		b3_vec = _mm256_loadu_si256((const __m256i_u *)bytes + 24);
+	__m256i dest_vec =
+		xxh32_avx2_pkt5_pkts(&b0_vec, &b1_vec, &b2_vec, &b3_vec, seed);
+	_mm256_storeu_si256((__m256i_u *)dest, dest_vec);
 }
 EXPORT_SYMBOL_GPL(bpf_xxh32_avx2_pkt5_pkts);
 
@@ -63,6 +69,87 @@ __bpf_kfunc uint32_t bpf_crc32c_sse(const void *data, uint32_t data__sz,
 }
 EXPORT_SYMBOL_GPL(bpf_crc32c_sse);
 
+__bpf_kfunc void bpf_kernel_fpu_begin(void)
+{
+	kernel_fpu_begin();
+}
+EXPORT_SYMBOL_GPL(bpf_kernel_fpu_begin);
+
+__bpf_kfunc void bpf_kernel_fpu_end(void)
+{
+	kernel_fpu_end();
+}
+EXPORT_SYMBOL_GPL(bpf_kernel_fpu_end);
+
+__bpf_kfunc void bpf_mm256_xor_si256(u8 *dest, const u8 *lhs, const u8 *rhs)
+{
+	__m256i lhs_vec = _mm256_loadu_si256((const __m256i_u *)lhs),
+		rhs_vec = _mm256_loadu_si256((const __m256i_u *)rhs);
+	__m256i dest_vec = _mm256_xor_si256(lhs_vec, rhs_vec);
+	_mm256_storeu_si256((__m256i_u *)dest, dest_vec);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_xor_si256);
+
+__bpf_kfunc void bpf_mm256_set1_epi64x(s64 *dest, s64 a)
+{
+	__m256i dest_vec = _mm256_set1_epi64x(a);
+	_mm256_storeu_si256((__m256i_u *)dest, dest_vec);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_set1_epi64x);
+
+__bpf_kfunc void bpf_mm256_srli_epi64(s64 *dest, const s64 *lhs, int rhs)
+{
+	__m256i lhs_vec = _mm256_loadu_si256((const __m256i_u *)lhs);
+	__m256i dest_vec = _mm256_srli_epi64(lhs_vec, rhs);
+	_mm256_storeu_si256((__m256i_u *)dest, dest_vec);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_srli_epi64);
+
+__bpf_kfunc void bpf_mm256_mul_epu32(u32 *dest, const u32 *lhs, const u32 *rhs)
+{
+	__m256i lhs_vec = _mm256_loadu_si256((const __m256i_u *)lhs),
+		rhs_vec = _mm256_loadu_si256((const __m256i_u *)rhs);
+	__m256i dest_vec = _mm256_mul_epu32(lhs_vec, rhs_vec);
+	_mm256_storeu_si256((__m256i_u *)dest, dest_vec);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_mul_epu32);
+
+__bpf_kfunc void bpf_mm256_and_si256(u8 *dest, const u8 *lhs, const u8 *rhs)
+{
+	__m256i lhs_vec = _mm256_loadu_si256((const __m256i_u *)lhs),
+		rhs_vec = _mm256_loadu_si256((const __m256i_u *)rhs);
+	__m256i dest_vec = _mm256_and_si256(lhs_vec, rhs_vec);
+	_mm256_storeu_si256((__m256i_u *)dest, dest_vec);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_and_si256);
+
+__bpf_kfunc void bpf_mm256_mullo_epi32(s32 *dest, const s32 *lhs,
+				       const s32 *rhs)
+{
+	__m256i lhs_vec = _mm256_loadu_si256((const __m256i_u *)lhs),
+		rhs_vec = _mm256_loadu_si256((const __m256i_u *)rhs);
+	__m256i dest_vec = _mm256_mullo_epi32(lhs_vec, rhs_vec);
+	_mm256_storeu_si256((__m256i_u *)dest, dest_vec);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_mullo_epi32);
+
+__bpf_kfunc void bpf_mm256_slli_si256_4(u8 *dest, const u8 *lhs)
+{
+	__m256i lhs_vec = _mm256_loadu_si256((const __m256i_u *)lhs);
+	__m256i dest_vec = _mm256_slli_si256(lhs_vec, 4);
+	_mm256_storeu_si256((__m256i_u *)dest, dest_vec);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_slli_si256_4);
+
+__bpf_kfunc void bpf_mm256_add_epi32(s32 *dest, const s32 *lhs, const s32 *rhs)
+{
+	__m256i lhs_vec = _mm256_loadu_si256((const __m256i_u *)lhs),
+		rhs_vec = _mm256_loadu_si256((const __m256i_u *)rhs);
+	__m256i dest_vec = _mm256_add_epi32(lhs_vec, rhs_vec);
+	_mm256_storeu_si256((__m256i_u *)dest, dest_vec);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_add_epi32);
+
 BTF_SET8_START(bpf_hash_alg_simd_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_xxh32_avx2_pkt5)
 BTF_ID_FLAGS(func, bpf_xxh32_avx2_pkt5_pkts)
@@ -70,6 +157,16 @@ BTF_ID_FLAGS(func, bpf_fasthash32_avx2)
 BTF_ID_FLAGS(func, bpf_fasthash32_alt_avx2)
 BTF_ID_FLAGS(func, bpf_fasthash32_alt_avx2_pkt5)
 BTF_ID_FLAGS(func, bpf_crc32c_sse)
+BTF_ID_FLAGS(func, bpf_kernel_fpu_begin)
+BTF_ID_FLAGS(func, bpf_kernel_fpu_end)
+BTF_ID_FLAGS(func, bpf_mm256_xor_si256)
+BTF_ID_FLAGS(func, bpf_mm256_set1_epi64x)
+BTF_ID_FLAGS(func, bpf_mm256_srli_epi64)
+BTF_ID_FLAGS(func, bpf_mm256_mul_epu32)
+BTF_ID_FLAGS(func, bpf_mm256_and_si256)
+BTF_ID_FLAGS(func, bpf_mm256_mullo_epi32)
+BTF_ID_FLAGS(func, bpf_mm256_slli_si256_4)
+BTF_ID_FLAGS(func, bpf_mm256_add_epi32)
 BTF_SET8_END(bpf_hash_alg_simd_kfunc_ids)
 
 static const struct btf_kfunc_id_set bpf_hash_alg_simd_kfunc_set = {
