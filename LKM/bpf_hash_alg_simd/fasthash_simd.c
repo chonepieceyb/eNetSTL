@@ -109,6 +109,13 @@ _fasthash64_avx2_pkt5(const struct pkt_5tuple *buf, const __m256i *seeds_vec)
 	const u64 *pos = (const u64 *)buf;
 	const unsigned char *pos2;
 
+	/* FIXME: Temporarily added to compare with eBPF version */
+	mm = _mm256_set1_epi64x(m);
+	mm_times_13 = _mm256_set1_epi64x(13 * m);
+	mix_constant = _mm256_set1_epi64x(0x2127599bf4325c37ULL);
+	mullo_mask = _mm256_set_epi32(0xffffffff, 0, 0xffffffff, 0, 0xffffffff,
+				      0, 0xffffffff, 0);
+
 	__m256i hh = _mm256_xor_si256(*seeds_vec, mm_times_13);
 
 	__m256i vv;
