@@ -1,18 +1,31 @@
 #include "common.h"
 #include "bpf_cmp_alg_simd.h"
+#include "vmlinux.h"
 
 static u8 index __attribute__((used));
 
 char _license[] SEC("license") = "GPL";
-unsigned int arr[8];
 
-SEC("xdp")
-int xdp_main(struct xdp_md *ctx)
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, u32);
+	__type(
+		value, struct { u32 data[8]; });
+} arr_map SEC(".maps");
+
+SEC("xdp") int xdp_main(struct xdp_md *ctx)
 {
 	void *data = (void *)(long)ctx->data,
 	     *data_end = (void *)(long)ctx->data_end;
-	u32 val;
+	u32 val, *arr, zero = 0;
 	int i;
+
+	arr = bpf_map_lookup_elem(&arr_map, &zero);
+	if (!arr) {
+		log_error("test_bpf_cmp_alg_simd: bpf_map_lookup_elem failed");
+		goto out;
+	}
 
 	if (data + sizeof(val) > data_end) {
 		log_error(
@@ -24,7 +37,7 @@ int xdp_main(struct xdp_md *ctx)
 
 #ifdef USE_EBPF_IMPL
 	index = -1;
-	for (i = 0; i < sizeof(arr) / sizeof(arr[0]); i++) {
+	for (i = 0; i < 8; i++) {
 		if (val == arr[i]) {
 			index = i;
 			break;
