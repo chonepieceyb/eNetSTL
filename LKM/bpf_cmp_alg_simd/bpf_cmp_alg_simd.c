@@ -14,9 +14,17 @@
 extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 				     const struct btf_kfunc_id_set *kset);
 
+#define _mm256_loadu_si256_optional(ptr)                                       \
+	(u64)(ptr) & ((1 << 5) - 1) ? _mm256_loadu_si256((__m256i_u *)(ptr)) : \
+				      (*(__m256i *)(ptr))
+
+#define _mm_loadu_si128_optional(ptr)                                       \
+	(u64)(ptr) & ((1 << 5) - 1) ? _mm_loadu_si128((__m128i_u *)(ptr)) : \
+				      *(__m128i *)(ptr)
+
 static inline u32 __find_mask_u32_avx2(const u32 *arr, u32 val)
 {
-	__m256i arr_vec = _mm256_loadu_si256((const __m256i_u *)arr),
+	__m256i arr_vec = _mm256_loadu_si256_optional(arr),
 		val_vec = _mm256_set1_epi32(val);
 	__m256i cmp = _mm256_cmpeq_epi32(arr_vec, val_vec);
 	u32 mask = _mm256_movemask_epi8(cmp);
@@ -25,7 +33,7 @@ static inline u32 __find_mask_u32_avx2(const u32 *arr, u32 val)
 
 static inline u32 __find_mask_u16_avx2(const u16 *arr, u16 val)
 {
-	__m256i arr_vec = _mm256_loadu_si256((const __m256i_u *)arr),
+	__m256i arr_vec = _mm256_loadu_si256_optional((const __m256i_u *)arr),
 		val_vec = _mm256_set1_epi16(val);
 	__m256i cmp = _mm256_cmpeq_epi16(arr_vec, val_vec);
 	u32 mask = _mm256_movemask_epi8(cmp);
@@ -34,7 +42,7 @@ static inline u32 __find_mask_u16_avx2(const u16 *arr, u16 val)
 
 static inline u16 __find_mask_u16_sse2(const u16 *arr, u16 val)
 {
-	__m128i arr_vec = _mm_loadu_si128((__m128i_u *)arr),
+	__m128i arr_vec = _mm_loadu_si128_optional((__m128i_u *)arr),
 		val_vec = _mm_set1_epi16(val);
 	__m128i cmp = _mm_cmpeq_epi16(arr_vec, val_vec);
 	u16 mask = _mm_movemask_epi8(cmp);
