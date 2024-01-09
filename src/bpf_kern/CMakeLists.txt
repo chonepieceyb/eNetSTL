@@ -74,3 +74,9 @@ add_dependencies(bpf_skel bpf_copy)
 set(CMAKE_C_FLAGS
     "${CMAKE_C_FLAGS} -Werror -w -g -O2 -target bpf"
 )
+
+if(${USE_EBPF_IMPL})
+    set(CMAKE_C_FLAGS
+        "${CMAKE_C_FLAGS} -DUSE_EBPF_IMPL"
+    )
+endif()

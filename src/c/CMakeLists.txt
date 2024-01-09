@@ -6,13 +6,13 @@ set(EXP_LIST "${C_FILES}/test_linked_list_user.c;${C_FILES}/test_time_wheel_user
 
 set(EXECUTABLE_OUTPUT_PATH "${BIN_TARGETS}")
 
-if (EXISTS "${LINUX_PATH}")
+if(EXISTS "${LINUX_PATH}")
     set(LIBBPF_SEARCH_PATH "${LINUX_PATH}/tools/lib/bpf")
 else()
     set(LIBBPF_SEARCH_PATH "${LIBBPF_PATH}/src")
 endif()
 
-if (${USE_STATIC})
+if(${USE_STATIC})
     set(CMAKE_FIND_LIBRARY_SUFFIXES ".a;.so")
     find_library(LIBELF NAMES elf z HINTS "/usr/lib/x86_64-linux-gnu" REQUIRED)
     find_library(LIBZ NAMES z HINTS "/usr/lib/x86_64-linux-gnu" REQUIRED)
@@ -43,7 +43,7 @@ if(${USE_HYPERCOM})
     set(TARGET_LIST "${TARGET_LIST};${HC_TARGET_LIST}")
 endif()
 
-if (NOT ${USE_EXP})
+if(NOT ${USE_EXP})
     list(REMOVE_ITEM TARGET_LIST ${EXP_LIST})
     list(REMOVE_ITEM SRC_LIST ${EXP_LIST})
 endif()
@@ -54,16 +54,19 @@ list(REMOVE_ITEM SRC_LIST ${BLACK_LIST})
 foreach(TF ${TARGET_LIST})
     get_filename_component(TN ${TF} NAME_WE)
     add_executable(${TN} ${SRC_LIST} ${TF})
-    if (EXISTS "${LINUX_PATH}")
+
+    if(EXISTS "${LINUX_PATH}")
         target_include_directories(${TN} PUBLIC "${LINUX_PATH}/tools/include")
         target_include_directories(${TN} PUBLIC "${LINUX_PATH}/tools/include/uapi")
         target_include_directories(${TN} PUBLIC "${LINUX_PATH}/tools/lib")
     endif()
-    if (${USE_STATIC})
+
+    if(${USE_STATIC})
         target_link_libraries(${TN} ${LIBBPF} ${LIBELF} ${LIBZ} ${LIBZSTD})
     else()
         target_link_libraries(${TN} ${LIBBPF})
     endif()
+
     add_dependencies(${TN} bpf_skel)
 endforeach()
 
