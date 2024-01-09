@@ -1,0 +1,114 @@
+#include <asm-generic/int-ll64.h>
+#include <linux/bpf.h>
+#include <linux/printk.h>
+#include <linux/bpf.h>
+#include <linux/btf.h>
+#include <linux/btf_ids.h>
+#include <linux/module.h>
+#include <linux/bitops.h>
+
+// This macro is required to include <immintrin.h> in the kernel
+#define _MM_MALLOC_H_INCLUDED
+#include <immintrin.h>
+
+extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
+				     const struct btf_kfunc_id_set *kset);
+
+static inline u32 __find_mask_u32_avx2(const u32 *arr, u32 val)
+{
+	__m256i arr_vec = _mm256_loadu_si256((const __m256i_u *)arr),
+		val_vec = _mm256_set1_epi32(val);
+	__m256i cmp = _mm256_cmpeq_epi32(arr_vec, val_vec);
+	u32 mask = _mm256_movemask_epi8(cmp);
+	return mask;
+}
+
+static inline u32 __find_mask_u16_avx2(const u16 *arr, u16 val)
+{
+	__m256i arr_vec = _mm256_loadu_si256((const __m256i_u *)arr),
+		val_vec = _mm256_set1_epi16(val);
+	__m256i cmp = _mm256_cmpeq_epi16(arr_vec, val_vec);
+	u32 mask = _mm256_movemask_epi8(cmp);
+	return mask;
+}
+
+static inline u16 __find_mask_u16_sse2(const u16 *arr, u16 val)
+{
+	__m128i arr_vec = _mm_loadu_si128((__m128i_u *)arr),
+		val_vec = _mm_set1_epi16(val);
+	__m128i cmp = _mm_cmpeq_epi16(arr_vec, val_vec);
+	u16 mask = _mm_movemask_epi8(cmp);
+	return mask;
+}
+
+__bpf_kfunc u8 bpf_find_u32_avx2(const u32 *arr, u32 val)
+{
+	u32 mask = __find_mask_u32_avx2(arr, val);
+	if (!mask) {
+		return -1;
+	} else {
+		return _bit_scan_forward(mask) >> 2;
+	}
+}
+EXPORT_SYMBOL_GPL(bpf_find_u32_avx2);
+
+__bpf_kfunc u8 bpf_find_u16_avx2(const u16 *arr, u16 val)
+{
+	u32 mask = __find_mask_u16_avx2(arr, val);
+	if (!mask) {
+		return -1;
+	} else {
+		return _bit_scan_forward(mask) >> 1;
+	}
+}
+EXPORT_SYMBOL_GPL(bpf_find_u16_avx2);
+
+__bpf_kfunc u8 bpf_find_u16_sse2(const u16 *arr, u16 val)
+{
+	u16 mask = __find_mask_u16_sse2(arr, val);
+	if (!mask) {
+		return -1;
+	} else {
+		return _bit_scan_forward(mask) >> 1;
+	}
+}
+
+BTF_SET8_START(bpf_cmp_alg_simd_kfunc_ids)
+BTF_ID_FLAGS(func, bpf_find_u32_avx2)
+BTF_ID_FLAGS(func, bpf_find_u16_avx2)
+BTF_ID_FLAGS(func, bpf_find_u16_sse2)
+BTF_SET8_END(bpf_cmp_alg_simd_kfunc_ids)
+
+static const struct btf_kfunc_id_set bpf_cmp_alg_simd_kfunc_set = {
+	.owner = THIS_MODULE,
+	.set = &bpf_cmp_alg_simd_kfunc_ids,
+};
+
+static int __init bpf_cmp_alg_simd_init(void)
+{
+	int ret;
+
+	if ((ret = register_btf_kfunc_id_set(
+		     BPF_PROG_TYPE_XDP, &bpf_cmp_alg_simd_kfunc_set)) < 0) {
+		pr_err("bpf_cmp_alg_simd: failed to register kfunc set: %d\n",
+		       ret);
+		return ret;
+	}
+
+	pr_info("bpf_cmp_alg_simd: initialized\n");
+	return 0;
+}
+
+static void __exit bpf_cmp_alg_simd_exit(void)
+{
+	pr_info("bpf_cmp_alg_simd: exiting\n");
+}
+
+/* Register module functions */
+module_init(bpf_cmp_alg_simd_init);
+module_exit(bpf_cmp_alg_simd_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Yang Hanlin");
+MODULE_DESCRIPTION("");
+MODULE_VERSION("0.0.1");
