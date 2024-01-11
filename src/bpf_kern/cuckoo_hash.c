@@ -1,7 +1,7 @@
 #include "vmlinux.h"
 
 #include "common.h"
-#include "fasthash.h"
+#include "xxhash.h"
 #include "simple_ringbuf.h"
 
 #define INDEX_WITH_BOUND(arr, idx, size)                                   \
@@ -30,7 +30,7 @@
 #define CUCKOO_HASH_EMPTY_SLOT 0
 #define CUCKOO_HASH_SEED 0xdeadbeef
 // h->entries in DPDK; we added an extra constraint that it must be a power of 2
-#define CUCKOO_HASH_ENTRIES 32
+#define CUCKOO_HASH_ENTRIES 128
 #define CUCKOO_HASH_KEY_SLOTS (CUCKOO_HASH_ENTRIES + 1)
 #if !CUCKOO_IS_POWER_OF_2(CUCKOO_HASH_ENTRIES)
 #error CUCKOO_HASH_ENTRIES must be a power of 2
@@ -54,7 +54,10 @@
 #endif
 
 // This needs to be consistent with CUCKOO_HASH_ENTRIES
-#define CUCKOO_HASH_KEY_SLOTS_SHIFT 5
+#define CUCKOO_HASH_KEY_SLOTS_SHIFT 7
+#if (1 << CUCKOO_HASH_KEY_SLOTS_SHIFT) != CUCKOO_HASH_ENTRIES
+#error CUCKOO_HASH_KEY_SLOTS_SHIFT must be consistent with CUCKOO_HASH_ENTRIES
+#endif
 
 #define CUCKOO_HASH_BFS_QUEUE_SHIFT 10
 #define CUCKOO_HASH_BFS_QUEUE_NODES \
@@ -181,7 +184,7 @@ get_cuckoo_hash(struct cuckoo_hash_parameters *params)
 static inline cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h,
 						   const cuckoo_hash_key_t *key)
 {
-	return fasthash32(key, CUCKOO_HASH_KEY_SIZE, CUCKOO_HASH_SEED);
+	return xxh32(key, CUCKOO_HASH_KEY_SIZE, CUCKOO_HASH_SEED);
 }
 
 static inline uint16_t __cuckoo_hash_get_short_sig(const cuckoo_hash_sig_t hash)

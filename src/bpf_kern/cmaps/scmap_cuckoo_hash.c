@@ -1,6 +1,6 @@
 #include "../common.h"
 
-#define CUCKOO_HASH_ENTRIES 256
+#define CUCKOO_HASH_ENTRIES 128
 
 #define cuckoo_log(level, fmt, ...)                                 \
 	log_##level(" cuckoo_hash (scmap): " fmt " (%s @ line %d)", \
