@@ -1,4 +1,3 @@
-#include "linux/percpu-defs.h"
 #include <asm-generic/errno-base.h>
 #include <asm/fpu/api.h>
 #include <asm/processor.h>
@@ -20,6 +19,7 @@
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/xxhash.h>
+#include <linux/percpu-defs.h>
 
 #ifdef CUCKOO_HASH_DEBUG
 #include "../test_helpers.h"
@@ -52,151 +52,7 @@ static uint32_t __cuckoo_hash_hash_default(const void *key, uint32_t key_len,
 typedef int (*__cuckoo_hash_cmp_eq_t)(const void *key1, const void *key2,
 				      size_t key_len);
 
-/**
- * Parameters used when creating the hash table.
- */
-struct cuckoo_hash_parameters {
-	uint32_t entries; /**< Total hash table entries. */
-	uint32_t key_len; /**< Length of hash key. */
-	uint8_t extra_flag; /**< Indicate if additional parameters are present. */
-};
-
-#ifdef CUCKOO_HASH_SIMD
-/*
- * All different options to select a key compare function,
- * based on the key size and custom function.
- */
-enum __cuckoo_hash_cmp_jump_table_case {
-	KEY_16_BYTES = 1,
-	KEY_OTHER_BYTES,
-	NUM_KEY_CMP_CASES,
-};
-#else
-/*
- * All different options to select a key compare function,
- * based on the key size and custom function.
- */
-enum __cuckoo_hash_cmp_jump_table_case {
-	KEY_OTHER_BYTES = 1,
-	NUM_KEY_CMP_CASES,
-};
-#endif
-
-/* All different signature compare functions */
-enum __cuckoo_hash_sig_compare_function {
-	CUCKOO_HASH_COMPARE_SCALAR = 0,
-	CUCKOO_HASH_COMPARE_SSE,
-	CUCKOO_HASH_COMPARE_NEON,
-	CUCKOO_HASH_COMPARE_NUM
-};
-
-/**
- * Number of items per bucket.
- * 8 is a tradeoff between performance and memory consumption.
- * When it is equal to 8, multiple 'struct CUCKOO_HASH_hash_bucket' can be fit
- * on a single cache line (64 or 128 bytes long) without any gaps
- * in memory between them due to alignment.
- */
-#define CUCKOO_HASH_BUCKET_ENTRIES 8
-
-/** Bucket structure */
-struct __cuckoo_hash_bucket {
-	uint16_t sig_current[CUCKOO_HASH_BUCKET_ENTRIES];
-	uint32_t key_idx[CUCKOO_HASH_BUCKET_ENTRIES];
-};
-
-struct __cuckoo_hash_free_slot {
-	struct list_head list;
-	uint32_t slot_id;
-};
-
-/** A hash table structure. */
-struct cuckoo_hash {
-	uint32_t entries; /**< Total table entries. */
-	uint32_t num_buckets; /**< Number of buckets in table. */
-
-	struct __cuckoo_hash_free_slot *free_slot_store;
-	struct list_head free_slot_list;
-	/**< Ring that stores all indexes of the free slots in the key table */
-
-	/* Fields used in lookup */
-
-	uint32_t key_len;
-	/**< Length of hash key. */
-	enum __cuckoo_hash_cmp_jump_table_case cmp_jump_table_idx;
-	/**< Indicates which compare function to use. */
-	uint32_t bucket_bitmask;
-	/**< Bitmask for getting bucket index from hash signature. */
-	uint32_t key_entry_size; /**< Size of each key entry. */
-
-	void *key_store; /**< Table storing all keys and data */
-	struct __cuckoo_hash_bucket *buckets;
-	/**< Table with buckets storing all the	hash values and key indexes
-	 * to the key table.
-	 */
-};
-
-/** Maximum size of hash table that can be created. */
-#define CUCKOO_HASH_ENTRIES_MAX (1 << 30)
-
-#define CUCKOO_HASH_KEY_ALIGNMENT 16
-
-/* Mask of all flags supported by this version (no flag is currently supported) */
-#define CUCKOO_HASH_EXTRA_FLAGS_MASK 0x0
-
-#define CUCKOO_HASH_BFS_QUEUE_MAX_LEN 1000
-
-#define CUCKOO_HASH_VALUE_SIZE 4
-
-#define CUCKOO_HASH_SEED 0xdeadbeef
-
-/**
- * Combines 32b inputs most significant set bits into the least
- * significant bits to construct a value with the same MSBs as x
- * but all 1's under it.
- *
- * @param x
- *    The integer whose MSBs need to be combined with its LSBs
- * @return
- *    The combined value.
- */
-static inline uint32_t __cuckoo_hash_combine32ms1b(uint32_t x)
-{
-	x |= x >> 1;
-	x |= x >> 2;
-	x |= x >> 4;
-	x |= x >> 8;
-	x |= x >> 16;
-
-	return x;
-}
-
-/**
- * Aligns input parameter to the next power of 2
- *
- * @param x
- *   The integer value to align
- *
- * @return
- *   Input parameter aligned to the next power of 2
- */
-static inline uint32_t __cuckoo_hash_align32pow2(uint32_t x)
-{
-	x--;
-	x = __cuckoo_hash_combine32ms1b(x);
-
-	return x + 1;
-}
-
-/* Structure that stores key-value pair */
-struct __cuckoo_hash_key {
-	/* Constant value size */
-	char value[CUCKOO_HASH_VALUE_SIZE];
-	/* Variable key size */
-	char key[0];
-};
-
-#define CUCKOO_HASH_CACHE_LINE_SIZE 64
+#define CUCKOO_IS_POWER_OF_2(n) ((n) && !(((n)-1) & (n)))
 
 /**
  * Macro to align a value to a given power-of-two. The resultant value
@@ -224,6 +80,85 @@ struct __cuckoo_hash_key {
  * This function is the same as CUCKOO_HASH_ALIGN_CEIL
  */
 #define CUCKOO_HASH_ALIGN(val, align) CUCKOO_HASH_ALIGN_CEIL(val, align)
+
+#define CUCKOO_HASH_BUCKET_ENTRIES 8
+#if !CUCKOO_IS_POWER_OF_2(CUCKOO_HASH_BUCKET_ENTRIES)
+#error CUCKOO_HASH_BUCKET_ENTRIES must be a power of 2
+#endif
+
+#define CUCKOO_HASH_ENTRIES 32
+#if !CUCKOO_IS_POWER_OF_2(CUCKOO_HASH_ENTRIES)
+#error CUCKOO_HASH_ENTRIES must be a power of 2
+#endif
+
+#define CUCKOO_HASH_KEY_ALIGNMENT 16
+
+#define CUCKOO_HASH_BFS_QUEUE_MAX_LEN 1000
+
+#define CUCKOO_HASH_KEY_SIZE 16
+
+#define CUCKOO_HASH_VALUE_SIZE 4
+
+#define CUCKOO_HASH_SEED 0xdeadbeef
+
+#define CUCKOO_HASH_KEY_SLOTS (CUCKOO_HASH_ENTRIES + 1)
+
+#define CUCKOO_HASH_NUM_BUCKETS \
+	(CUCKOO_HASH_ENTRIES / CUCKOO_HASH_BUCKET_ENTRIES)
+
+#define CUCKOO_HASH_BUCKET_BITMASK (CUCKOO_HASH_NUM_BUCKETS - 1)
+
+/* Structure that stores key-value pair */
+struct __cuckoo_hash_key {
+	/* Constant value size */
+	char value[CUCKOO_HASH_VALUE_SIZE];
+	/* Constant key size */
+	char key[CUCKOO_HASH_KEY_SIZE];
+};
+
+#define CUCKOO_HASH_KEY_ENTRY_SIZE                          \
+	CUCKOO_HASH_ALIGN(sizeof(struct __cuckoo_hash_key), \
+			  CUCKOO_HASH_KEY_ALIGNMENT)
+
+#define CUCKOO_HASH_EMPTY_SLOT 0
+
+/**
+ * add a byte-value offset to a pointer
+ */
+#define CUCKOO_HASH_PTR_ADD(ptr, x) ((void *)((uintptr_t)(ptr) + (x)))
+
+/** Bucket structure */
+struct __cuckoo_hash_bucket {
+	uint16_t sig_current[CUCKOO_HASH_BUCKET_ENTRIES];
+	uint32_t key_idx[CUCKOO_HASH_BUCKET_ENTRIES];
+};
+
+struct __cuckoo_hash_free_slot {
+	struct list_head list;
+	uint32_t slot_id;
+};
+
+/**
+ * Parameters used when creating the hash table.
+ */
+struct cuckoo_hash_parameters {
+	// All customization options are removed
+};
+
+/** A hash table structure. */
+struct cuckoo_hash {
+	struct __cuckoo_hash_free_slot *free_slot_store;
+	struct list_head free_slot_list;
+	/**< Ring that stores all indexes of the free slots in the key table */
+
+	/* Fields used in lookup */
+
+	void *key_store; /**< Table storing all keys and data */
+	struct __cuckoo_hash_bucket *buckets;
+	/**< Table with buckets storing all the	hash values and key indexes
+	 * to the key table.
+	 */
+};
 
 struct cuckoo_hash_bpf_map {
 	struct bpf_map map;
@@ -263,36 +198,20 @@ static inline int __cuckoo_hash_k16_cmp_eq(const void *key1, const void *key2,
 
 	return ret;
 }
-
-/*
- * Table storing all different key compare functions
- */
-const __cuckoo_hash_cmp_eq_t __cuckoo_hash_cmp_jump_table[NUM_KEY_CMP_CASES] = {
-	NULL, __cuckoo_hash_k16_cmp_eq, memcmp
-};
-#else
-/*
- * Table storing all different key compare functions
- */
-const __cuckoo_hash_cmp_eq_t __cuckoo_hash_cmp_jump_table[NUM_KEY_CMP_CASES] = {
-	NULL, memcmp
-};
-
 #endif
 
 static inline int __cuckoo_hash_cmp_eq(const void *key1, const void *key2,
 				       struct cuckoo_hash *h)
 {
-	return __cuckoo_hash_cmp_jump_table[h->cmp_jump_table_idx](key1, key2,
-								   h->key_len);
+#ifdef CUCKOO_HASH_SIMD
+#if CUCKOO_HASH_KEY_SIZE != 16
+#error "__cuckoo_hash_k16_cmp_eq is used, but CUCKOO_HASH_KEY_SIZE is not 16"
+#endif
+	return __cuckoo_hash_k16_cmp_eq(key1, key2, CUCKOO_HASH_KEY_SIZE);
+#else
+	return memcmp(key1, key2, CUCKOO_HASH_KEY_SIZE);
+#endif
 }
-
-#define CUCKOO_HASH_EMPTY_SLOT 0
-
-/**
- * add a byte-value offset to a pointer
- */
-#define CUCKOO_HASH_PTR_ADD(ptr, x) ((void *)((uintptr_t)(ptr) + (x)))
 
 static int
 __cuckoo_hash_validate_parameters(struct cuckoo_hash_parameters *params)
@@ -305,20 +224,6 @@ __cuckoo_hash_validate_parameters(struct cuckoo_hash_parameters *params)
 		goto out;
 	}
 
-	if (params->entries > CUCKOO_HASH_ENTRIES_MAX ||
-	    params->entries < CUCKOO_HASH_BUCKET_ENTRIES ||
-	    params->key_len == 0) {
-		cuckoo_log(err, "%s: has invalid parameters\n", __func__);
-		ret = -EINVAL;
-		goto out;
-	}
-
-	if (params->extra_flag & ~CUCKOO_HASH_EXTRA_FLAGS_MASK) {
-		cuckoo_log(err, "%s: unsupported extra flags\n", __func__);
-		ret = -EINVAL;
-		goto out;
-	}
-
 out:
 	return ret;
 }
@@ -327,9 +232,7 @@ static inline void
 __cuckoo_hash_fill_parameters(struct cuckoo_hash_parameters *params,
 			      union bpf_attr *attr)
 {
-	params->entries = attr->max_entries;
-	params->key_len = attr->key_size;
-	params->extra_flag = 0;
+	// Nothing to do
 }
 
 static int cuckoo_hash_alloc_check(union bpf_attr *attr)
@@ -338,6 +241,13 @@ static int cuckoo_hash_alloc_check(union bpf_attr *attr)
 	int ret;
 
 	// Check basic attributes
+	if (attr->key_size != CUCKOO_HASH_KEY_SIZE) {
+		cuckoo_log(err, "key_size (%d) != CUCKOO_HASH_KEY_SIZE (%d)\n",
+			   attr->key_size, CUCKOO_HASH_KEY_SIZE);
+		ret = -EINVAL;
+		goto out;
+	}
+
 	if (attr->value_size != CUCKOO_HASH_VALUE_SIZE) {
 		cuckoo_log(err,
 			   "value_size (%d) != CUCKOO_HASH_VALUE_SIZE (%d)\n",
@@ -362,19 +272,16 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 	struct __cuckoo_hash_free_slot *free_slots = NULL, *slot = NULL;
 	void *keys = NULL;
 	void *buckets = NULL;
-	unsigned num_key_slots;
-	uint32_t i, num_buckets;
+	uint32_t i;
 	int ret;
 
 	if ((ret = __cuckoo_hash_validate_parameters(params)) != 0) {
 		goto out;
 	}
 
-	num_key_slots = params->entries + 1;
-
 	/* Create free slot store (Dummy slot index is not enqueued) */
 	free_slots = (struct __cuckoo_hash_free_slot *)kvzalloc(
-		sizeof(struct __cuckoo_hash_free_slot) * num_key_slots,
+		sizeof(struct __cuckoo_hash_free_slot) * CUCKOO_HASH_KEY_SLOTS,
 		GFP_USER | __GFP_NOWARN);
 	if (free_slots == NULL) {
 		cuckoo_log(err, "free slot store memory allocation failed\n");
@@ -382,10 +289,8 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 		goto out;
 	}
 
-	num_buckets = __cuckoo_hash_align32pow2(params->entries) /
-		      CUCKOO_HASH_BUCKET_ENTRIES;
-
-	buckets = kvzalloc(num_buckets * sizeof(struct __cuckoo_hash_bucket),
+	buckets = kvzalloc(CUCKOO_HASH_NUM_BUCKETS *
+				   sizeof(struct __cuckoo_hash_bucket),
 			   GFP_USER | __GFP_NOWARN);
 	if (buckets == NULL) {
 		cuckoo_log(err, "buckets memory allocation failed\n");
@@ -393,10 +298,8 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 		goto out_free_free_slots;
 	}
 
-	const uint32_t key_entry_size = CUCKOO_HASH_ALIGN(
-		sizeof(struct __cuckoo_hash_key) + params->key_len,
-		CUCKOO_HASH_KEY_ALIGNMENT);
-	const uint64_t key_tbl_size = (uint64_t)key_entry_size * num_key_slots;
+	const uint64_t key_tbl_size =
+		CUCKOO_HASH_KEY_ENTRY_SIZE * CUCKOO_HASH_KEY_SLOTS;
 
 	keys = kvzalloc(key_tbl_size, GFP_USER | __GFP_NOWARN);
 	if (keys == NULL) {
@@ -405,29 +308,7 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 		goto out_free_buckets;
 	}
 
-	/*
-	 * If x86 architecture is used, select appropriate compare function,
-	 * which may use x86 intrinsics, otherwise use memcmp
-	 */
-	/* Select function to compare keys */
-	switch (params->key_len) {
-#ifdef CUCKOO_HASH_SIMD
-	case 16:
-		h->cmp_jump_table_idx = KEY_16_BYTES;
-		cuckoo_log(debug, "using SIMD to compare keys (of 16B)\n");
-		break;
-#endif
-	default:
-		/* If key is not multiple of 16, use generic memcmp */
-		h->cmp_jump_table_idx = KEY_OTHER_BYTES;
-	}
-
 	/* Setup hash context */
-	h->entries = params->entries;
-	h->key_len = params->key_len;
-	h->key_entry_size = key_entry_size;
-	h->num_buckets = num_buckets;
-	h->bucket_bitmask = h->num_buckets - 1;
 	h->buckets = buckets;
 	h->key_store = keys;
 	h->free_slot_store = free_slots;
@@ -436,7 +317,7 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 	h->free_slot_store[0].list.next = LIST_POISON1;
 	h->free_slot_store[0].list.prev = LIST_POISON2;
 	/* Populate free slots list (queue). Entry zero is reserved for key misses. */
-	for (i = 1; i < num_key_slots; i++) {
+	for (i = 1; i < CUCKOO_HASH_KEY_SLOTS; i++) {
 		slot = h->free_slot_store + i;
 		slot->slot_id = i;
 		// cuckoo_log(debug, "adding slot %d at %x\n", slot->slot_id, slot);
@@ -564,14 +445,14 @@ static inline uint32_t
 __cuckoo_hash_get_prim_bucket_index(struct cuckoo_hash *h,
 				    const cuckoo_hash_sig_t hash)
 {
-	return hash & h->bucket_bitmask;
+	return hash & CUCKOO_HASH_BUCKET_BITMASK;
 }
 
 static inline uint32_t __cuckoo_hash_get_alt_bucket_index(struct cuckoo_hash *h,
 							  uint32_t cur_bkt_idx,
 							  uint16_t sig)
 {
-	return (cur_bkt_idx ^ sig) & h->bucket_bitmask;
+	return (cur_bkt_idx ^ sig) & CUCKOO_HASH_BUCKET_BITMASK;
 }
 
 /* Search one bucket to find the match key - uses rw lock */
@@ -588,7 +469,8 @@ __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h, const void *key,
 		    bkt->key_idx[i] != CUCKOO_HASH_EMPTY_SLOT) {
 			k = (struct __cuckoo_hash_key
 				     *)((char *)keys +
-					bkt->key_idx[i] * h->key_entry_size);
+					bkt->key_idx[i] *
+						CUCKOO_HASH_KEY_ENTRY_SIZE);
 
 			if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
 				if (data != NULL)
@@ -654,7 +536,8 @@ static inline int32_t __cuckoo_hash_lookup_with_hash(struct cuckoo_hash *h,
 cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h, const void *key)
 {
 	/* calc hash result by key */
-	return __cuckoo_hash_hash_default(key, h->key_len, CUCKOO_HASH_SEED);
+	return __cuckoo_hash_hash_default(key, CUCKOO_HASH_KEY_SIZE,
+					  CUCKOO_HASH_SEED);
 }
 
 int __cuckoo_hash_lookup_data(struct cuckoo_hash *h, const void *key,
@@ -699,7 +582,8 @@ __cuckoo_hash_search_and_update(struct cuckoo_hash *h, void *data,
 		if (bkt->sig_current[i] == sig) {
 			k = (struct __cuckoo_hash_key
 				     *)((char *)keys +
-					bkt->key_idx[i] * h->key_entry_size);
+					bkt->key_idx[i] *
+						CUCKOO_HASH_KEY_ENTRY_SIZE);
 			if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
 				memcpy(&k->value, data, CUCKOO_HASH_VALUE_SIZE);
 				/*
@@ -975,10 +859,10 @@ static inline int32_t __cuckoo_hash_add_key_with_hash(struct cuckoo_hash *h,
 		return -ENOSPC;
 	}
 
-	new_k = CUCKOO_HASH_PTR_ADD(keys, slot_id * h->key_entry_size);
+	new_k = CUCKOO_HASH_PTR_ADD(keys, slot_id * CUCKOO_HASH_KEY_ENTRY_SIZE);
 	memcpy(&new_k->value, data, CUCKOO_HASH_VALUE_SIZE);
 	/* Copy key */
-	memcpy(new_k->key, key, h->key_len);
+	memcpy(new_k->key, key, CUCKOO_HASH_KEY_SIZE);
 
 	/* Find an empty slot and insert */
 	ret = __cuckoo_hash_cuckoo_insert_mw(h, prim_bkt, sec_bkt, key, data,
@@ -1058,13 +942,14 @@ static u64 cuckoo_hash_mem_usage(const struct bpf_map *map)
 		(struct cuckoo_hash_bpf_map *)map;
 	struct cuckoo_hash *cuckoo_hash =
 		per_cpu_ptr(cuckoo_hash_map->cuckoo_hash, 0);
-	u64 size = 0, num_key_slots = cuckoo_hash->entries + 1;
+	u64 size = 0;
 
 	size += sizeof(*map);
 	size += (sizeof(*cuckoo_hash) +
-		 sizeof(cuckoo_hash->free_slot_store[0]) * num_key_slots +
-		 sizeof(cuckoo_hash->buckets[0]) * cuckoo_hash->num_buckets +
-		 cuckoo_hash->key_entry_size * num_key_slots) *
+		 sizeof(cuckoo_hash->free_slot_store[0]) *
+			 CUCKOO_HASH_KEY_SLOTS +
+		 sizeof(cuckoo_hash->buckets[0]) * CUCKOO_HASH_NUM_BUCKETS +
+		 CUCKOO_HASH_KEY_ENTRY_SIZE * CUCKOO_HASH_KEY_SLOTS) *
 		num_possible_cpus();
 
 	return size;
