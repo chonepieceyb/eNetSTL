@@ -203,11 +203,23 @@ static inline uint32_t __cuckoo_hash_get_alt_bucket_index(struct cuckoo_hash *h,
 	return (cur_bkt_idx ^ sig) & CUCKOO_HASH_BUCKET_BITMASK;
 }
 
+static inline int __cuckoo_hash_memcmp(const void *s1, const void *s2, size_t n)
+{
+	const uint8_t *p1 = s1, *p2 = s2;
+	int ret = 0;
+
+	while (n--) {
+		if ((ret = *p1++ - *p2++) != 0)
+			break;
+	}
+	return ret;
+}
+
 static inline int __cuckoo_hash_cmp_eq(const cuckoo_hash_key_t *key1,
 				       const cuckoo_hash_key_t *key2,
 				       struct cuckoo_hash *h)
 {
-	return __builtin_memcmp(key1, key2, sizeof(*key1));
+	return __cuckoo_hash_memcmp(key1, key2, sizeof(*key1));
 }
 
 static inline int32_t
