@@ -1043,6 +1043,8 @@ static inline int32_t __cuckoo_hash_add_key_with_hash(struct cuckoo_hash *h,
 	}
 
 	/* ext table is not enabled, so we failed the insertion */
+	cuckoo_log(debug, "no space 2\n");
+	__cuckoo_hash_enqueue_slot_back(h, slot_id);
 	return ret;
 }
 
