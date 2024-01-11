@@ -92,16 +92,22 @@ DECLARE_SIMPLE_RINGBUF(cuckoo_hash_bfs_queue, uint32_t,
 		       CUCKOO_HASH_BFS_QUEUE_SHIFT);
 
 struct cuckoo_hash_parameters {};
-typedef struct pkt_5tuple cuckoo_hash_key_t;
+
+struct pkt_5tuple_with_pad {
+	struct pkt_5tuple pkt;
+	uint8_t __pad[3];
+} __attribute__((packed));
+
+typedef struct pkt_5tuple_with_pad cuckoo_hash_key_t;
 typedef uint32_t cuckoo_hash_value_t;
 typedef uint32_t cuckoo_hash_sig_t;
 
 #define CUCKOO_HASH_KEY_SIZE sizeof(cuckoo_hash_key_t)
 #define CUCKOO_HASH_VALUE_SIZE sizeof(cuckoo_hash_value_t)
 
-#define cuckoo_log(level, fmt, ...)                                        \
-	log_##level(" cuckoo_hash: " fmt " (%s @ line %d)", ##__VA_ARGS__, \
-		    __func__, __LINE__)
+#define cuckoo_log(level, fmt, ...)                                \
+	log_##level(" cuckoo_hash (ebpf): " fmt " (%s @ line %d)", \
+		    ##__VA_ARGS__, __func__, __LINE__)
 
 struct __cuckoo_hash_key {
 	cuckoo_hash_value_t value;
@@ -572,7 +578,7 @@ int xdp_main(struct xdp_md *ctx)
 {
 	struct cuckoo_hash_parameters params = {};
 	struct cuckoo_hash *h;
-	struct pkt_5tuple pkt;
+	struct pkt_5tuple_with_pad pkt;
 	uint32_t *curr_count, count;
 	void *data, *data_end;
 	struct hdr_cursor nh;
@@ -587,15 +593,15 @@ int xdp_main(struct xdp_md *ctx)
 	data = (void *)(long)ctx->data;
 	data_end = (void *)(long)ctx->data_end;
 	nh.pos = data;
-	if ((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0) {
+	if ((ret = parse_pkt_5tuple(&nh, data_end, &pkt.pkt)) != 0) {
 		cuckoo_log(error, "cannot parse packet: %d", ret);
 		goto out;
 	} else {
 		cuckoo_log(
 			debug,
 			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
-			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
-			pkt.proto);
+			pkt.pkt.src_ip, pkt.pkt.src_port, pkt.pkt.dst_ip,
+			pkt.pkt.dst_port, pkt.pkt.proto);
 	}
 
 	ret = cuckoo_hash_lookup_elem(h, &pkt, &curr_count);
