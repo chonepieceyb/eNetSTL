@@ -44,12 +44,14 @@ int xdp_main(struct xdp_md *ctx)
 	}
 
 	curr_count = bpf_map_lookup_elem(&cuckoo_hash_map, &pkt);
-	if (curr_count == NULL) {
-		cuckoo_log(debug, "cannot find packet");
-		count = 1;
-	} else {
+	if (curr_count != NULL) {
 		cuckoo_log(debug, "found packet: %d", *curr_count);
-		count = *curr_count + 1;
+		*curr_count = *curr_count + 1;
+		cuckoo_log(debug, "updated packet in place");
+		goto out;
+	} else {
+		cuckoo_log(debug, "cannot find packet: %d", ret);
+		count = 1;
 	}
 
 	ret = bpf_map_update_elem(&cuckoo_hash_map, &pkt, &count, BPF_ANY);

@@ -617,12 +617,14 @@ int xdp_main(struct xdp_md *ctx)
 	}
 
 	ret = cuckoo_hash_lookup_elem(h, &pkt, &curr_count);
-	if (ret != 0) {
+	if (ret == 0) {
+		cuckoo_log(debug, "found packet: %d", *curr_count);
+		*curr_count = *curr_count + 1;
+		cuckoo_log(debug, "updated packet in place");
+		goto out;
+	} else {
 		cuckoo_log(debug, "cannot find packet: %d", ret);
 		count = 1;
-	} else {
-		cuckoo_log(debug, "found packet: %d", *curr_count);
-		count = *curr_count + 1;
 	}
 
 	ret = cuckoo_hash_update_elem(h, &pkt, &count);
