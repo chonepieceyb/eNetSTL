@@ -1,14 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
-
 #include "vmlinux.h"
 
 #include "common.h"
 #include "fasthash.h"
 #include "simple_ringbuf.h"
-
-#define EINVAL 22
-#define ENOSPC 28
-#define ENOENT 2
 
 #define INDEX_WITH_BOUND(arr, idx, size)                                   \
 	({                                                                 \
@@ -28,14 +22,6 @@
 
 #define inline inline __attribute__((always_inline))
 
-struct pkt_5tuple {
-	__be32 src_ip;
-	__be32 dst_ip;
-	__be16 src_port;
-	__be16 dst_port;
-	uint8_t proto;
-} __attribute__((packed));
-
 #define CUCKOO_HASH_BUCKET_ENTRIES 8
 #define CUCKOO_IS_POWER_OF_2(n) ((n) && !(((n)-1) & (n)))
 #if !CUCKOO_IS_POWER_OF_2(CUCKOO_HASH_BUCKET_ENTRIES)
@@ -54,7 +40,8 @@ struct pkt_5tuple {
 	(CUCKOO_HASH_ENTRIES / CUCKOO_HASH_BUCKET_ENTRIES)
 // h->bucket_bitmask in DPDK
 #define CUCKOO_HASH_BUCKET_BITMASK (CUCKOO_HASH_NUM_BUCKETS - 1)
-// #define CUCKOO_HASH_BFS_QUEUE_MAX_LEN 1000
+#define CUCKOO_HASH_GET_BUCKET(h, idx) \
+	INDEX_WITH_BOUND((h)->buckets, (idx), CUCKOO_HASH_NUM_BUCKETS)
 
 #if defined(CUCKOO_HASH_DEBUG)
 #define RETURN_IF_TRUE(cond, retval)   \
@@ -70,9 +57,27 @@ struct pkt_5tuple {
 #define CUCKOO_HASH_KEY_SLOTS_SHIFT 5
 
 #define CUCKOO_HASH_BFS_QUEUE_SHIFT 10
-
 #define CUCKOO_HASH_BFS_QUEUE_NODES \
 	SHIFT_TO_SIZE(CUCKOO_HASH_BFS_QUEUE_SHIFT + 1)
+#define CUCKOO_HASH_GET_BFS_QUEUE_NODE(h, idx)        \
+	INDEX_WITH_BOUND((h)->bfs_queue_nodes, (idx), \
+			 CUCKOO_HASH_BFS_QUEUE_NODES)
+#define CUCKOO_HASH_GET_BFS_QUEUE_HEAD_OR_TAIL(h, node_idx_ptr, prod_or_cons) \
+	({                                                                    \
+		(node_idx_ptr) =                                              \
+			cuckoo_hash_bfs_queue__simple_rbuf_##prod_or_cons(    \
+				&(h)->bfs_queue);                             \
+		if ((node_idx_ptr) == NULL) {                                 \
+			cuckoo_log(error,                                     \
+				   "cannot get bfs queue " #prod_or_cons);    \
+			return -EINVAL;                                       \
+		}                                                             \
+		CUCKOO_HASH_GET_BFS_QUEUE_NODE((h), *(node_idx_ptr));         \
+	})
+#define CUCKOO_HASH_GET_BFS_QUEUE_HEAD(h, node_idx_ptr) \
+	CUCKOO_HASH_GET_BFS_QUEUE_HEAD_OR_TAIL(h, node_idx_ptr, prod)
+#define CUCKOO_HASH_GET_BFS_QUEUE_TAIL(h, node_idx_ptr) \
+	CUCKOO_HASH_GET_BFS_QUEUE_HEAD_OR_TAIL(h, node_idx_ptr, cons)
 
 struct __cuckoo_hash_bfs_queue_node {
 	uint32_t bkt_idx;
@@ -94,7 +99,9 @@ typedef uint32_t cuckoo_hash_sig_t;
 #define CUCKOO_HASH_KEY_SIZE sizeof(cuckoo_hash_key_t)
 #define CUCKOO_HASH_VALUE_SIZE sizeof(cuckoo_hash_value_t)
 
-#define __cuckoo_hash_cache_aligned
+#define cuckoo_log(level, fmt, ...)                                        \
+	log_##level(" cuckoo_hash: " fmt " (%s @ line %d)", ##__VA_ARGS__, \
+		    __func__, __LINE__)
 
 struct __cuckoo_hash_key {
 	cuckoo_hash_value_t value;
@@ -104,7 +111,7 @@ struct __cuckoo_hash_key {
 struct __cuckoo_hash_bucket {
 	uint16_t sig_current[CUCKOO_HASH_BUCKET_ENTRIES];
 	uint32_t key_idx[CUCKOO_HASH_BUCKET_ENTRIES];
-} __cuckoo_hash_cache_aligned;
+};
 
 struct cuckoo_hash {
 	struct simple_rbuf__cuckoo_hash_free_slots free_slot_list;
@@ -118,15 +125,14 @@ struct cuckoo_hash {
 	uint32_t initialized : 1;
 };
 
+char LICENSE[] SEC("license") = "GPL";
+
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, int);
 	__type(value, struct cuckoo_hash);
 } cuckoo_hash_map SEC(".maps");
-
-#define cuckoo_log(level, fmt, ...) \
-	log_##level(" cuckoo_hash: " fmt, ##__VA_ARGS__)
 
 static inline void __cuckoo_hash_enqueue_slot_back(struct cuckoo_hash *h,
 						   uint32_t slot_id)
@@ -222,6 +228,7 @@ __cuckoo_hash_search_and_update(struct cuckoo_hash *h,
 			if (__cuckoo_hash_cmp_eq(key, &k->key, h) == 0) {
 				__builtin_memcpy(&k->value, data,
 						 CUCKOO_HASH_VALUE_SIZE);
+				return bkt->key_idx[i] - 1;
 			}
 		}
 	}
@@ -270,13 +277,6 @@ static inline int32_t __cuckoo_hash_cuckoo_insert_mw(
 	/* no empty entry */
 	return -1;
 }
-
-#define CUCKOO_HASH_GET_BFS_QUEUE_NODE(h, idx)        \
-	INDEX_WITH_BOUND((h)->bfs_queue_nodes, (idx), \
-			 CUCKOO_HASH_BFS_QUEUE_NODES)
-
-#define CUCKOO_HASH_GET_BUCKET(h, idx) \
-	INDEX_WITH_BOUND((h)->buckets, (idx), CUCKOO_HASH_NUM_BUCKETS)
 
 static inline int __cuckoo_hash_cuckoo_move_insert_mw(
 	struct cuckoo_hash *h, struct __cuckoo_hash_bucket *bkt,
@@ -327,24 +327,7 @@ static inline int __cuckoo_hash_cuckoo_move_insert_mw(
 	return 0;
 }
 
-#define CUCKOO_HASH_GET_BFS_QUEUE_HEAD_OR_TAIL(h, node_idx_ptr, prod_or_cons) \
-	({                                                                    \
-		(node_idx_ptr) =                                              \
-			cuckoo_hash_bfs_queue__simple_rbuf_##prod_or_cons(    \
-				&(h)->bfs_queue);                             \
-		if ((node_idx_ptr) == NULL) {                                 \
-			cuckoo_log(error,                                     \
-				   "cannot get bfs queue " #prod_or_cons);    \
-			return -EINVAL;                                       \
-		}                                                             \
-		CUCKOO_HASH_GET_BFS_QUEUE_NODE((h), *(node_idx_ptr));         \
-	})
-#define CUCKOO_HASH_GET_BFS_QUEUE_HEAD(h, node_idx_ptr) \
-	CUCKOO_HASH_GET_BFS_QUEUE_HEAD_OR_TAIL(h, node_idx_ptr, prod)
-#define CUCKOO_HASH_GET_BFS_QUEUE_TAIL(h, node_idx_ptr) \
-	CUCKOO_HASH_GET_BFS_QUEUE_HEAD_OR_TAIL(h, node_idx_ptr, cons)
-
-static inline int cuckoo_hash_cuckoo_make_space_mw(
+static inline int __cuckoo_hash_cuckoo_make_space_mw(
 	struct cuckoo_hash *h, uint32_t bkt_idx, uint32_t sec_bkt_idx,
 	const struct __cuckoo_hash_key *key, cuckoo_hash_value_t *data,
 	uint16_t sig, uint32_t new_idx, int32_t *ret_val)
@@ -459,11 +442,10 @@ static inline int32_t __cuckoo_hash_add_key_with_hash(
 	}
 
 	/* Primary bucket full, need to make space for new entry */
-	ret = cuckoo_hash_cuckoo_make_space_mw(h, prim_bucket_idx,
-					       sec_bucket_idx,
-					       (struct __cuckoo_hash_key *)key,
-					       data, short_sig, slot_id,
-					       &ret_val);
+	ret = __cuckoo_hash_cuckoo_make_space_mw(
+		h, prim_bucket_idx, sec_bucket_idx,
+		(struct __cuckoo_hash_key *)key, data, short_sig, slot_id,
+		&ret_val);
 	if (ret == 0) {
 		return slot_id - 1;
 	} else if (ret == 1) {
@@ -472,11 +454,10 @@ static inline int32_t __cuckoo_hash_add_key_with_hash(
 	}
 
 	/* Also search secondary bucket to get better occupancy */
-	ret = cuckoo_hash_cuckoo_make_space_mw(h, sec_bucket_idx,
-					       prim_bucket_idx,
-					       (struct __cuckoo_hash_key *)key,
-					       data, short_sig, slot_id,
-					       &ret_val);
+	ret = __cuckoo_hash_cuckoo_make_space_mw(
+		h, sec_bucket_idx, prim_bucket_idx,
+		(struct __cuckoo_hash_key *)key, data, short_sig, slot_id,
+		&ret_val);
 	if (ret == 0) {
 		return slot_id - 1;
 	} else if (ret == 1) {
@@ -586,43 +567,54 @@ static inline int32_t cuckoo_hash_lookup_elem(struct cuckoo_hash *h,
 	}
 }
 
-char LICENSE[] SEC("license") = "Dual BSD/GPL";
-
-// TODO: Parse 5-tuple from incoming traffic and return XDP_DROP
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx)
 {
-	bpf_printk("hello!\n");
-
-	struct pkt_5tuple key = {
-		.src_ip = bpf_get_prandom_u32(),
-		.dst_ip = bpf_get_prandom_u32(),
-		.src_port = bpf_get_prandom_u32(),
-		.dst_port = bpf_get_prandom_u32(),
-		.proto = bpf_get_prandom_u32(),
-	};
-	uint32_t value = bpf_get_prandom_u32();
-
 	struct cuckoo_hash_parameters params = {};
+	struct cuckoo_hash *h;
+	struct pkt_5tuple pkt;
+	uint32_t *curr_count, count;
+	void *data, *data_end;
+	struct hdr_cursor nh;
+	int ret;
 
-	struct cuckoo_hash *h = get_cuckoo_hash(&params);
+	h = get_cuckoo_hash(&params);
 	if (h == NULL) {
-		bpf_printk("skipping");
-		return XDP_PASS;
+		cuckoo_log(error, "cannot get cuckoo hash");
+		goto out;
 	}
 
-	bpf_printk("ret = %d", cuckoo_hash_update_elem(h, &key, &value));
+	data = (void *)(long)ctx->data;
+	data_end = (void *)(long)ctx->data_end;
+	nh.pos = data;
+	if ((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0) {
+		cuckoo_log(error, "cannot parse packet: %d", ret);
+		goto out;
+	} else {
+		cuckoo_log(
+			debug,
+			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
+			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
+			pkt.proto);
+	}
 
-	struct pkt_5tuple key2 = {
-		.src_ip = bpf_get_prandom_u32(),
-		.dst_ip = bpf_get_prandom_u32(),
-		.src_port = bpf_get_prandom_u32(),
-		.dst_port = bpf_get_prandom_u32(),
-		.proto = bpf_get_prandom_u32(),
-	};
-	cuckoo_hash_value_t *value2;
-	bpf_printk("ret = %d", cuckoo_hash_lookup_elem(h, &key2, &value2));
-	bpf_printk("lookup ret = %x", value2);
+	ret = cuckoo_hash_lookup_elem(h, &pkt, &curr_count);
+	if (ret != 0) {
+		cuckoo_log(debug, "cannot find packet: %d", ret);
+		count = 1;
+	} else {
+		cuckoo_log(debug, "found packet: %d", *curr_count);
+		count = *curr_count + 1;
+	}
 
-	return XDP_PASS;
+	ret = cuckoo_hash_update_elem(h, &pkt, &count);
+	if (ret != 0) {
+		cuckoo_log(error, "cannot update packet: %d", ret);
+		goto out;
+	} else {
+		cuckoo_log(debug, "updated packet");
+	}
+
+out:
+	return XDP_DROP;
 }
