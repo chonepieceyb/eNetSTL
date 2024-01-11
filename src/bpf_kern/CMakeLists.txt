@@ -9,14 +9,14 @@ set(EXP_LIST
 "${BPF_KERN_SRC_FILES}/linked_list_test.c;${BPF_KERN_SRC_FILES}/sched_time_wheel.c"
 )
 
-if(${USE_CMAP} AND EXISTS "${LINUX_PATH}")
+if(${USE_CMAP})
     aux_source_directory("${BPF_KERN_SRC_FILES}/cmaps" BPF_SRC_LIST_CMAP)
     file(GLOB BLACK_LIST_CMAP "${BPF_KERN_SRC_FILES}/cmaps/*.black")
     set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_CMAP}")
     set(BLACK_LIST "${BLACK_LIST};${BLACK_LIST_CMAP}")
 endif()
 
-if(${USE_HYPERCOM} AND EXISTS "${LINUX_PATH}")
+if(${USE_HYPERCOM})
     aux_source_directory("${BPF_KERN_SRC_FILES}/hypercom" BPF_SRC_LIST_HC)
     file(GLOB BLACK_LIST_HC "${BPF_KERN_SRC_FILES}/hypercom/*.black")
     set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_HC}")
