@@ -39,9 +39,6 @@ extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 /** Type of function that can be used for calculating the hash value. */
-typedef uint32_t (*__cuckoo_hash_function)(const void *key, uint32_t key_len,
-					   uint32_t init_val);
-
 static uint32_t __cuckoo_hash_hash_default(const void *key, uint32_t key_len,
 					   uint32_t init_val)
 {
@@ -55,16 +52,12 @@ static uint32_t __cuckoo_hash_hash_default(const void *key, uint32_t key_len,
 typedef int (*__cuckoo_hash_cmp_eq_t)(const void *key1, const void *key2,
 				      size_t key_len);
 
-// FIXME:
-#define __cuckoo_hash_cache_aligned
-
 /**
  * Parameters used when creating the hash table.
  */
 struct cuckoo_hash_parameters {
 	uint32_t entries; /**< Total hash table entries. */
 	uint32_t key_len; /**< Length of hash key. */
-	uint32_t hash_func_init_val; /**< Init value used by hash_func. */
 	uint8_t extra_flag; /**< Indicate if additional parameters are present. */
 };
 
@@ -110,7 +103,7 @@ enum __cuckoo_hash_sig_compare_function {
 struct __cuckoo_hash_bucket {
 	uint16_t sig_current[CUCKOO_HASH_BUCKET_ENTRIES];
 	uint32_t key_idx[CUCKOO_HASH_BUCKET_ENTRIES];
-} __cuckoo_hash_cache_aligned;
+};
 
 struct __cuckoo_hash_free_slot {
 	struct list_head list;
@@ -128,14 +121,10 @@ struct cuckoo_hash {
 
 	/* Fields used in lookup */
 
-	uint32_t key_len __cuckoo_hash_cache_aligned;
+	uint32_t key_len;
 	/**< Length of hash key. */
-	__cuckoo_hash_function hash_func; /**< Function used to calculate hash. */
-	uint32_t hash_func_init_val; /**< Init value used by hash_func. */
 	enum __cuckoo_hash_cmp_jump_table_case cmp_jump_table_idx;
 	/**< Indicates which compare function to use. */
-	enum __cuckoo_hash_sig_compare_function sig_cmp_fn;
-	/**< Indicates which signature compare function to use. */
 	uint32_t bucket_bitmask;
 	/**< Bitmask for getting bucket index from hash signature. */
 	uint32_t key_entry_size; /**< Size of each key entry. */
@@ -145,7 +134,7 @@ struct cuckoo_hash {
 	/**< Table with buckets storing all the	hash values and key indexes
 	 * to the key table.
 	 */
-} __cuckoo_hash_cache_aligned;
+};
 
 /** Maximum size of hash table that can be created. */
 #define CUCKOO_HASH_ENTRIES_MAX (1 << 30)
@@ -340,7 +329,6 @@ __cuckoo_hash_fill_parameters(struct cuckoo_hash_parameters *params,
 {
 	params->entries = attr->max_entries;
 	params->key_len = attr->key_size;
-	params->hash_func_init_val = CUCKOO_HASH_SEED;
 	params->extra_flag = 0;
 }
 
@@ -377,7 +365,6 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 	unsigned num_key_slots;
 	uint32_t i, num_buckets;
 	int ret;
-	__cuckoo_hash_function default_hash_func;
 
 	if ((ret = __cuckoo_hash_validate_parameters(params)) != 0) {
 		goto out;
@@ -435,25 +422,15 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 		h->cmp_jump_table_idx = KEY_OTHER_BYTES;
 	}
 
-	/* Default hash function */
-	default_hash_func = (__cuckoo_hash_function)__cuckoo_hash_hash_default;
 	/* Setup hash context */
 	h->entries = params->entries;
 	h->key_len = params->key_len;
 	h->key_entry_size = key_entry_size;
-	h->hash_func_init_val = params->hash_func_init_val;
 	h->num_buckets = num_buckets;
 	h->bucket_bitmask = h->num_buckets - 1;
 	h->buckets = buckets;
-	h->hash_func = default_hash_func;
 	h->key_store = keys;
 	h->free_slot_store = free_slots;
-
-#ifdef CUCKOO_HASH_SIMD
-	h->sig_cmp_fn = CUCKOO_HASH_COMPARE_SSE;
-#else
-	h->sig_cmp_fn = CUCKOO_HASH_COMPARE_SCALAR;
-#endif
 
 	INIT_LIST_HEAD(&h->free_slot_list);
 	h->free_slot_store[0].list.next = LIST_POISON1;
@@ -677,7 +654,7 @@ static inline int32_t __cuckoo_hash_lookup_with_hash(struct cuckoo_hash *h,
 cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h, const void *key)
 {
 	/* calc hash result by key */
-	return h->hash_func(key, h->key_len, h->hash_func_init_val);
+	return __cuckoo_hash_hash_default(key, h->key_len, CUCKOO_HASH_SEED);
 }
 
 int __cuckoo_hash_lookup_data(struct cuckoo_hash *h, const void *key,
