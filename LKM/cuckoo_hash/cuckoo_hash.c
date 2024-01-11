@@ -86,7 +86,7 @@ typedef int (*__cuckoo_hash_cmp_eq_t)(const void *key1, const void *key2,
 #error CUCKOO_HASH_BUCKET_ENTRIES must be a power of 2
 #endif
 
-#define CUCKOO_HASH_ENTRIES 32
+#define CUCKOO_HASH_ENTRIES 128
 #if !CUCKOO_IS_POWER_OF_2(CUCKOO_HASH_ENTRIES)
 #error CUCKOO_HASH_ENTRIES must be a power of 2
 #endif
@@ -147,14 +147,14 @@ struct cuckoo_hash_parameters {
 
 /** A hash table structure. */
 struct cuckoo_hash {
-	struct __cuckoo_hash_free_slot *free_slot_store;
+	struct __cuckoo_hash_free_slot free_slot_store[CUCKOO_HASH_KEY_SLOTS];
 	struct list_head free_slot_list;
 	/**< Ring that stores all indexes of the free slots in the key table */
 
 	/* Fields used in lookup */
 
 	void *key_store; /**< Table storing all keys and data */
-	struct __cuckoo_hash_bucket *buckets;
+	struct __cuckoo_hash_bucket buckets[CUCKOO_HASH_NUM_BUCKETS];
 	/**< Table with buckets storing all the	hash values and key indexes
 	 * to the key table.
 	 */
@@ -256,6 +256,14 @@ static int cuckoo_hash_alloc_check(union bpf_attr *attr)
 		goto out;
 	}
 
+	if (attr->max_entries != CUCKOO_HASH_ENTRIES) {
+		cuckoo_log(err,
+			   "max_entries (%d) != CUCKOO_HASH_ENTRIES (%d)\n",
+			   attr->max_entries, CUCKOO_HASH_ENTRIES);
+		ret = -EINVAL;
+		goto out;
+	}
+
 	// Check cuckoo hash parameters
 	__cuckoo_hash_fill_parameters(&params, attr);
 	if ((ret = __cuckoo_hash_validate_parameters(&params)) != 0) {
@@ -269,33 +277,13 @@ out:
 int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 				struct cuckoo_hash_parameters *params)
 {
-	struct __cuckoo_hash_free_slot *free_slots = NULL, *slot = NULL;
+	struct __cuckoo_hash_free_slot *slot = NULL;
 	void *keys = NULL;
-	void *buckets = NULL;
 	uint32_t i;
 	int ret;
 
 	if ((ret = __cuckoo_hash_validate_parameters(params)) != 0) {
 		goto out;
-	}
-
-	/* Create free slot store (Dummy slot index is not enqueued) */
-	free_slots = (struct __cuckoo_hash_free_slot *)kvzalloc(
-		sizeof(struct __cuckoo_hash_free_slot) * CUCKOO_HASH_KEY_SLOTS,
-		GFP_USER | __GFP_NOWARN);
-	if (free_slots == NULL) {
-		cuckoo_log(err, "free slot store memory allocation failed\n");
-		ret = -ENOMEM;
-		goto out;
-	}
-
-	buckets = kvzalloc(CUCKOO_HASH_NUM_BUCKETS *
-				   sizeof(struct __cuckoo_hash_bucket),
-			   GFP_USER | __GFP_NOWARN);
-	if (buckets == NULL) {
-		cuckoo_log(err, "buckets memory allocation failed\n");
-		ret = -ENOMEM;
-		goto out_free_free_slots;
 	}
 
 	const uint64_t key_tbl_size =
@@ -305,13 +293,11 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 	if (keys == NULL) {
 		cuckoo_log(err, "key table memory allocation failed\n");
 		ret = -ENOMEM;
-		goto out_free_buckets;
+		goto out;
 	}
 
 	/* Setup hash context */
-	h->buckets = buckets;
 	h->key_store = keys;
-	h->free_slot_store = free_slots;
 
 	INIT_LIST_HEAD(&h->free_slot_list);
 	h->free_slot_store[0].list.next = LIST_POISON1;
@@ -329,12 +315,6 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 out_free_keys:
 	kvfree(keys);
 	keys = NULL;
-out_free_buckets:
-	kvfree(buckets);
-	buckets = NULL;
-out_free_free_slots:
-	kvfree(free_slots);
-	free_slots = NULL;
 out:
 	return ret;
 }
@@ -346,12 +326,6 @@ void __cuckoo_hash_free_fields(struct cuckoo_hash *h)
 
 	if (h->key_store != NULL) {
 		kvfree(h->key_store);
-	}
-	if (h->buckets != NULL) {
-		kvfree(h->buckets);
-	}
-	if (h->free_slot_store != NULL) {
-		kvfree(h->free_slot_store);
 	}
 }
 
@@ -1002,7 +976,7 @@ static int __testing_alloc(struct inode *inode, struct file *filp)
 
 	attr.key_size = sizeof(struct pkt_5tuple);
 	attr.value_size = sizeof(uint32_t);
-	attr.max_entries = 32;
+	attr.max_entries = 128;
 
 	if ((ret = cuckoo_hash_alloc_check(&attr))) {
 		cuckoo_log(err, "failed to check alloc: %d\n", ret);
@@ -1047,34 +1021,44 @@ static ssize_t __testing_operation(struct file *flip, char __user *ubuf,
 	cuckoo_log(debug, "testing cuckoo hash operation\n");
 	map = (struct bpf_map *)(flip->private_data);
 
-	struct pkt_5tuple keys[40];
-	uint32_t values[40];
+	struct pkt_5tuple keys[32];
+	uint32_t values[32];
+
+	for (int i = 0; i < 4; ++i) {
+		get_random_bytes(keys, sizeof(keys));
+		get_random_bytes(values, sizeof(values));
+
+		for (int j = 0; j < 32; ++j) {
+			cuckoo_log(debug, "testing i = %d, j = %d\n", i, j);
+
+			preempt_disable();
+			ret = cuckoo_hash_update_elem(map, keys + j, values + j,
+						      BPF_ANY);
+			preempt_enable();
+			lkm_assert_eq(0, ret,
+				      "cuckoo_hash_update_elem should succeed");
+
+			preempt_disable();
+			data = cuckoo_hash_lookup_elem(map, keys + j);
+			preempt_enable();
+			lkm_assert_eq(0, IS_ERR_OR_NULL(data),
+				      "cuckoo_hash_lookup_elem should succeed");
+			lkm_assert_eq(
+				values[j], *data,
+				"cuckoo_hash_lookup_elem should return correct value");
+		}
+	}
+
 	get_random_bytes(keys, sizeof(keys));
 	get_random_bytes(values, sizeof(values));
 
 	for (int i = 0; i < 32; ++i) {
-		preempt_disable();
-		ret = cuckoo_hash_update_elem(map, keys + i, values + i,
-					      BPF_ANY);
-		preempt_enable();
 		cuckoo_log(debug, "testing i = %d\n", i);
-		lkm_assert_eq(0, ret, "cuckoo_hash_lookup_elem should succeed");
 
 		preempt_disable();
-		data = cuckoo_hash_lookup_elem(map, keys + i);
-		preempt_enable();
-		lkm_assert_eq(0, IS_ERR_OR_NULL(data),
-			      "cuckoo_hash_lookup_elem should succeed");
-		lkm_assert_eq(
-			values[i], *data,
-			"cuckoo_hash_lookup_elem should return correct value");
-	}
-	for (int i = 32; i < 40; ++i) {
-		preempt_disable();
 		ret = cuckoo_hash_update_elem(map, keys + i, values + i,
 					      BPF_ANY);
 		preempt_enable();
-		cuckoo_log(debug, "testing i = %d\n", i);
 		lkm_assert_eq(
 			-ENOSPC, ret,
 			"cuckoo_hash_update_elem should fail with ENOSPC");
