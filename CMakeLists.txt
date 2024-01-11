@@ -45,6 +45,10 @@ message(STATUS "USE_STATIC: ${USE_STATIC}")
 set(USE_EBPF_IMPL OFF CACHE BOOL "should use eBPF implementation")
 message(STATUS "USE_EBPF_IMPL: ${USE_EBPF_IMPL}")
 
+if(${USE_EBPF_IMPL})
+    add_compile_definitions(USE_EBPF_IMPL)
+endif()
+
 message(STATUS "LOG_LEVEL: ${LOG_LEVEL}")
 
 add_subdirectory("${BPF_KERN_SRC_FILES}")
