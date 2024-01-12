@@ -1,7 +1,7 @@
 #include "common.h"
 #include "bpf_skel/cuckoo_hash.skel.h"
 
-#define XDP_IF "ens4np0"
+#define XDP_IF "ens3f0"
 
 int main()
 {
