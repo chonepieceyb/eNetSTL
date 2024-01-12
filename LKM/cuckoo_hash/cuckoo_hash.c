@@ -198,6 +198,81 @@ static inline int __cuckoo_hash_k16_cmp_eq(const void *key1, const void *key2,
 
 	return ret;
 }
+
+#define _mm256_loadu_si256_optional(ptr)                                       \
+	(u64)(ptr) & ((1 << 5) - 1) ? _mm256_loadu_si256((__m256i_u *)(ptr)) : \
+				      (*(__m256i *)(ptr))
+
+#define _mm_loadu_si128_optional(ptr)                                       \
+	(u64)(ptr) & ((1 << 5) - 1) ? _mm_loadu_si128((__m128i_u *)(ptr)) : \
+				      *(__m128i *)(ptr)
+
+static inline u32 __find_mask_u32_avx2(const u32 *arr, u32 val)
+{
+	__m256i arr_vec = _mm256_loadu_si256_optional(arr),
+		val_vec = _mm256_set1_epi32(val);
+	__m256i cmp = _mm256_cmpeq_epi32(arr_vec, val_vec);
+	u32 mask = _mm256_movemask_epi8(cmp);
+	return mask;
+}
+
+static inline u16 __find_mask_u16_sse2(const u16 *arr, u16 val)
+{
+	__m128i arr_vec = _mm_loadu_si128_optional((__m128i_u *)arr),
+		val_vec = _mm_set1_epi16(val);
+	__m128i cmp = _mm_cmpeq_epi16(arr_vec, val_vec);
+	u16 mask = _mm_movemask_epi8(cmp);
+	return mask;
+}
+
+static inline u32 find_u32_avx2(const u32 *arr, u32 val)
+{
+	u32 mask = __find_mask_u32_avx2(arr, val);
+	return __tzcnt_u32(mask) >> 2;
+}
+
+static inline u32 find_u16_sse2(const u16 *arr, u16 val)
+{
+	u16 mask = __find_mask_u16_sse2(arr, val);
+	return __tzcnt_u16(mask) >> 1;
+}
+
+static inline u32 find_mask_u32_avx2(const u32 *arr, u32 val)
+{
+	u32 _mask = __find_mask_u32_avx2(arr, val), mask = 0;
+	int i;
+
+	for (i = 0; i < 8; i++) {
+		mask |= ((_mask >> (i << 2)) & 0x1) << i;
+	}
+
+	return mask;
+}
+
+static inline u32 find_mask_u16_sse2(const u16 *arr, u16 val)
+{
+	u16 _mask = __find_mask_u16_sse2(arr, val), mask = 0;
+	int i;
+
+	for (i = 0; i < 8; i++) {
+		mask |= ((_mask >> (i << 1)) & 0x1) << i;
+	}
+
+	return mask;
+}
+
+#define for_each_bit_set(idx, mask, delta)                      \
+	(delta) = __tzcnt_u32(mask);                            \
+	for ((idx) = (delta); (mask); (mask) >>= ((delta) + 1), \
+	    (delta) = __tzcnt_u32(mask), (idx) += (delta))
+
+#define for_each_u32_avx2(arr, val, idx, mask, delta) \
+	(mask) = find_mask_u32_avx2((arr), (val));    \
+	for_each_bit_set((idx), (mask), (delta))
+
+#define for_each_u16_sse2(arr, val, idx, mask, delta) \
+	(mask) = find_mask_u16_sse2((arr), (val));    \
+	for_each_bit_set((idx), (mask), (delta))
 #endif
 
 static inline int __cuckoo_hash_cmp_eq(const void *key1, const void *key2,
@@ -438,24 +513,43 @@ __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h, const void *key,
 	int i;
 	struct __cuckoo_hash_key *k, *keys = h->key_store;
 
+#ifdef CUCKOO_HASH_SIMD
+#if CUCKOO_HASH_BUCKET_ENTRIES != 8
+#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 8"
+#endif
+	uint32_t mask, delta;
+	mask = find_mask_u16_sse2(bkt->sig_current, sig) &
+	       ~find_mask_u32_avx2(bkt->key_idx, CUCKOO_HASH_EMPTY_SLOT);
+	cuckoo_log(debug, "mask = 0x%08x\n", mask);
+	for_each_bit_set(i, mask, delta)
+	{
+#else
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
 		if (bkt->sig_current[i] == sig &&
 		    bkt->key_idx[i] != CUCKOO_HASH_EMPTY_SLOT) {
-			k = (struct __cuckoo_hash_key
-				     *)((char *)keys +
-					bkt->key_idx[i] *
-						CUCKOO_HASH_KEY_ENTRY_SIZE);
+#endif
+		k = (struct __cuckoo_hash_key
+			     *)((char *)keys +
+				bkt->key_idx[i] * CUCKOO_HASH_KEY_ENTRY_SIZE);
+		cuckoo_log(debug, "checking key i = %d, key_idx = %d\n", i,
+			   bkt->key_idx[i]);
 
-			if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
-				if (data != NULL)
-					*data = &k->value;
-				/*
+		if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
+			cuckoo_log(debug, "key matches\n");
+
+			if (data != NULL)
+				*data = &k->value;
+			/*
 				 * Return index where key is stored,
 				 * subtracting the first dummy index
 				 */
-				return bkt->key_idx[i] - 1;
-			}
+			return bkt->key_idx[i] - 1;
+		} else {
+			cuckoo_log(debug, "key does not match\n");
 		}
+#ifndef CUCKOO_HASH_SIMD
+	}
+#endif
 	}
 	return -1;
 }
@@ -552,21 +646,31 @@ __cuckoo_hash_search_and_update(struct cuckoo_hash *h, void *data,
 	int i;
 	struct __cuckoo_hash_key *k, *keys = h->key_store;
 
+#ifdef CUCKOO_HASH_SIMD
+#if CUCKOO_HASH_BUCKET_ENTRIES != 8
+#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 8"
+#endif
+	uint32_t mask, delta;
+	for_each_u16_sse2(bkt->sig_current, sig, i, mask, delta)
+	{
+#else
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
 		if (bkt->sig_current[i] == sig) {
-			k = (struct __cuckoo_hash_key
-				     *)((char *)keys +
-					bkt->key_idx[i] *
-						CUCKOO_HASH_KEY_ENTRY_SIZE);
-			if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
-				memcpy(&k->value, data, CUCKOO_HASH_VALUE_SIZE);
-				/*
+#endif
+		k = (struct __cuckoo_hash_key
+			     *)((char *)keys +
+				bkt->key_idx[i] * CUCKOO_HASH_KEY_ENTRY_SIZE);
+		if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
+			memcpy(&k->value, data, CUCKOO_HASH_VALUE_SIZE);
+			/*
 				 * Return index where key is stored,
 				 * subtracting the first dummy index
 				 */
-				return bkt->key_idx[i] - 1;
-			}
+			return bkt->key_idx[i] - 1;
+#ifndef CUCKOO_HASH_SIMD
 		}
+#endif
+	}
 	}
 	return -1;
 }
@@ -624,6 +728,21 @@ __cuckoo_hash_cuckoo_insert_mw(struct cuckoo_hash *h,
 	/* Insert new entry if there is room in the primary
 	 * bucket.
 	 */
+#ifdef CUCKOO_HASH_SIMD
+#if CUCKOO_HASH_BUCKET_ENTRIES != 8
+#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 8"
+#endif
+	i = find_u32_avx2(prim_bkt->key_idx, CUCKOO_HASH_EMPTY_SLOT);
+
+	if (i == 8) {
+		/* no empty entry */
+		return -1;
+	}
+
+	prim_bkt->sig_current[i] = sig;
+	prim_bkt->key_idx[i] = new_idx;
+	return 0;
+#else
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
 		/* Check if slot is available */
 		if (likely(prim_bkt->key_idx[i] == CUCKOO_HASH_EMPTY_SLOT)) {
@@ -643,6 +762,7 @@ __cuckoo_hash_cuckoo_insert_mw(struct cuckoo_hash *h,
 
 	/* no empty entry */
 	return -1;
+#endif
 }
 
 struct __cuckoo_hash_bfs_queue_node {
@@ -721,6 +841,9 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 	struct __cuckoo_hash_bucket *curr_bkt, *alt_bkt;
 	uint32_t cur_idx, alt_idx;
 	int32_t ret;
+#ifdef CUCKOO_HASH_SIMD
+	uint32_t mask, delta;
+#endif
 
 	queue = kvzalloc(sizeof(struct __cuckoo_hash_bfs_queue_node) *
 				 CUCKOO_HASH_BFS_QUEUE_MAX_LEN,
@@ -746,6 +869,24 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 		cur_idx = tail->cur_bkt_idx;
 		cuckoo_log(debug, "iterating: queue size = %ld, cur_idx = %d\n",
 			   head - tail, cur_idx);
+#ifdef CUCKOO_HASH_SIMD
+#if CUCKOO_HASH_BUCKET_ENTRIES != 8
+#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 8"
+#endif
+		for_each_u32_avx2(curr_bkt->key_idx, CUCKOO_HASH_EMPTY_SLOT, i,
+				  mask, delta)
+		{
+			ret = __cuckoo_hash_cuckoo_move_insert_mw(
+				h, bkt, sec_bkt, key, data, tail, i, sig,
+				new_idx, ret_val);
+			cuckoo_log(debug, "%d: done move insert ret = %d\n", i,
+				   ret);
+			if (likely(ret != -1))
+				goto out_free_queue;
+		}
+
+		for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
+#else
 		for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
 			if (curr_bkt->key_idx[i] == CUCKOO_HASH_EMPTY_SLOT) {
 				ret = __cuckoo_hash_cuckoo_move_insert_mw(
@@ -760,6 +901,7 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 				cuckoo_log(debug, "%d: skipped move insert\n",
 					   i);
 			}
+#endif
 
 			/* Enqueue new node and keep prev node info */
 			alt_idx = __cuckoo_hash_get_alt_bucket_index(
@@ -841,7 +983,8 @@ static inline int32_t __cuckoo_hash_add_key_with_hash(struct cuckoo_hash *h,
 	/* Find an empty slot and insert */
 	ret = __cuckoo_hash_cuckoo_insert_mw(h, prim_bkt, sec_bkt, key, data,
 					     short_sig, slot_id, &ret_val);
-	cuckoo_log(debug, "prim bucket insert: %d\n", ret);
+	cuckoo_log(debug, "prim bucket insert: %d, slot_id = %d\n", ret,
+		   slot_id);
 	if (ret == 0)
 		return slot_id - 1;
 	else if (ret == 1) {
@@ -952,10 +1095,8 @@ struct pkt_5tuple {
 	__be16 src_port;
 	__be16 dst_port;
 	uint8_t proto;
-#ifdef CUCKOO_HASH_SIMD
 	/* make this structure 16 bytes to use __cuckoo_hash_k16_cmp_eq */
 	uint8_t pad[3];
-#endif
 } __attribute__((packed));
 
 static int __testing_alloc(struct inode *inode, struct file *filp)
