@@ -2,7 +2,7 @@
 #include "bpf_cmp_alg_simd.h"
 #include "vmlinux.h"
 
-static u8 index __attribute__((used));
+static u32 index __attribute__((used));
 
 char _license[] SEC("license") = "GPL";
 
@@ -36,7 +36,6 @@ SEC("xdp") int xdp_main(struct xdp_md *ctx)
 	}
 
 #ifdef USE_EBPF_IMPL
-	index = -1;
 	for (i = 0; i < 8; i++) {
 		if (val == arr[i]) {
 			index = i;

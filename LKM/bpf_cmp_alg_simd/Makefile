@@ -1,6 +1,6 @@
 OBJ_NAME := bpf_cmp_alg_simd
 GCC_VERSION ?= 13
-CC_SIMD_OPTS ?= -mavx2
+CC_SIMD_OPTS ?= -mavx2 -mbmi
 
 obj-m := ${OBJ_NAME}.o
 

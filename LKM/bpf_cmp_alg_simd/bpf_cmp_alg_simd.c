@@ -1,11 +1,10 @@
 #include <asm-generic/int-ll64.h>
-#include <linux/bpf.h>
-#include <linux/printk.h>
+#include <linux/bitops.h>
 #include <linux/bpf.h>
 #include <linux/btf.h>
 #include <linux/btf_ids.h>
 #include <linux/module.h>
-#include <linux/bitops.h>
+#include <linux/printk.h>
 
 // This macro is required to include <immintrin.h> in the kernel
 #define _MM_MALLOC_H_INCLUDED
@@ -49,42 +48,94 @@ static inline u16 __find_mask_u16_sse2(const u16 *arr, u16 val)
 	return mask;
 }
 
-__bpf_kfunc u8 bpf_find_u32_avx2(const u32 *arr, u32 val)
+__bpf_kfunc u32 bpf_find_u32_avx2(const u32 *arr, u32 val)
 {
 	u32 mask = __find_mask_u32_avx2(arr, val);
-	if (!mask) {
-		return -1;
-	} else {
-		return _bit_scan_forward(mask) >> 2;
-	}
+	return __tzcnt_u32(mask) >> 2;
 }
 EXPORT_SYMBOL_GPL(bpf_find_u32_avx2);
 
-__bpf_kfunc u8 bpf_find_u16_avx2(const u16 *arr, u16 val)
+__bpf_kfunc u32 bpf_find_u16_avx2(const u16 *arr, u16 val)
 {
 	u32 mask = __find_mask_u16_avx2(arr, val);
-	if (!mask) {
-		return -1;
-	} else {
-		return _bit_scan_forward(mask) >> 1;
-	}
+	return __tzcnt_u32(mask) >> 1;
 }
 EXPORT_SYMBOL_GPL(bpf_find_u16_avx2);
 
-__bpf_kfunc u8 bpf_find_u16_sse2(const u16 *arr, u16 val)
+__bpf_kfunc u32 bpf_find_u16_sse2(const u16 *arr, u16 val)
 {
 	u16 mask = __find_mask_u16_sse2(arr, val);
-	if (!mask) {
-		return -1;
-	} else {
-		return _bit_scan_forward(mask) >> 1;
-	}
+	return __tzcnt_u16(mask) >> 1;
 }
+EXPORT_SYMBOL_GPL(bpf_find_u16_sse2);
+
+__bpf_kfunc u32 __bpf_find_mask_u32_avx2(const u32 *arr, u32 val)
+{
+	return __find_mask_u32_avx2(arr, val);
+}
+EXPORT_SYMBOL_GPL(__bpf_find_mask_u32_avx2);
+
+__bpf_kfunc u32 __bpf_find_mask_u16_avx2(const u16 *arr, u16 val)
+{
+	return __find_mask_u16_avx2(arr, val);
+}
+EXPORT_SYMBOL_GPL(__bpf_find_mask_u16_avx2);
+
+__bpf_kfunc u32 __bpf_find_mask_u16_sse2(const u16 *arr, u16 val)
+{
+	return __find_mask_u16_sse2(arr, val);
+}
+EXPORT_SYMBOL_GPL(__bpf_find_mask_u16_sse2);
+
+__bpf_kfunc u32 bpf_find_mask_u32_avx2(const u32 *arr, u32 val)
+{
+	u32 _mask = __find_mask_u32_avx2(arr, val), mask = 0;
+	int i;
+
+	for (i = 0; i < 8; i++) {
+		mask |= ((_mask >> (i << 2)) & 0x1) << i;
+	}
+
+	return mask;
+}
+EXPORT_SYMBOL_GPL(bpf_find_mask_u32_avx2);
+
+__bpf_kfunc u32 bpf_find_mask_u16_avx2(const u16 *arr, u16 val)
+{
+	u32 _mask = __find_mask_u16_avx2(arr, val), mask = 0;
+	int i;
+
+	for (i = 0; i < 16; i++) {
+		mask |= ((_mask >> (i << 1)) & 0x1) << i;
+	}
+
+	return mask;
+}
+EXPORT_SYMBOL_GPL(bpf_find_mask_u16_avx2);
+
+__bpf_kfunc u32 bpf_find_mask_u16_sse2(const u16 *arr, u16 val)
+{
+	u16 _mask = __find_mask_u16_sse2(arr, val), mask = 0;
+	int i;
+
+	for (i = 0; i < 8; i++) {
+		mask |= ((_mask >> (i << 1)) & 0x1) << i;
+	}
+
+	return mask;
+}
+EXPORT_SYMBOL_GPL(bpf_find_mask_u16_sse2);
 
 BTF_SET8_START(bpf_cmp_alg_simd_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_find_u32_avx2)
 BTF_ID_FLAGS(func, bpf_find_u16_avx2)
 BTF_ID_FLAGS(func, bpf_find_u16_sse2)
+BTF_ID_FLAGS(func, __bpf_find_mask_u32_avx2)
+BTF_ID_FLAGS(func, __bpf_find_mask_u16_avx2)
+BTF_ID_FLAGS(func, __bpf_find_mask_u16_sse2)
+BTF_ID_FLAGS(func, bpf_find_mask_u32_avx2)
+BTF_ID_FLAGS(func, bpf_find_mask_u16_avx2)
+BTF_ID_FLAGS(func, bpf_find_mask_u16_sse2)
 BTF_SET8_END(bpf_cmp_alg_simd_kfunc_ids)
 
 static const struct btf_kfunc_id_set bpf_cmp_alg_simd_kfunc_set = {
