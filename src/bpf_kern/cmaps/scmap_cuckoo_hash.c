@@ -32,7 +32,7 @@ int xdp_main(struct xdp_md *ctx)
 	data = (void *)(long)ctx->data;
 	data_end = (void *)(long)ctx->data_end;
 	nh.pos = data;
-	if ((ret = parse_pkt_5tuple(&nh, data_end, &pkt.pkt)) != 0) {
+	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt.pkt)) != 0)) {
 		cuckoo_log(error, "cannot parse packet: %d", ret);
 		goto out;
 	} else {
@@ -44,7 +44,7 @@ int xdp_main(struct xdp_md *ctx)
 	}
 
 	curr_count = bpf_map_lookup_elem(&cuckoo_hash_map, &pkt);
-	if (curr_count != NULL) {
+	if (likely(curr_count != NULL)) {
 		cuckoo_log(debug, "found packet: %d", *curr_count);
 		*curr_count = *curr_count + 1;
 		cuckoo_log(debug, "updated packet in place");
@@ -55,7 +55,7 @@ int xdp_main(struct xdp_md *ctx)
 	}
 
 	ret = bpf_map_update_elem(&cuckoo_hash_map, &pkt, &count, BPF_ANY);
-	if (ret != 0) {
+	if (unlikely(ret != 0)) {
 		cuckoo_log(error, "cannot update packet: %d", ret);
 		goto out;
 	} else {
