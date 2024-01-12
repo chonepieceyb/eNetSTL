@@ -600,7 +600,7 @@ int xdp_main(struct xdp_md *ctx)
 	int ret;
 
 	h = get_cuckoo_hash(&params);
-	if (h == NULL) {
+	if (unlikely(h == NULL)) {
 		cuckoo_log(error, "cannot get cuckoo hash");
 		goto out;
 	}
@@ -608,7 +608,7 @@ int xdp_main(struct xdp_md *ctx)
 	data = (void *)(long)ctx->data;
 	data_end = (void *)(long)ctx->data_end;
 	nh.pos = data;
-	if ((ret = parse_pkt_5tuple(&nh, data_end, &pkt.pkt)) != 0) {
+	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt.pkt)) != 0)) {
 		cuckoo_log(error, "cannot parse packet: %d", ret);
 		goto out;
 	} else {
@@ -620,7 +620,7 @@ int xdp_main(struct xdp_md *ctx)
 	}
 
 	ret = cuckoo_hash_lookup_elem(h, &pkt, &curr_count);
-	if (ret == 0) {
+	if (likely(ret == 0)) {
 		cuckoo_log(debug, "found packet: %d", *curr_count);
 		*curr_count = *curr_count + 1;
 		cuckoo_log(debug, "updated packet in place");
@@ -631,7 +631,7 @@ int xdp_main(struct xdp_md *ctx)
 	}
 
 	ret = cuckoo_hash_update_elem(h, &pkt, &count);
-	if (ret != 0) {
+	if (unlikely(ret != 0)) {
 		cuckoo_log(error, "cannot update packet: %d", ret);
 		goto out;
 	} else {
