@@ -15,7 +15,7 @@ struct pkt_5tuple_with_pad {
 
 typedef struct pkt_5tuple_with_pad ss_key_t;
 
-#define SS_NUM_COUNTERS 16
+#define SS_NUM_COUNTERS 8
 #define SS_KEY_SIZE sizeof(ss_key_t)
 
 struct ss {

@@ -13,7 +13,7 @@ struct pkt_5tuple_with_pad {
 	__u8 pad[3];
 } __attribute__((packed));
 
-#define SS_NUM_COUNTERS 16
+#define SS_NUM_COUNTERS 8
 
 char _license[] SEC("license") = "GPL";
 

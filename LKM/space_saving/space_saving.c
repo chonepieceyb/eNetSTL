@@ -19,7 +19,7 @@
 
 typedef u32 ss_count_t;
 
-#define SS_NUM_COUNTERS 16
+#define SS_NUM_COUNTERS 8
 #define SS_KEY_SIZE 16
 #define SS_COUNT_SIZE sizeof(ss_count_t)
 
