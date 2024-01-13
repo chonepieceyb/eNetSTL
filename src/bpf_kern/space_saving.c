@@ -14,14 +14,15 @@ struct pkt_5tuple_with_pad {
 } __attribute__((packed));
 
 typedef struct pkt_5tuple_with_pad ss_key_t;
+typedef u16 ss_count_t;
 
 #define SS_NUM_COUNTERS 8
 #define SS_KEY_SIZE sizeof(ss_key_t)
 
 struct ss {
 	ss_key_t keys[SS_NUM_COUNTERS];
-	u32 counts[SS_NUM_COUNTERS];
-	u32 overestimates[SS_NUM_COUNTERS];
+	ss_count_t counts[SS_NUM_COUNTERS];
+	ss_count_t overestimates[SS_NUM_COUNTERS];
 };
 
 char _license[] SEC("license") = "GPL";
@@ -60,7 +61,7 @@ static inline int __ss_key_cmp(const ss_key_t *key1, const ss_key_t *key2)
 
 static inline int ss_increment(struct ss *tbl, const ss_key_t *key)
 {
-	u32 min_count = tbl->counts[0];
+	ss_count_t min_count = tbl->counts[0];
 	u32 min_idx = 0, i;
 	int ret = 0;
 

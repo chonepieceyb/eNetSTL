@@ -22,7 +22,7 @@
 
 #define ss_log(level, fmt, ...) pr_##level("space_saving: " fmt, ##__VA_ARGS__)
 
-typedef u32 ss_count_t;
+typedef u16 ss_count_t;
 
 #define SS_NUM_COUNTERS 8
 #if SS_NUM_COUNTERS != 8
@@ -35,6 +35,7 @@ typedef u32 ss_count_t;
 #endif
 
 #define SS_COUNT_SIZE sizeof(ss_count_t)
+/* Currently SS_COUNT_SIZE must be 2 for SIMD implementation to work */
 
 struct ss_table {
 	u8 keys[SS_KEY_SIZE * SS_NUM_COUNTERS];
@@ -61,6 +62,13 @@ static inline u32 __find_mask_u32_avx2(const u32 *arr, u32 val)
 	__m256i cmp = _mm256_cmpeq_epi32(arr_vec, val_vec);
 	u32 mask = _mm256_movemask_epi8(cmp);
 	return mask;
+}
+
+static inline u32 find_min_u16_sse(const u16 *arr)
+{
+	__m128i arr_vec = _mm_loadu_si128((__m128i_u *)arr);
+	__m128i res = _mm_minpos_epu16(arr_vec);
+	return _mm_extract_epi16(res, 1);
 }
 #endif
 
@@ -143,7 +151,7 @@ static void *ss_lookup_elem(struct bpf_map *map, void *key)
 
 static int ss_increment(struct ss_table *tbl, void *key)
 {
-	u32 min_count = tbl->counts[0];
+	ss_count_t min_count = tbl->counts[0];
 	u32 min_idx = 0, i, blk_idx;
 	int ret = 0;
 
@@ -186,18 +194,21 @@ static int ss_increment(struct ss_table *tbl, void *key)
 	}
 #endif
 
-#ifdef SS_SIMD
-replace_or_insert:
-#endif
 	/* This is also responsible for inserting new keys when the table is not full,
      * since the counts are initialized to 0.
      */
+#ifdef SS_SIMD
+replace_or_insert:
+	min_idx = find_min_u16_sse(tbl->counts);
+	min_count = tbl->counts[min_idx];
+#else
 	for (i = 0; i < SS_NUM_COUNTERS; i++) {
 		if (tbl->counts[i] < min_count) {
 			min_count = tbl->counts[i];
 			min_idx = i;
 		}
 	}
+#endif
 
 	ss_log(debug, "replacing (or inserting new) key at %d, count = %d\n",
 	       min_idx, min_count);
@@ -281,7 +292,7 @@ static int __testing_alloc(struct inode *inode, struct file *filp)
 	ss_log(debug, "start testing alloc\n");
 
 	attr.key_size = sizeof(struct pkt_5tuple);
-	attr.value_size = sizeof(uint32_t);
+	attr.value_size = sizeof(ss_count_t);
 	attr.max_entries = SS_NUM_COUNTERS;
 
 	if ((ret = ss_alloc_check(&attr))) {
@@ -331,17 +342,18 @@ static ssize_t __testing_operation(struct file *flip, char __user *ubuf,
 	map = (struct bpf_map *)(flip->private_data);
 
 	struct pkt_5tuple pkts[SS_NUM_COUNTERS + 8];
+	ss_count_t dummy = 0;
 	get_random_bytes(pkts, sizeof(pkts));
 
 	for (i = 0; i < SS_NUM_COUNTERS; ++i) {
 		ss_log(debug, "inserting %d\n", i);
-		ret = ss_update_elem(map, &pkts[i], &i, BPF_ANY);
+		ret = ss_update_elem(map, &pkts[i], &dummy, BPF_ANY);
 		lkm_assert_eq(0, ret, "ss_update_elem should succeed");
 	}
 
 	for (i = 0; i < ARRAY_SIZE(pkts); ++i) {
 		ss_log(debug, "updating %d\n", i);
-		ret = ss_update_elem(map, &pkts[i], &i, BPF_ANY);
+		ret = ss_update_elem(map, &pkts[i], &dummy, BPF_ANY);
 		lkm_assert_eq(0, ret, "ss_update_elem should succeed");
 	}
 

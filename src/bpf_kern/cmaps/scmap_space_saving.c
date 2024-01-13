@@ -13,6 +13,8 @@ struct pkt_5tuple_with_pad {
 	__u8 pad[3];
 } __attribute__((packed));
 
+typedef u16 ss_count_t;
+
 #define SS_NUM_COUNTERS 8
 
 char _license[] SEC("license") = "GPL";
@@ -21,7 +23,7 @@ struct {
 	__uint(type, BPF_MAP_TYPE_STATIC_CUSTOM_MAP);
 	__uint(max_entries, SS_NUM_COUNTERS);
 	__type(key, struct pkt_5tuple_with_pad);
-	__type(value, u32);
+	__type(value, ss_count_t);
 } ss_map SEC(".maps");
 
 SEC("xdp") int xdp_main(struct xdp_md *ctx)
