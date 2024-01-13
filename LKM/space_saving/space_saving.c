@@ -3,6 +3,7 @@
 #include <linux/random.h>
 #include <linux/module.h>
 #include <linux/bpf.h>
+#include <linux/xxhash.h>
 
 #ifdef SS_DEBUG
 #include "../test_helpers.h"
@@ -13,6 +14,10 @@
 /* This macro is required to include <immintrin.h> in the kernel */
 #define _MM_MALLOC_H_INCLUDED
 #include <immintrin.h>
+
+#define _mm256_loadu_si256_optional(ptr)                                       \
+	(u64)(ptr) & ((1 << 5) - 1) ? _mm256_loadu_si256((__m256i_u *)(ptr)) : \
+				      (*(__m256i *)(ptr))
 #endif
 
 #define ss_log(level, fmt, ...) pr_##level("space_saving: " fmt, ##__VA_ARGS__)
@@ -20,7 +25,15 @@
 typedef u32 ss_count_t;
 
 #define SS_NUM_COUNTERS 8
+#if SS_NUM_COUNTERS != 8
+#error currently SS_NUM_COUNTERS must be 8 for SIMD implementation to work
+#endif
+
 #define SS_KEY_SIZE 16
+#if SS_KEY_SIZE % 4 != 0
+#error currently SS_KEY_SIZE must be a multiple of 4 for SIMD implementation to work
+#endif
+
 #define SS_COUNT_SIZE sizeof(ss_count_t)
 
 struct ss_table {
@@ -39,6 +52,17 @@ extern int bpf_register_static_cmap(struct bpf_map_ops *map,
 extern void bpf_unregister_static_cmap(struct module *owner);
 extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
+
+#ifdef SS_SIMD
+static inline u32 __find_mask_u32_avx2(const u32 *arr, u32 val)
+{
+	__m256i arr_vec = _mm256_loadu_si256_optional(arr),
+		val_vec = _mm256_set1_epi32(val);
+	__m256i cmp = _mm256_cmpeq_epi32(arr_vec, val_vec);
+	u32 mask = _mm256_movemask_epi8(cmp);
+	return mask;
+}
+#endif
 
 static int ss_alloc_check(union bpf_attr *attr)
 {
@@ -117,28 +141,54 @@ static void *ss_lookup_elem(struct bpf_map *map, void *key)
 	return ERR_PTR(-ENOTSUPP);
 }
 
-static int __ss_key_cmp(void *key1, void *key2)
-{
-	return memcmp(key1, key2, SS_KEY_SIZE);
-}
-
 static int ss_increment(struct ss_table *tbl, void *key)
 {
 	u32 min_count = tbl->counts[0];
-	u32 min_idx = 0, i;
+	u32 min_idx = 0, i, blk_idx;
 	int ret = 0;
 
-	/* TODO: Use SIMD to compare keys */
-	for (i = 0; i < SS_NUM_COUNTERS; i++) {
-		if (__ss_key_cmp(tbl->keys + i * SS_KEY_SIZE, key) == 0) {
-			ss_log(debug, "found matching key at %d, count = %d", i,
-			       tbl->counts[i]);
+#ifdef SS_DEBUG
+	ss_log(debug, "key hash = 0x%08x\n", xxh32(key, SS_KEY_SIZE, 0));
+#endif
 
+#ifdef SS_SIMD
+	u32 mask = ~0;
+
+	for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
+		mask &= __find_mask_u32_avx2((const u32 *)tbl->keys +
+						     blk_idx * 8,
+					     ((const u32 *)key)[blk_idx]);
+		if (mask == 0) {
+			goto replace_or_insert;
+		}
+	}
+
+	i = __tzcnt_u32(mask) >> 2;
+	ss_log(debug, "found matching key (with SIMD) at %d, count = %d\n", i,
+	       tbl->counts[i]);
+	tbl->counts[i]++;
+	goto out;
+#else
+	for (i = 0; i < SS_NUM_COUNTERS; i++) {
+		for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
+			if (((const u32 *)tbl->keys)[blk_idx * 8 + i] !=
+			    ((const u32 *)key)[blk_idx]) {
+				break;
+			}
+		}
+
+		if (blk_idx == SS_KEY_SIZE / 4) {
+			ss_log(debug, "found matching key at %d, count = %d\n",
+			       i, tbl->counts[i]);
 			tbl->counts[i]++;
 			goto out;
 		}
 	}
+#endif
 
+#ifdef SS_SIMD
+replace_or_insert:
+#endif
 	/* This is also responsible for inserting new keys when the table is not full,
      * since the counts are initialized to 0.
      */
@@ -149,10 +199,13 @@ static int ss_increment(struct ss_table *tbl, void *key)
 		}
 	}
 
-	ss_log(debug, "replacing (or inserting new) key at %d, count = %d",
+	ss_log(debug, "replacing (or inserting new) key at %d, count = %d\n",
 	       min_idx, min_count);
 
-	__builtin_memcpy(tbl->keys + min_idx * SS_KEY_SIZE, key, SS_KEY_SIZE);
+	for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
+		((u32 *)tbl->keys)[blk_idx * 8 + min_idx] =
+			((const u32 *)key)[blk_idx];
+	}
 	tbl->overestimates[min_idx] = min_count;
 	tbl->counts[min_idx] = min_count + 1;
 	ret = 0;
