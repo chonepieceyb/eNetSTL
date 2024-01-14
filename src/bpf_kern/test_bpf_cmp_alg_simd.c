@@ -43,7 +43,7 @@ SEC("xdp") int xdp_main(struct xdp_md *ctx)
 		}
 	}
 #else
-	index = bpf_find_u32_avx2(arr, val);
+	index = bpf_find_u32_avx(arr, val);
 #endif
 
 	log_debug("test_bpf_cmp_alg_simd: val = %u, index = %u", val, index);
