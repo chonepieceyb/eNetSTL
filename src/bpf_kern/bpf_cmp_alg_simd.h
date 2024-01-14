@@ -95,40 +95,37 @@ extern u32 bpf_find_mask_u16_avx2(const u16 *arr, u16 val) __ksym;
  */
 extern u32 bpf_find_mask_u16_sse2(const u16 *arr, u16 val) __ksym;
 
-static inline u32 __tzcnt_u32_emulated(u32 x)
-{
-	u32 r = 0;
+/**
+ * bpf_tzcnt_u32() - Count trailing zero bits in 32-bit value.
+ *
+ * @val: 32-bit value
+ *
+ * Return: number of trailing zero bits
+ */
+extern u32 bpf_tzcnt_u32(u32 val) __ksym;
 
-	if (!x)
-		return 32;
+/**
+ * bpf_tzcnt_u16() - Count trailing zero bits in 16-bit value.
+ *
+ * @val: 16-bit value
+ *
+ * Return: number of trailing zero bits
+ */
+extern u32 bpf_tzcnt_u16(u16 val) __ksym;
 
-	while (!(x & 1)) {
-		x >>= 1;
-		r++;
-	}
-
-	return r;
-}
-
-static inline u16 __tzcnt_u16_emulated(u16 x)
-{
-	u16 r = 0;
-
-	if (!x)
-		return 16;
-
-	while (!(x & 1)) {
-		x >>= 1;
-		r++;
-	}
-
-	return r;
-}
+/**
+ * bpf_find_min_u32_avx2() - Find minimum value in array of 8 16-bit values.
+ *
+ * @arr: Pointer to at least 8 32-bit values.
+ *
+ * Return: index of minimum value
+ */
+extern u32 bpf_find_min_u16_sse(const u16 *arr) __ksym;
 
 #define for_each_bit_set(idx, mask, delta)                      \
-	(delta) = __tzcnt_u32(mask);                            \
+	(delta) = bpf_tzcnt_u32(mask);                          \
 	for ((idx) = (delta); (mask); (mask) >>= ((delta) + 1), \
-	    (delta) = __tzcnt_u32(mask), (idx) += (delta))
+	    (delta) = bpf_tzcnt_u32(mask), (idx) += (delta))
 
 #define for_each_u32_avx2(arr, val, idx, mask, delta)  \
 	(mask) = bpf_find_mask_u32_avx2((arr), (val)); \
