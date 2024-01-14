@@ -69,23 +69,23 @@ __bpf_kfunc u32 bpf_find_u16_sse(const u16 *arr, u16 val)
 }
 EXPORT_SYMBOL_GPL(bpf_find_u16_sse);
 
-__bpf_kfunc u32 __bpf_find_mask_u32_avx(const u32 *arr, u32 val)
+__bpf_kfunc u32 bpf__find_mask_u32_avx(const u32 *arr, u32 val)
 {
 	return __find_mask_u32_avx(arr, val);
 }
-EXPORT_SYMBOL_GPL(__bpf_find_mask_u32_avx);
+EXPORT_SYMBOL_GPL(bpf__find_mask_u32_avx);
 
-__bpf_kfunc u32 __bpf_find_mask_u16_avx(const u16 *arr, u16 val)
+__bpf_kfunc u32 bpf__find_mask_u16_avx(const u16 *arr, u16 val)
 {
 	return __find_mask_u16_avx(arr, val);
 }
-EXPORT_SYMBOL_GPL(__bpf_find_mask_u16_avx);
+EXPORT_SYMBOL_GPL(bpf__find_mask_u16_avx);
 
-__bpf_kfunc u32 __bpf_find_mask_u16_sse(const u16 *arr, u16 val)
+__bpf_kfunc u32 bpf__find_mask_u16_sse(const u16 *arr, u16 val)
 {
 	return __find_mask_u16_sse(arr, val);
 }
-EXPORT_SYMBOL_GPL(__bpf_find_mask_u16_sse);
+EXPORT_SYMBOL_GPL(bpf__find_mask_u16_sse);
 
 __bpf_kfunc u32 bpf_find_mask_u32_avx(const u32 *arr, u32 val)
 {
@@ -150,9 +150,9 @@ BTF_SET8_START(bpf_cmp_alg_simd_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_find_u32_avx)
 BTF_ID_FLAGS(func, bpf_find_u16_avx)
 BTF_ID_FLAGS(func, bpf_find_u16_sse)
-BTF_ID_FLAGS(func, __bpf_find_mask_u32_avx)
-BTF_ID_FLAGS(func, __bpf_find_mask_u16_avx)
-BTF_ID_FLAGS(func, __bpf_find_mask_u16_sse)
+BTF_ID_FLAGS(func, bpf__find_mask_u32_avx)
+BTF_ID_FLAGS(func, bpf__find_mask_u16_avx)
+BTF_ID_FLAGS(func, bpf__find_mask_u16_sse)
 BTF_ID_FLAGS(func, bpf_find_mask_u32_avx)
 BTF_ID_FLAGS(func, bpf_find_mask_u16_avx)
 BTF_ID_FLAGS(func, bpf_find_mask_u16_sse)

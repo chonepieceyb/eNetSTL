@@ -75,9 +75,9 @@ static inline int ss_increment(struct ss *tbl, const ss_key_t *key)
 	int ret = 0;
 
 	for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
-		mask &= __bpf_find_mask_u32_avx((const u32 *)tbl->keys +
-							blk_idx * 8,
-						((const u32 *)key)[blk_idx]);
+		mask &= bpf__find_mask_u32_avx((const u32 *)tbl->keys +
+						       blk_idx * 8,
+					       ((const u32 *)key)[blk_idx]);
 		if (mask == 0) {
 			goto replace_or_insert;
 		}

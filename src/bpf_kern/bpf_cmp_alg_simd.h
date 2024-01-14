@@ -36,34 +36,34 @@ extern u32 bpf_find_u16_avx(const u16 *arr, u16 val) __ksym;
 extern u32 bpf_find_u16_sse(const u16 *arr, u16 val) __ksym;
 
 /**
- * bpf_find_mask_u32_avx() - Find 32-bit value in array of 8 32-bit values.
+ * bpf__find_mask_u32_avx() - Find 32-bit value in array of 8 32-bit values.
  *
  * @arr: Pointer to at least 8 32-bit values.
  * @val: Value to find in the array.
  *
  * Return: 32-bit mask
  */
-extern u32 __bpf_find_mask_u32_avx(const u32 *arr, u32 val) __ksym;
+extern u32 bpf__find_mask_u32_avx(const u32 *arr, u32 val) __ksym;
 
 /**
- * bpf_find_mask_u16_avx() - Find 16-bit value in array of 16 16-bit values.
+ * bpf__find_mask_u16_avx() - Find 16-bit value in array of 16 16-bit values.
  *
  * @arr: Pointer to at least 16 16-bit values.
  * @val: Value to find in the array.
  *
  * Return: 32-bit mask
  */
-extern u32 __bpf_find_mask_u16_avx(const u16 *arr, u16 val) __ksym;
+extern u32 bpf__find_mask_u16_avx(const u16 *arr, u16 val) __ksym;
 
 /**
- * bpf_find_mask_u16_sse() - Find 16-bit value in array of 8 16-bit values.
+ * bpf__find_mask_u16_sse() - Find 16-bit value in array of 8 16-bit values.
  *
  * @arr: Pointer to at least 8 16-bit values.
  * @val: Value to find in the array.
  *
  * Return: 16-bit mask
  */
-extern u32 __bpf_find_mask_u16_sse(const u16 *arr, u16 val) __ksym;
+extern u32 bpf__find_mask_u16_sse(const u16 *arr, u16 val) __ksym;
 
 /**
  * bpf_find_mask_u32_avx() - Find 32-bit value in array of 8 32-bit values.
