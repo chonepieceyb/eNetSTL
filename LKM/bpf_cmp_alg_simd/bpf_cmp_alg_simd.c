@@ -6,6 +6,8 @@
 #include <linux/module.h>
 #include <linux/printk.h>
 
+#include "../crc32hash.h"
+
 // This macro is required to include <immintrin.h> in the kernel
 #define _MM_MALLOC_H_INCLUDED
 #include <immintrin.h>
@@ -146,6 +148,12 @@ __bpf_kfunc u32 bpf_find_min_u16_sse(const u16 *arr)
 }
 EXPORT_SYMBOL_GPL(bpf_find_min_u16_sse);
 
+__bpf_kfunc u32 bpf_crc32_hash(const void *key, u32 key__sz, u32 seed)
+{
+	return rte_hash_crc(key, key__sz, seed);
+}
+EXPORT_SYMBOL_GPL(bpf_crc32_hash);
+
 BTF_SET8_START(bpf_cmp_alg_simd_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_find_u32_avx)
 BTF_ID_FLAGS(func, bpf_find_u16_avx)
@@ -159,6 +167,7 @@ BTF_ID_FLAGS(func, bpf_find_mask_u16_sse)
 BTF_ID_FLAGS(func, bpf_tzcnt_u32)
 BTF_ID_FLAGS(func, bpf_tzcnt_u16)
 BTF_ID_FLAGS(func, bpf_find_min_u16_sse)
+BTF_ID_FLAGS(func, bpf_crc32_hash)
 BTF_SET8_END(bpf_cmp_alg_simd_kfunc_ids)
 
 static const struct btf_kfunc_id_set bpf_cmp_alg_simd_kfunc_set = {

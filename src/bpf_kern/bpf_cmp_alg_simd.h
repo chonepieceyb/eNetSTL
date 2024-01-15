@@ -122,6 +122,17 @@ extern u32 bpf_tzcnt_u16(u16 val) __ksym;
  */
 extern u32 bpf_find_min_u16_sse(const u16 *arr) __ksym;
 
+/**
+ * bpf_find_min_u32_avx() - Find minimum value in array of 8 16-bit values.
+ *
+ * @key: Pointer to a arbitrary length values which to be hashed.
+ * @key_len: length of the key in Bytes.
+ * @key: Seed for the hash function.
+ *
+ * Return: haseh value of the key
+ */
+extern u32 bpf_crc32_hash(const void *key, u32 key__sz, u32 seed) __ksym;
+
 #define for_each_bit_set(idx, mask, delta)                      \
 	(delta) = bpf_tzcnt_u32(mask);                          \
 	for ((idx) = (delta); (mask); (mask) >>= ((delta) + 1), \
