@@ -486,10 +486,16 @@ __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h, const void *key,
 	int i;
 	struct __cuckoo_hash_key *k, *keys = h->key_store;
 
-	// FIXME: This can be optimized with SIMD, but seems too complex
+#if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
+	uint16_t mask, delta;
+	for_each_u16_sse(bkt->sig_current, sig, i, mask, delta)
+	{
+		if (bkt->key_idx[i] != CUCKOO_HASH_EMPTY_SLOT) {
+#else
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
 		if (bkt->sig_current[i] == sig &&
 		    bkt->key_idx[i] != CUCKOO_HASH_EMPTY_SLOT) {
+#endif
 			k = (struct __cuckoo_hash_key
 				     *)((char *)keys +
 					bkt->key_idx[i] *
