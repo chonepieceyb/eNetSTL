@@ -4,7 +4,13 @@
 #include <linux/bpf.h>
 #include <linux/types.h>
 
-#include "jhash.h"
+#ifdef USE_SIMD_HASH
+#include "crc32hash.h"
+#define HASH_FUNC rte_hash_crc
+#else
+#include "fasthash.h"
+#define HASH_FUNC fasthash32
+#endif
 
 extern int bpf_register_static_cmap(struct bpf_map_ops *map, struct module *onwer);
 extern void bpf_unregister_static_cmap(struct module *onwer);
@@ -12,20 +18,19 @@ extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 /* static vars */
-#define MAX_ENTRY 512
+#define MAX_ENTRY 1024
 #define HASH_SEED_1 0xdeadbeef
 #define HASH_SEED_2 0xaaaabbbb
 #define MEMBER_NO_MATCH 0
 
-// #define EINVAL 1
-// #define ENOSPC 2
+
 /* datastruct params */
-#define NUM_KEYS 100
+#define NUM_KEYS 1000
 #define NUM_SET 8
-#define NUM_KEYS_PER_BF 13
-#define BITS 256
-#define BIT_MASK 255
-#define NUM_HASHES 3
+#define NUM_KEYS_PER_BF 125
+#define BITS 2048
+#define __BIT_MASK 2047
+#define NUM_HASHES 4
 #define MUL_SHIFT 3
 #define DIV_SHIFT 2
 
@@ -41,12 +46,13 @@ ctz32(__u32 v)
 }
 
 struct vbf_memory {
-	__u32 table[MAX_ENTRY]
+	__u32 table[MAX_ENTRY];
 };
 
 struct static_vbf_map {
 	struct bpf_map map;
 	struct vbf_memory __percpu *table;
+	__u32 lookup_res;
 };
 
 int vbf_alloc_check(union bpf_attr *attr) {
@@ -68,7 +74,7 @@ static struct bpf_map *vbf_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	vbf_map->table = __alloc_percpu_gfp(sizeof(__u32)*MAX_ENTRY, __alignof__(u64), GFP_USER | __GFP_NOWARN);
+	vbf_map->table = __alloc_percpu_gfp(attr->key_size * MAX_ENTRY, __alignof__(u64), GFP_USER | __GFP_NOWARN);
 	if (vbf_map->table == NULL) {
 		res_ptr = ERR_PTR(-ENOMEM);
 		goto free_tmap;
@@ -121,24 +127,22 @@ static void* vbf_lookup_elem(struct bpf_map *map, void *key)
 	__u32 *table = __vbf->table;
 
 	__u32 j;
-	__u32 h1 = jhash(key, sizeof(__u32), HASH_SEED_1);
-	__u32 h2 = jhash(&h1, sizeof(__u32), HASH_SEED_2);
+	__u32 h1 = HASH_FUNC(key, map->key_size, HASH_SEED_1);
+	__u32 h2 = HASH_FUNC(&h1, sizeof(__u32), HASH_SEED_2);
 	__u32 mask = ~0;
 	__u32 bit_loc;
 	__u32 set_id;
 	for (j = 0; j < NUM_HASHES; j++) {
-		bit_loc = (h1 + j * h2) & BIT_MASK;
+		bit_loc = (h1 + j * h2) & __BIT_MASK;
 		mask &= test_bit_helper(table, bit_loc);
 	}
 
 	if (mask) {
+		/* TODD: original version pass a set_id pointer and alter it value, in custom map currently return not null if lookup scuess */
 		set_id = ctz32(mask) + 1;
-		pr_debug("key %d founded, set_id: %d\n", key, set_id);
-		/* 查找成功暂时先随便返回一个元素地址 */
 		return table;
 	} else {
 		set_id = MEMBER_NO_MATCH;
-		pr_debug("key %d not founded, set_id: %d\n", key, set_id);
 		return NULL;
 	}
 }
@@ -155,11 +159,11 @@ static long vbf_update_elem(struct bpf_map *map, void *key, void *value, u64 fla
 	if (set_id > NUM_SET || set_id == MEMBER_NO_MATCH)
 		return -1;
 
-	h1 = jhash(key, sizeof(__u32), HASH_SEED_1);
-	h2 = jhash(&h1, sizeof(__u32), HASH_SEED_2);
+	h1 = HASH_FUNC(key, map->key_size, HASH_SEED_1);
+	h2 = HASH_FUNC(&h1, sizeof(__u32), HASH_SEED_2);
 
 	for (i = 0; i < NUM_HASHES; i++) {
-		bit_loc = (h1 + i * h2) & BIT_MASK;
+		bit_loc = (h1 + i * h2) & __BIT_MASK;
 		set_bit_helper(table, bit_loc, set_id);
 	}
 	return 0;
@@ -180,6 +184,7 @@ static struct bpf_map_ops cmap_ops = {
 	.map_mem_usage = vbf_mem_usage
 };
 
+#ifdef USE_DEBUG
 /* proc fs test API */
 
 #include "../test_helpers.h"
@@ -194,9 +199,16 @@ static int testing_alloc(struct inode *inode, struct file *filp)
 		return -ENODEV;
 	}
 	/*testing alloc here*/
-	pr_info("start testing alloc time wheel map");
+	pr_info("start testing alloc vbf map");
 
-	map =  vbf_alloc(NULL);
+	union bpf_attr test_attr = {
+		.key_size = sizeof(__u32),
+		.value_size = sizeof(__u32),
+		.max_entries = MAX_ENTRY,
+		.map_flags = 0,
+	};
+	
+	map = vbf_alloc(&test_attr);
 
 	if (IS_ERR_OR_NULL(map)) {
 		return PTR_ERR(map);
@@ -283,6 +295,18 @@ static void __exit static_cmap_vbf_exit(void) {
 	pr_info("unregister static vbf_cmaps");
 	bpf_unregister_static_cmap(THIS_MODULE);
 }
+
+#else
+static int __init static_cmap_vbf_init(void) {
+	pr_info("register static vbf_scmaps");
+	return bpf_register_static_cmap(&cmap_ops, THIS_MODULE);
+}
+
+static void __exit static_cmap_vbf_exit(void) {
+	pr_info("unregister static vbf_scmaps");
+	bpf_unregister_static_cmap(THIS_MODULE);
+}
+#endif
 
 /* Register module functions */
 module_init(static_cmap_vbf_init);

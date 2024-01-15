@@ -7,6 +7,14 @@ obj-m := ${OBJ_NAME}.o
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
 KDIR ?= /lib/modules/6.6.0scmap/build
 
+ifeq (${USE_DEBUG},1)
+	ccflags-y += -DUSE_DEBUG
+endif
+
+ifeq (${USE_SIMD_HASH},1)
+	ccflags-y += -DUSE_SIMD_HASH
+endif
+
 default:
 	bear -- make -C $(KDIR) M=$(PWD) modules
 dbg:
