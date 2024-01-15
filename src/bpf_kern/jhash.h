@@ -26,13 +26,13 @@
  */
 
 /* definition of the packet 5 tuple */
-struct pkt_5tuple {
-  	__be32 src_ip;
-  	__be32 dst_ip;
-  	__be16 src_port;
-  	__be16 dst_port;
-  	uint8_t proto;
-} __attribute__((packed));
+// struct pkt_5tuple {
+//   	__be32 src_ip;
+//   	__be32 dst_ip;
+//   	__be16 src_port;
+//   	__be16 dst_port;
+//   	uint8_t proto;
+// } __attribute__((packed));
 
 #define rot(x, k) (((x) << (k)) | ((x) >> (32 - (k))))
 
@@ -64,11 +64,9 @@ do { \
 #endif
 
 static
-__u32 hashlittle_u32(__u32 key, size_t length, __u32 initval)
+__u32 hashlittle_u32(__u32 *key, size_t length, __u32 initval)
 {
 	__u32 a, b, c;	/* internal state */
-	__u32 key_copy = key;
-	__u32 *key_ptr = &key_copy;
 	union {
 		const __u32 *ptr;
 		size_t i;
@@ -77,9 +75,9 @@ __u32 hashlittle_u32(__u32 key, size_t length, __u32 initval)
 	/* Set up the internal state */
 	a = b = c = 0xdeadbeef + ((__u32)length) + initval;
 
-	u.ptr = key_ptr;
-	if (HASH_LITTLE_ENDIAN && ((u.i & 0x3) == 0)) {
-		const __u32 *k = (const __u32 *) key_ptr;	/* read 32-bit chunks */
+	u.ptr = key;
+	// if (HASH_LITTLE_ENDIAN && ((u.i & 0x3) == 0)) {
+		const __u32 *k = (const __u32 *) key;	/* read 32-bit chunks */
 
 		/*------ all but last block: aligned reads and affect 32 bits of (a,b,c) */
 		while (length > 12) {
@@ -107,26 +105,24 @@ __u32 hashlittle_u32(__u32 key, size_t length, __u32 initval)
 		case 0 : return c;		/* zero length strings require no mixing */
 		}
 
-	} else {					/* key size smaller than 4Bytes */
-		log_error("unexcepted error at %d", __LINE__);
-	}
+	// } else {					/* key size smaller than 4Bytes */
+	// 	log_error("unexcepted error at %d", __LINE__);
+	// }
 
 	final(a, b, c);
 	return c;
 }
 
 static
-__u32 jhash_u32(__u32 key, size_t length, __u32 seed)
+__u32 jhash_u32(__u32 *key, size_t length, __u32 seed)
 {
 	return hashlittle_u32(key, length, seed);
 }
 
 static
-__u32 hashlittle_pkt(struct pkt_5tuple key, size_t length, __u32 initval)
+__u32 hashlittle_pkt(struct pkt_5tuple *key, size_t length, __u32 initval)
 {
 	__u32 a, b, c;	/* internal state */
-	struct pkt_5tuple key_copy = key;
-	struct pkt_5tuple *key_ptr = &key_copy;
 	union {
 		const struct pkt_5tuple *ptr;
 		size_t i;
@@ -135,9 +131,9 @@ __u32 hashlittle_pkt(struct pkt_5tuple key, size_t length, __u32 initval)
 	/* Set up the internal state */
 	a = b = c = 0xdeadbeef + ((__u32)length) + initval;
 
-	u.ptr = key_ptr;
-	if (HASH_LITTLE_ENDIAN && ((u.i & 0x3) == 0)) {
-		const __u32 *k = (const __u32 *) key_ptr;	/* read 32-bit chunks */
+	u.ptr = key;
+	// if (HASH_LITTLE_ENDIAN && ((u.i & 0x3) == 0)) {
+		const __u32 *k = (const __u32 *) key;	/* read 32-bit chunks */
 
 		/*------ all but last block: aligned reads and affect 32 bits of (a,b,c) */
 		while (length > 12) {
@@ -165,16 +161,16 @@ __u32 hashlittle_pkt(struct pkt_5tuple key, size_t length, __u32 initval)
 		case 0 : return c;		/* zero length strings require no mixing */
 		}
 
-	} else {					/* key size smaller than 4Bytes */
-		log_error("unexcepted error at %d", __LINE__);
-	}
+	// } else {					/* key size smaller than 4Bytes */
+	// 	log_error("unexcepted error at %d", __LINE__);
+	// }
 
 	final(a, b, c);
 	return c;
 }
 
 static
-__u32 jhash_pkt(struct pkt_5tuple key, size_t length, __u32 seed)
+__u32 jhash_pkt(struct pkt_5tuple *key, size_t length, __u32 seed)
 {
 	return hashlittle_pkt(key, length, seed);
 }

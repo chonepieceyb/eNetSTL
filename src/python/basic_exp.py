@@ -25,10 +25,10 @@ if __name__ == '__main__':
     
     exp_dir= os.path.join(args.result_dir_prefix, args.exp_name)
     if not os.path.exists(exp_dir):
-        os.mkdir(exp_dir)
+        os.makedirs(exp_dir, exist_ok=True)
     exp_dir_mode =  os.path.join(exp_dir, args.mode)
     if not os.path.exists(exp_dir_mode):
-        os.mkdir(exp_dir_mode)
+        os.makedirs(exp_dir_mode, exist_ok=True)
             
     time_str = datetime.now().strftime(RESULT_DATA_FORMAT)
     result_file =  os.path.join(exp_dir_mode, time_str)
