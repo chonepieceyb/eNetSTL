@@ -5,10 +5,10 @@
 #include <linux/types.h>
 
 #ifdef USE_SIMD_HASH
-#include "crc32hash.h"
+#include "../crc32hash.h"
 #define HASH_FUNC rte_hash_crc
 #else
-#include "fasthash.h"
+#include "../fasthash.h"
 #define HASH_FUNC fasthash32
 #endif
 
