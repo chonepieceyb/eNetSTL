@@ -5,10 +5,18 @@
 #include <linux/types.h>
 
 /* include SIMD header */
+#if defined (USE_SIMD) || defined (USE_SIMD_HASH)
 #define _MM_MALLOC_H_INCLUDED
 #include <immintrin.h>
+#endif
 
-#include "jhash.h"
+#ifdef USE_SIMD_HASH
+#include "crc32hash.h"
+#define HASH_FUNC rte_hash_crc
+#else
+#include "fasthash.h"
+#define HASH_FUNC fasthash32
+#endif
 
 extern int bpf_register_static_cmap(struct bpf_map_ops *map, struct module *onwer);
 extern void bpf_unregister_static_cmap(struct module *onwer);
@@ -16,25 +24,20 @@ extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 /* static vars */
-#define MAX_ENTRY 512
+#define MAX_ENTRY 2048
 #define HASH_SEED_1 0xdeadbeef
 #define HASH_SEED_2 0xaaaabbbb
 #define MEMBER_NO_MATCH 0
-#define MEMBER_MAX_PUSHES 10
+#define MEMBER_MAX_PUSHES 16
 
-// #define EINVAL 1
-// #define ENOSPC 2
 /* datastruct params */
-#define NUM_ENTRIES 64
-#define NUM_BUCKETS 4
+#define NUM_ENTRIES 1024
+#define NUM_BUCKETS 128
 #define SIZE_BUCKET_T 32
-#define BUCKET_MASK 3
-#define MEMBER_BUCKET_ENTRIES 16
+#define BUCKET_MASK 127
+#define MEMBER_BUCKET_ENTRIES 8
 
-#define USE_SIMD 1
 #define TEST_RANGE 136
-// extern int bpf_register_custom_map(struct bpf_custom_map_ops *cmap);
-// extern void bpf_unregister_custom_map(struct bpf_custom_map_ops *cmap);
 
 /* bitwise operation */
 static inline __u32
@@ -77,7 +80,7 @@ static struct bpf_map *htss_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	htss_map->table = __alloc_percpu_gfp(sizeof(__u32)*MAX_ENTRY, __alignof__(u64), GFP_USER | __GFP_NOWARN);
+	htss_map->table = __alloc_percpu_gfp(attr->key_size * NUM_BUCKETS * MEMBER_BUCKET_ENTRIES, __alignof__(u64), GFP_USER | __GFP_NOWARN);
 	if (htss_map->table == NULL) {
 		res_ptr = ERR_PTR(-ENOMEM);
 		goto free_tmap;
@@ -106,11 +109,11 @@ static void htss_free(struct bpf_map *map) {
 
 /* htss helper function */
 void
-get_buckets_index(__u32 *key, __u32 key_len, __u32 *prim_bkt, __u32 *sec_bkt, sig_t *sig)
+get_buckets_index(void *key, __u32 key_len, __u32 *prim_bkt, __u32 *sec_bkt, sig_t *sig)
 {
 	/* 和vbf一样，计算两个hash值，其中 h1 = hash(key) h2 = hash(hash(key)) */
-	__u32 first_hash = jhash(key, key_len, HASH_SEED_1);
-	__u32 sec_hash = jhash(&first_hash, sizeof(__u32), HASH_SEED_2);
+	__u32 first_hash = HASH_FUNC(key, key_len, HASH_SEED_1);
+	__u32 sec_hash = HASH_FUNC(&first_hash, sizeof(__u32), HASH_SEED_2);
 	*sig = first_hash;
 	*prim_bkt = sec_hash & BUCKET_MASK;
 	*sec_bkt =  (*prim_bkt ^ *sig) & BUCKET_MASK;
@@ -127,7 +130,7 @@ try_insert(struct member_ht_bucket *buckets, __u32 prim, __u32 sec,
 		if (buckets[prim].sets[i] == MEMBER_NO_MATCH) {
 			buckets[prim].sigs[i] = sig;
 			buckets[prim].sets[i] = set_id;
-			// pr_info("insert %d at prim bucket:%u, set:%u\n", set_id, prim, i);
+			// pr_debug("insert %d at prim bucket:%u, set:%u\n", set_id, prim, i);
 			return 0;
 		}
 	}
@@ -136,14 +139,12 @@ try_insert(struct member_ht_bucket *buckets, __u32 prim, __u32 sec,
 		if (buckets[sec].sets[i] == MEMBER_NO_MATCH) {
 			buckets[sec].sigs[i] = sig;
 			buckets[sec].sets[i] = set_id;
-			// pr_info("insert %d at sec bucket:%u, set:%u\n", set_id, prim, i);
+			// pr_debug("insert %d at sec bucket:%u, set:%u\n", set_id, prim, i);
 			return 0;
 		}
 	}
 	return -1;
 }
-
-
 
 int
 make_space_bucket(struct member_ht_bucket *buckets, __u32 bkt_idx,
@@ -215,21 +216,8 @@ make_space_bucket(struct member_ht_bucket *buckets, __u32 bkt_idx,
 		return ret;
 }
 
-
-set_t* search_bucket_single(__u32 bucket_id, sig_t tmp_sig, struct member_ht_bucket *buckets)
-{
-	__u32 iter;
-	for (iter = 0; iter < MEMBER_BUCKET_ENTRIES; iter++) {
-		if (tmp_sig == buckets[bucket_id].sigs[iter] &&
-				buckets[bucket_id].sets[iter] !=
-				MEMBER_NO_MATCH) {
-			return &buckets[bucket_id].sets[iter];
-		}
-	}
-	return NULL;
-}
-
-
+#ifdef USE_SIMD
+#define SERCH_BUCKET_FUNC search_bucket_single_avx
 set_t* search_bucket_single_avx(__u32 bucket_id, sig_t tmp_sig, struct member_ht_bucket *buckets)
 {
 	/**
@@ -251,6 +239,21 @@ set_t* search_bucket_single_avx(__u32 bucket_id, sig_t tmp_sig, struct member_ht
 	}
 	return NULL;
 }
+#else
+#define SERCH_BUCKET_FUNC search_bucket_single
+set_t* search_bucket_single(__u32 bucket_id, sig_t tmp_sig, struct member_ht_bucket *buckets)
+{
+	__u32 iter;
+	for (iter = 0; iter < MEMBER_BUCKET_ENTRIES; iter++) {
+		if (tmp_sig == buckets[bucket_id].sigs[iter] &&
+				buckets[bucket_id].sets[iter] !=
+				MEMBER_NO_MATCH) {
+			return &buckets[bucket_id].sets[iter];
+		}
+	}
+	return NULL;
+}
+#endif
 
 static void* htss_lookup_elem(struct bpf_map *map, void *key) 
 {
@@ -261,14 +264,11 @@ static void* htss_lookup_elem(struct bpf_map *map, void *key)
 	__u32 prim_bucket, sec_bucket;
 	sig_t tmp_sig;
 
+	get_buckets_index(key, map->key_size, &prim_bucket, &sec_bucket, &tmp_sig);
 
-	get_buckets_index((__u32 *)key, sizeof(__u32), &prim_bucket, &sec_bucket, &tmp_sig);
-
-	// pr_info("lookup %d at prim:%d, sec%d, ", *(__u32 *)key, prim_bucket, sec_bucket);
-#if USE_SIMD == 1
-	set_t *search_res = search_bucket_single_avx(prim_bucket, tmp_sig, buckets);
+	set_t *search_res = SERCH_BUCKET_FUNC(prim_bucket, tmp_sig, buckets);
 	if (search_res == NULL) {
-		search_res = search_bucket_single_avx(sec_bucket, tmp_sig, buckets);
+		search_res = SERCH_BUCKET_FUNC(sec_bucket, tmp_sig, buckets);
 		if (search_res == NULL) {
 			return NULL;
 		} else {
@@ -277,19 +277,6 @@ static void* htss_lookup_elem(struct bpf_map *map, void *key)
 	} else {
 		return search_res;
 	}
-#else
-	set_t *search_res = search_bucket_single(prim_bucket, tmp_sig, buckets);
-	if (search_res == NULL) {
-		search_res = search_bucket_single(sec_bucket, tmp_sig, buckets);
-		if (search_res == NULL) {
-			return NULL;
-		} else {
-			return search_res;
-		}
-	} else {
-		return search_res;
-	}
-#endif
 }
 
 static long htss_update_elem(struct bpf_map *map, void *key, void *value, u64 flag) {
@@ -308,7 +295,7 @@ static long htss_update_elem(struct bpf_map *map, void *key, void *value, u64 fl
 	if (set_id == MEMBER_NO_MATCH || (set_id & flag_mask) != 0) {
 		return -1;
 	}
-	get_buckets_index(key, sizeof(__u32), &prim_bucket, &sec_bucket, &tmp_sig);
+	get_buckets_index(key, map->key_size, &prim_bucket, &sec_bucket, &tmp_sig);
 	ret = try_insert(buckets, prim_bucket, sec_bucket, tmp_sig, set_id);
 	if (ret != -1)
 		return ret;
@@ -318,7 +305,6 @@ static long htss_update_elem(struct bpf_map *map, void *key, void *value, u64 fl
 
 	ret = make_space_bucket(buckets, select_bucket, &nr_pushes);
 	if (ret >= 0) {
-		// pr_info("make space success, insert %d at bucket:%u, set:%u\n", set_id, select_bucket, ret);
 		buckets[select_bucket].sigs[ret] = tmp_sig;
 		buckets[select_bucket].sets[ret] = set_id;
 		ret = 1;
@@ -342,6 +328,8 @@ static struct bpf_map_ops cmap_ops = {
 	.map_mem_usage = htss_mem_usage
 };
 
+#ifdef USE_DEBUG
+
 /* proc fs test API */
 
 #include "../test_helpers.h"
@@ -356,9 +344,16 @@ static int testing_alloc(struct inode *inode, struct file *filp)
 		return -ENODEV;
 	}
 	/*testing alloc here*/
-	pr_info("start testing alloc time wheel map");
+	pr_info("start testing alloc htss map");
 
-	map =  htss_alloc(NULL);
+	union bpf_attr test_attr = {
+		.key_size = sizeof(__u32),
+		.value_size = sizeof(__u32),
+		.max_entries = MAX_ENTRY,
+		.map_flags = 0,
+	};
+	
+	map = vbf_alloc(&test_attr);
 
 	if (IS_ERR_OR_NULL(map)) {
 		return PTR_ERR(map);
@@ -458,6 +453,7 @@ static struct proc_ops testing_ops =
 	.proc_release = testing_release,
 };
 
+
 //extern int bpf_register_static_cmap(struct bpf_map_ops *map, struct module *onwer);
 //extern void bpf_unregister_static_cmap(struct module *onwer);
 
@@ -474,6 +470,18 @@ static void __exit static_cmap_htss_exit(void) {
 	pr_info("unregister static htss_cmaps");
 	bpf_unregister_static_cmap(THIS_MODULE);
 }
+
+#else
+static int __init static_cmap_htss_init(void) {
+	pr_info("register static htss_cmaps");
+	return bpf_register_static_cmap(&cmap_ops, THIS_MODULE);
+}
+
+static void __exit static_cmap_htss_exit(void) {
+	pr_info("unregister static htss_cmaps");
+	bpf_unregister_static_cmap(THIS_MODULE);
+}
+#endif
 
 /* Register module functions */
 module_init(static_cmap_htss_init);

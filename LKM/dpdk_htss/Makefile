@@ -7,7 +7,20 @@ obj-m := ${OBJ_NAME}.o
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
 KDIR ?= /lib/modules/6.6.0scmap/build
 
-ccflags-y += -DFASTHASH_INLINE -I/usr/lib/gcc/x86_64-linux-gnu/12/include -mavx2 -march=native
+ifeq (${USE_DEBUG},1)
+	ccflags-y += -DUSE_DEBUG
+endif
+
+ifeq (${USE_SIMD},1)
+	ccflags-y += -DUSE_SIMD
+endif
+
+ifeq (${USE_SIMD_HASH},1)
+	ccflags-y += -DUSE_SIMD_HASH
+endif
+
+# add simd header need
+ccflags-y += -DFASTHASH_INLINE -I/usr/lib/gcc/x86_64-linux-gnu/11/include -mavx2 -march=native
 
 default:
 	bear -- make -C $(KDIR) M=$(PWD) modules

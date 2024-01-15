@@ -25,6 +25,16 @@
  * Originally Public Domain
  */
 
+/* definition of the packet 5 tuple */
+struct pkt_5tuple {
+	__be32 src_ip;
+	__be32 dst_ip;
+	__be16 src_port;
+	__be16 dst_port;
+	uint8_t proto;
+} __attribute__((packed));
+
+
 #define rot(x, k) (((x) << (k)) | ((x) >> (32 - (k))))
 
 #define mix(a, b, c) \
