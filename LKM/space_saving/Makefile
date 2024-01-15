@@ -1,13 +1,20 @@
-OBJ_NAME := bpf_cmp_alg_simd
-GCC_VERSION ?= 13
-CC_SIMD_OPTS ?= -mavx2 -mbmi
+OBJ_NAME := space_saving
+USE_DEBUG ?= 1
+USE_SIMD ?= 1
+GCC_VERSION := 13
 
 obj-m := ${OBJ_NAME}.o
 
-ccflags-y += -I/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VERSION)/include $(CC_SIMD_OPTS)
-
-KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
+KDIR_DBG ?= ../../linux
 KDIR ?= /lib/modules/$(shell uname -r)/build
+
+ifeq (${USE_DEBUG},1)
+ccflags-y += -DSS_DEBUG
+endif
+
+ifeq (${USE_SIMD},1)
+ccflags-y += -DSS_SIMD -I/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VERSION)/include -mavx2 -mbmi
+endif
 
 default:
 	bear -- make -C $(KDIR) M=$(PWD) modules

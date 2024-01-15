@@ -8,18 +8,18 @@
 
 #ifndef LOG_LEVEL
 #define LOG_LEVEL 2
-#endif 
+#endif
 
 #define LOG_LEVEL_DEBUG 3
 #define LOG_LEVEL_INFO 2
 #define LOG_LEVEL_WARN 1
-#define LOG_LEVEL_ERROR 0 
+#define LOG_LEVEL_ERROR 0
 
 // #define COLOR_RED "\033[0;31m"
 // #define COLOR_GREEN "\033[0;32m"
 // #define COLOR_YELLOW "\033[1;33m"
 // #define COLOR_ORIGIN "\033[0;33m"
-// #define COLOR_OFF "\033[0m" 
+// #define COLOR_OFF "\033[0m"
 
 /*
 *DEBUG: LEVEL=4
@@ -28,40 +28,28 @@
 *ERROR: LEVEL=1
 */
 
-#if LOG_LEVEL >= LOG_LEVEL_DEBUG			
-	#define log_debug(FMT, ...)				\
-	({										\
-		bpf_printk("[DEBUG]" FMT, ##__VA_ARGS__);						\
-	})										
+#if LOG_LEVEL >= LOG_LEVEL_DEBUG
+#define log_debug(FMT, ...) ({ bpf_printk("[DEBUG]" FMT, ##__VA_ARGS__); })
 #else
-	#define log_debug(fmt, ...)	 ({})
+#define log_debug(fmt, ...) ({})
 #endif
 
-#if LOG_LEVEL >= LOG_LEVEL_INFO			
-	#define log_info(FMT, ...)											\
-	({																	\
-		bpf_printk("[INFO]" FMT, ##__VA_ARGS__);						\
-	})										
+#if LOG_LEVEL >= LOG_LEVEL_INFO
+#define log_info(FMT, ...) ({ bpf_printk("[INFO]" FMT, ##__VA_ARGS__); })
 #else
-	#define log_info(fmt, ...)	 ({})									
+#define log_info(fmt, ...) ({})
 #endif
 
-#if LOG_LEVEL >= LOG_LEVEL_WARN			
-	#define log_warn(FMT, ...)											\
-	({																	\
-		bpf_printk("[WARN]" FMT, ##__VA_ARGS__);						\
-	})										
+#if LOG_LEVEL >= LOG_LEVEL_WARN
+#define log_warn(FMT, ...) ({ bpf_printk("[WARN]" FMT, ##__VA_ARGS__); })
 #else
-	#define log_warn(fmt, ...)	 ({})									
+#define log_warn(fmt, ...) ({})
 #endif
 
-#if LOG_LEVEL >= LOG_LEVEL_ERROR		
-	#define log_error(FMT, ...)											\
-	({																	\
-		bpf_printk("[ERROR]" FMT, ##__VA_ARGS__);						\
-	})										
+#if LOG_LEVEL >= LOG_LEVEL_ERROR
+#define log_error(FMT, ...) ({ bpf_printk("[ERROR]" FMT, ##__VA_ARGS__); })
 #else
-	#define log_error(fmt, ...)	 ({})									
+#define log_error(fmt, ...) ({})
 #endif
 
 #ifndef likely
@@ -80,20 +68,23 @@
 #define lock_xadd(P, V) ((void)__sync_fetch_and_add((P), (V)))
 #endif
 
-#define LOG2(x)                                                                                    \
-    ({                                                                                             \
-        unsigned _x = (x);                                                                         \
-        unsigned _result = 0;                                                                      \
-        while (_x >>= 1) {                                                                         \
-            _result++;                                                                             \
-        }                                                                                          \
-        _result;                                                                                   \
-    })
+#define LOG2(x)                       \
+	({                            \
+		unsigned _x = (x);    \
+		unsigned _result = 0; \
+		while (_x >>= 1) {    \
+			_result++;    \
+		}                     \
+		_result;              \
+	})
 
-#define SHIFT_TO_SIZE(_shift)  ((unsigned long)1 << (_shift))
+#define SHIFT_TO_SIZE(_shift) ((unsigned long)1 << (_shift))
 
-#define BOUND_INDEX(idx, shift)			\
-({typeof(idx) __idx; __idx = (idx) & (SHIFT_TO_SIZE(shift) - 1);})				
+#define BOUND_INDEX(idx, shift)                             \
+	({                                                  \
+		typeof(idx) __idx;                          \
+		__idx = (idx) & (SHIFT_TO_SIZE(shift) - 1); \
+	})
 
 /* linux __ffs software implementation*/
 static __always_inline __u64 __ffs64(__u64 word)
@@ -125,7 +116,6 @@ static __always_inline __u64 __ffs64(__u64 word)
 	return num;
 }
 
-
 static __always_inline __u32 __ffs32(__u32 word)
 {
 	int num = 0;
@@ -153,63 +143,69 @@ static __always_inline __u32 __ffs32(__u32 word)
 #define STR(s) #s
 #define XSTR(s) STR(s)
 
-#define asm_bound_check(variable, max_size)     \
-({      \
-        asm volatile (  \
-                "%[tmp] &= " XSTR(max_size - 1) " \n"   \
-                :[tmp]"+&r"(variable)                   \
-        );                                              \
-})
+#define asm_bound_check(variable, max_size)                        \
+	({                                                         \
+		asm volatile("%[tmp] &= " XSTR(max_size - 1) " \n" \
+			     : [tmp] "+&r"(variable));             \
+	})
 
-#define xdp_assert(expr, name)   \
-({                               \
-        if (unlikely(!(expr)))  {                            \
-                log_error("[xdp assert failed]: unexpected %s", name);                  \
-                goto xdp_error;                                         \
-        };                                              \
-})  
+#define xdp_assert(expr, name)                                                 \
+	({                                                                     \
+		if (unlikely(!(expr))) {                                       \
+			log_error("[xdp assert failed]: unexpected %s", name); \
+			goto xdp_error;                                        \
+		};                                                             \
+	})
 
-#define xdp_assert_eq(expected, actual, name)   \
-({                               				                                                                                            \
-	typeof(actual) ___act = (actual);				                                                                                    \
-	typeof(expected) ___exp = (expected);				                                                                                    \
-	bool ___ok = ___act == ___exp;					                                                                                    \
-        if (unlikely(!___ok))  {                                                                                                                            \
-                log_error("[xdp assert failed]: unexpected %s: actual %lld != expected %lld\n", name, (long long)___act, (long long)___exp);                  \
-                goto xdp_error;                                                                                                                             \
-        };                                                                                                                                                  \
-}) 
+#define xdp_assert_eq(expected, actual, name)                                                         \
+	({                                                                                            \
+		typeof(actual) ___act = (actual);                                                     \
+		typeof(expected) ___exp = (expected);                                                 \
+		bool ___ok = ___act == ___exp;                                                        \
+		if (unlikely(!___ok)) {                                                               \
+			log_error(                                                                    \
+				"[xdp assert failed]: unexpected %s: actual %lld != expected %lld\n", \
+				name, (long long)___act, (long long)___exp);                          \
+			goto xdp_error;                                                               \
+		};                                                                                    \
+	})
 
-#define xdp_assert_neq(noexpected, actual, name)   \
-({                               				                                                                                            \
-	typeof(actual) ___act = (actual);				                                                                                    \
-	typeof(noexpected) ___noexp = (noexpected);				                                                                                    \
-	bool ___ok = ___act != ___noexp;					                                                                                    \
-        if (unlikely(!___ok))  {                                                                                                                            \
-                log_error("[xdp assert failed]: unexpected %s: actual %lld == non expected %lld\n", name, (long long)___act, (long long)___noexp);                  \
-                goto xdp_error;                                                                                                                             \
-        };                                                                                                                                                  \
-}) 
+#define xdp_assert_neq(noexpected, actual, name)                                                          \
+	({                                                                                                \
+		typeof(actual) ___act = (actual);                                                         \
+		typeof(noexpected) ___noexp = (noexpected);                                               \
+		bool ___ok = ___act != ___noexp;                                                          \
+		if (unlikely(!___ok)) {                                                                   \
+			log_error(                                                                        \
+				"[xdp assert failed]: unexpected %s: actual %lld == non expected %lld\n", \
+				name, (long long)___act, (long long)___noexp);                            \
+			goto xdp_error;                                                                   \
+		};                                                                                        \
+	})
 
+#define min(x, y)                              \
+	({                                     \
+		typeof(x) _min1 = (x);         \
+		typeof(y) _min2 = (y);         \
+		(void)(&_min1 == &_min2);      \
+		_min1 < _min2 ? _min1 : _min2; \
+	})
 
-#define min(x, y) ({				\
-	typeof(x) _min1 = (x);			\
-	typeof(y) _min2 = (y);			\
-	(void) (&_min1 == &_min2);		\
-	_min1 < _min2 ? _min1 : _min2; })
- 
-#define max(x, y) ({				\
-	typeof(x) _max1 = (x);			\
-	typeof(y) _max2 = (y);			\
-	(void) (&_max1 == &_max2);		\
-	_max1 > _max2 ? _max1 : _max2; })
+#define max(x, y)                              \
+	({                                     \
+		typeof(x) _max1 = (x);         \
+		typeof(y) _max2 = (y);         \
+		(void)(&_max1 == &_max2);      \
+		_max1 > _max2 ? _max1 : _max2; \
+	})
 
-#define typecheck(type,x) \
-({	type __dummy; \
-	typeof(x) __dummy2; \
-	(void)(&__dummy == &__dummy2); \
-	1; \
-})
+#define typecheck(type, x)                     \
+	({                                     \
+		type __dummy;                  \
+		typeof(x) __dummy2;            \
+		(void)(&__dummy == &__dummy2); \
+		1;                             \
+	})
 
 #define CHECK_BOUND(p, data_end)                      \
 	do {                                          \
