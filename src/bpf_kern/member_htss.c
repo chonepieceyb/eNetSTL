@@ -298,7 +298,7 @@ not_found:
 	return 0;
 }
 
-static __always_inline int
+static int
 member_add_ht(struct member_ht_bucket *buckets, struct pkt_5tuple *key, set_t set_id)
 {
 	int ret;

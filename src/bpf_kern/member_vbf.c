@@ -11,7 +11,7 @@ char _license[] SEC("license") = "GPL";
 #include <bpf/bpf_tracing.h>
 
 /* static vars */
-#define MAX_ENTRY 1024
+#define MAX_ENTRY 2048
 #define HASH_SEED_1 0xdeadbeef
 #define HASH_SEED_2 0xaaaabbbb
 #define MEMBER_NO_MATCH 0
@@ -76,7 +76,7 @@ set_bit(__u32 *table, __u32 bit_loc, __s32 set)
 }
 
 /* vBF API implementation */
-static __always_inline int
+static int
 member_lookup_vbf(__u32 *table, struct pkt_5tuple *key, __u32 key_len, set_t *set_id)
 {
 	__u32 h1 = fasthash32(key, key_len, HASH_SEED_1);
@@ -99,7 +99,7 @@ member_lookup_vbf(__u32 *table, struct pkt_5tuple *key, __u32 key_len, set_t *se
 	}
 }
 
-static __always_inline int
+static int
 member_add_vbf(__u32 *table, struct pkt_5tuple *key, __u32 key_len, set_t set_id)
 {
 	__u32 i, h1, h2;
@@ -200,6 +200,14 @@ int xdp_main(struct xdp_md *ctx) {
 
 	// member_add_vbf(table, &pkt, sizeof(struct pkt_5tuple), set_id);
 	int lookup_res = member_lookup_vbf(table, &pkt, sizeof(struct pkt_5tuple), &set_id);
+
+	// __u32 h1 = fasthash32(&pkt, sizeof(struct pkt_5tuple), HASH_SEED_1);
+	// __u32 h2 = 0;
+	// for (int i = 0; i < 10; i++) {
+	// 	h2 = fasthash32(&h1, sizeof(__u32), HASH_SEED_1);
+	// 	h1 = h2;
+	// }
+	// int lookup_res = member_lookup_vbf(table, &h2, sizeof(__u32), &set_id);
 finish:
 	return XDP_DROP;
 }
