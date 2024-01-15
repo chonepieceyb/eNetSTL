@@ -1,6 +1,8 @@
 OBJ_NAME := cuckoo_hash
 USE_DEBUG ?= 1
 USE_SIMD ?= 1
+USE_SIMD_KEY_CMP ?= 1
+USE_SIMD_OTHER_CMP ?= 1
 GCC_VERSION := 13
 
 obj-m := ${OBJ_NAME}.o
@@ -14,6 +16,14 @@ endif
 
 ifeq (${USE_SIMD},1)
 ccflags-y += -DCUCKOO_HASH_SIMD -I/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VERSION)/include -mavx2 -mbmi
+endif
+
+ifeq (${USE_SIMD_KEY_CMP},1)
+ccflags-y += -DCUCKOO_HASH_SIMD_KEY_CMP
+endif
+
+ifeq (${USE_SIMD_OTHER_CMP},1)
+ccflags-y += -DCUCKOO_HASH_SIMD_OTHER_CMP
 endif
 
 default:

@@ -183,21 +183,19 @@ struct cuckoo_hash_bpf_map {
 typedef uint32_t cuckoo_hash_sig_t;
 
 #ifdef CUCKOO_HASH_SIMD
+#ifdef CUCKOO_HASH_SIMD_KEY_CMP
 /* Functions to compare multiple of 16 byte keys (up to 128 bytes) */
 static inline int __cuckoo_hash_k16_cmp_eq(const void *key1, const void *key2,
 					   size_t key_len)
 {
-	kernel_fpu_begin();
-
 	const __m128i k1 = _mm_loadu_si128((const __m128i *)key1);
 	const __m128i k2 = _mm_loadu_si128((const __m128i *)key2);
 	const __m128i x = _mm_xor_si128(k1, k2);
 	int ret = !_mm_test_all_zeros(x, x);
 
-	kernel_fpu_end();
-
 	return ret;
 }
+#endif
 
 #define _mm256_loadu_si256_optional(ptr)                                       \
 	(u64)(ptr) & ((1 << 5) - 1) ? _mm256_loadu_si256((__m256i_u *)(ptr)) : \
@@ -253,7 +251,7 @@ static inline u32 find_u16_sse(const u16 *arr, u16 val)
 static inline int __cuckoo_hash_cmp_eq(const void *key1, const void *key2,
 				       struct cuckoo_hash *h)
 {
-#ifdef CUCKOO_HASH_SIMD
+#if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_KEY_CMP)
 #if CUCKOO_HASH_KEY_SIZE != 16
 #error "__cuckoo_hash_k16_cmp_eq is used, but CUCKOO_HASH_KEY_SIZE is not 16"
 #endif
@@ -589,7 +587,13 @@ static void *cuckoo_hash_lookup_elem(struct bpf_map *map, void *key)
 
 	void *data = NULL;
 	int ret;
+#ifdef CUCKOO_HASH_SIMD
+	kernel_fpu_begin();
+#endif
 	ret = __cuckoo_hash_lookup_data(cuckoo_hash, key, &data);
+#ifdef CUCKOO_HASH_SIMD
+	kernel_fpu_end();
+#endif
 	if (ret != 0) {
 		cuckoo_log(debug, "lookup failed with code %d\n", ret);
 		return NULL;
@@ -609,7 +613,7 @@ __cuckoo_hash_search_and_update(struct cuckoo_hash *h, void *data,
 	int i;
 	struct __cuckoo_hash_key *k, *keys = h->key_store;
 
-#ifdef CUCKOO_HASH_SIMD
+#if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
 #if CUCKOO_HASH_BUCKET_ENTRIES != 8
 #error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 8"
 #endif
@@ -630,7 +634,7 @@ __cuckoo_hash_search_and_update(struct cuckoo_hash *h, void *data,
 				 * subtracting the first dummy index
 				 */
 			return bkt->key_idx[i] - 1;
-#ifndef CUCKOO_HASH_SIMD
+#if !(defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP))
 		}
 #endif
 	}
@@ -691,7 +695,7 @@ __cuckoo_hash_cuckoo_insert_mw(struct cuckoo_hash *h,
 	/* Insert new entry if there is room in the primary
 	 * bucket.
 	 */
-#ifdef CUCKOO_HASH_SIMD
+#if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
 #if CUCKOO_HASH_BUCKET_ENTRIES != 8
 #error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 8"
 #endif
@@ -804,7 +808,7 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 	struct __cuckoo_hash_bucket *curr_bkt, *alt_bkt;
 	uint32_t cur_idx, alt_idx;
 	int32_t ret;
-#ifdef CUCKOO_HASH_SIMD
+#if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
 	uint32_t mask, delta;
 #endif
 
@@ -832,7 +836,7 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 		cur_idx = tail->cur_bkt_idx;
 		cuckoo_log(debug, "iterating: queue size = %ld, cur_idx = %d\n",
 			   head - tail, cur_idx);
-#ifdef CUCKOO_HASH_SIMD
+#if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
 #if CUCKOO_HASH_BUCKET_ENTRIES != 8
 #error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 8"
 #endif
@@ -1012,10 +1016,19 @@ static long cuckoo_hash_update_elem(struct bpf_map *map, void *key, void *value,
 	struct cuckoo_hash_bpf_map *cuckoo_hash_map =
 		(struct cuckoo_hash_bpf_map *)map;
 	struct cuckoo_hash *cuckoo_hash;
+	int ret;
 
 	cuckoo_hash = this_cpu_ptr(cuckoo_hash_map->cuckoo_hash);
 
-	return __cuckoo_hash_add_key_data(cuckoo_hash, key, value);
+#ifdef CUCKOO_HASH_SIMD
+	kernel_fpu_begin();
+#endif
+	ret = __cuckoo_hash_add_key_data(cuckoo_hash, key, value);
+#ifdef CUCKOO_HASH_SIMD
+	kernel_fpu_end();
+#endif
+
+	return ret;
 }
 
 static u64 cuckoo_hash_mem_usage(const struct bpf_map *map)
