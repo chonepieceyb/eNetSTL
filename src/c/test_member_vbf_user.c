@@ -14,7 +14,7 @@
 
 #include "test_helpers.h"
 
-#define NUM_KEYS 100
+#define NUM_KEYS 1000
 #define NUM_SET 8
 #define FALSE_POSITIVE_RATE 0.03
 

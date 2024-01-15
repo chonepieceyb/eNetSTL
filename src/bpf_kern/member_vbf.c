@@ -2,6 +2,8 @@
 #include "bpf_helpers.h"
 #include "common.h"
 #include "jhash.h"
+#include "xxhash.h"
+#include "fasthash.h"
 
 char _license[] SEC("license") = "GPL";
 
@@ -9,7 +11,7 @@ char _license[] SEC("license") = "GPL";
 #include <bpf/bpf_tracing.h>
 
 /* static vars */
-#define MAX_ENTRY 128
+#define MAX_ENTRY 1024
 #define HASH_SEED_1 0xdeadbeef
 #define HASH_SEED_2 0xaaaabbbb
 #define MEMBER_NO_MATCH 0
@@ -17,12 +19,12 @@ char _license[] SEC("license") = "GPL";
 #define EINVAL 1
 #define ENOSPC 2
 /* datastruct params */
-#define NUM_KEYS 100
+#define NUM_KEYS 1000
 #define NUM_SET 8
-#define NUM_KEYS_PER_BF 13
-#define BITS 256
-#define BIT_MASK 255
-#define NUM_HASHES 3
+#define NUM_KEYS_PER_BF 125
+#define BITS 2048
+#define BIT_MASK 2047
+#define NUM_HASHES 4
 #define MUL_SHIFT 3
 #define DIV_SHIFT 2
 
@@ -75,10 +77,10 @@ set_bit(__u32 *table, __u32 bit_loc, __s32 set)
 
 /* vBF API implementation */
 static __always_inline int
-member_lookup_vbf(__u32 *table, struct pkt_5tuple key, __u32 key_len, set_t *set_id)
+member_lookup_vbf(__u32 *table, struct pkt_5tuple *key, __u32 key_len, set_t *set_id)
 {
-	__u32 h1 = jhash_pkt(key, key_len, HASH_SEED_1);
-	__u32 h2 = jhash_u32(h1, sizeof(__u32), HASH_SEED_2);
+	__u32 h1 = fasthash32(key, key_len, HASH_SEED_1);
+	__u32 h2 = fasthash32(&h1, sizeof(__u32), HASH_SEED_2);
 	__u32 mask = ~0;
 	__u32 bit_loc;
 
@@ -98,7 +100,7 @@ member_lookup_vbf(__u32 *table, struct pkt_5tuple key, __u32 key_len, set_t *set
 }
 
 static __always_inline int
-member_add_vbf(__u32 *table, struct pkt_5tuple key, __u32 key_len, set_t set_id)
+member_add_vbf(__u32 *table, struct pkt_5tuple *key, __u32 key_len, set_t set_id)
 {
 	__u32 i, h1, h2;
 	__u32 bit_loc;
@@ -106,8 +108,8 @@ member_add_vbf(__u32 *table, struct pkt_5tuple key, __u32 key_len, set_t set_id)
 	if (set_id > NUM_SET || set_id == MEMBER_NO_MATCH)
 		return -1;
 
-	h1 = jhash_pkt(key, key_len, HASH_SEED_1);
-	h2 = jhash_u32(h1, sizeof(__u32), HASH_SEED_2);
+	h1 = fasthash32(key, key_len, HASH_SEED_1);
+	h2 = fasthash32(&h1, sizeof(__u32), HASH_SEED_2);
 
 	for (i = 0; i < NUM_HASHES; i++) {
 		bit_loc = (h1 + i * h2) & BIT_MASK;
@@ -126,8 +128,8 @@ int test_vbf(struct xdp_md *ctx) {
 	__u32 bit_loc;
 	__u32 mask;
 
-	int index = 0;
-	struct vbf_memory *__vbf = bpf_map_lookup_elem(&map, &index);
+	int zero = 0;
+	struct vbf_memory *__vbf = bpf_map_lookup_elem(&map, &zero);
 	if (__vbf == NULL) {
 		log_error("memory initialization error at line %d\n", __LINE__);
 		return XDP_PASS;
@@ -144,7 +146,7 @@ int test_vbf(struct xdp_md *ctx) {
 		pkt.src_port = i;
 		pkt.dst_port = i;
 		pkt.proto = 0x04;
-		add_res[i] = member_add_vbf(table, pkt, sizeof(struct pkt_5tuple), set_id);
+		add_res[i] = member_add_vbf(table, &pkt, sizeof(struct pkt_5tuple), set_id);
 		if (add_res[i] == 0) {
 			log_info("add %d success\n", i);
 		} else {
@@ -158,10 +160,46 @@ int test_vbf(struct xdp_md *ctx) {
 		pkt.src_port = i;
 		pkt.dst_port = i;
 		pkt.proto = 0x04;
-		lookup_res[i] = member_lookup_vbf(table, pkt, sizeof(struct pkt_5tuple), &set_id);
+		lookup_res[i] = member_lookup_vbf(table, &pkt, sizeof(struct pkt_5tuple), &set_id);
 		if (lookup_res[i] == 1) {
 			log_info("lookup %d success, set_id: %d\n", i, set_id);
 		}
 	}
-	return XDP_PASS;
+	return XDP_DROP;
+}
+
+/* exp program */
+SEC("xdp")
+int xdp_main(struct xdp_md *ctx) {
+	set_t set_id = 1;
+	int zero = 0;
+	struct vbf_memory *__vbf = bpf_map_lookup_elem(&map, &zero);
+	if (unlikely(__vbf == NULL)) {
+		log_error("memory initialization error at line %d\n", __LINE__);
+		goto finish;
+	}
+	__u32 *table = __vbf->table;
+
+	struct pkt_5tuple pkt;
+	void *data, *data_end;
+	struct hdr_cursor nh;
+	int ret;
+
+	data = (void *)(long)ctx->data;
+	data_end = (void *)(long)ctx->data_end;
+	nh.pos = data;
+	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
+		log_error("cannot parse packet: %d", ret);
+		goto finish;
+	} else {
+		log_debug(
+			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
+			pkt.src_ip, pkt.src_port, pkt.dst_ip,
+			pkt.dst_port, pkt.proto);
+	}
+
+	// member_add_vbf(table, &pkt, sizeof(struct pkt_5tuple), set_id);
+	int lookup_res = member_lookup_vbf(table, &pkt, sizeof(struct pkt_5tuple), &set_id);
+finish:
+	return XDP_DROP;
 }
