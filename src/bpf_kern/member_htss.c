@@ -2,6 +2,7 @@
 #include "bpf_helpers.h"
 #include "common.h"
 #include "jhash.h"
+#include "fasthash.h"
 
 char _license[] SEC("license") = "GPL";
 
@@ -9,20 +10,20 @@ char _license[] SEC("license") = "GPL";
 #include <bpf/bpf_tracing.h>
 
 /* static vars */
-#define MAX_ENTRY 256
+#define MAX_ENTRY 2048
 #define HASH_SEED_1 0xdeadbeef
 #define HASH_SEED_2 0xaaaabbbb
 #define MEMBER_NO_MATCH 0
-#define MEMBER_MAX_PUSHES 4
+#define MEMBER_MAX_PUSHES 16
 
 #define EINVAL 1
 #define ENOSPC 2
 /* datastruct params */
-#define NUM_ENTRIES 4
-#define NUM_BUCKETS 4
+#define NUM_ENTRIES 1024
+#define NUM_BUCKETS 128
 #define SIZE_BUCKET_T 32
-#define BUCKET_MASK 3
-#define MEMBER_BUCKET_ENTRIES 2
+#define BUCKET_MASK 127
+#define MEMBER_BUCKET_ENTRIES 8
 
 #define TEST_RANGE 20
 /* core malloc aera */
@@ -53,7 +54,7 @@ struct record_array {
 };
 
 struct pushed_array {
-	__u8 data[NUM_BUCKETS][MEMBER_BUCKET_ENTRIES]
+	__u8 data[NUM_BUCKETS][MEMBER_BUCKET_ENTRIES];
 };
 
 struct {
@@ -70,14 +71,21 @@ struct {
 	__uint(max_entries, 1);
 } pushed_map SEC(".maps");
 
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, __u32);
+	__type(value, __u32);
+	__uint(max_entries, 1);
+} count_map SEC(".maps");
+
 
 /* htss helper function */
 static __always_inline void
-get_buckets_index(struct pkt_5tuple key, __u32 key_len, __u32 *prim_bkt, __u32 *sec_bkt, sig_t *sig)
+get_buckets_index(struct pkt_5tuple *key, __u32 key_len, __u32 *prim_bkt, __u32 *sec_bkt, sig_t *sig)
 {
 	/* 和vbf一样，计算两个hash值，其中 h1 = hash(key) h2 = hash(hash(key)) */
-	__u32 first_hash = jhash_pkt(key, key_len, HASH_SEED_1);
-	__u32 sec_hash = jhash_u32(first_hash, sizeof(__u32), HASH_SEED_2);
+	__u32 first_hash = fasthash32(key, key_len, HASH_SEED_1);
+	__u32 sec_hash = fasthash32(&first_hash, sizeof(__u32), HASH_SEED_2);
 
 	if (prim_bkt == NULL || sec_bkt == NULL || sig == NULL) {
 		log_error("error at line %d", __LINE__);
@@ -253,7 +261,7 @@ search_bucket_single(__u32 bucket_id, sig_t tmp_sig,
 		sig_t curr_sig = curr_bkt.sigs[iter];
 		asm_bound_check(iter, MEMBER_BUCKET_ENTRIES);
 		set_t curr_set = curr_bkt.sets[iter];
-		// log_debug("tmp_sig: %x, curr_sig:%x, curr_set:%d", tmp_sig, curr_sig, curr_set);
+		log_debug("tmp_sig: %x, curr_sig:%x, curr_set:%d", tmp_sig, curr_sig, curr_set);
 		if (tmp_sig == curr_sig && curr_set != MEMBER_NO_MATCH) {
 			asm_bound_check(iter, MEMBER_BUCKET_ENTRIES);
 			*set_id = curr_bkt.sets[iter];
@@ -266,7 +274,7 @@ not_found:
 
 /* htss API implementation */
 static int
-member_lookup_ht(struct member_ht_bucket *buckets, struct pkt_5tuple key, set_t *set_id)
+member_lookup_ht(struct member_ht_bucket *buckets, struct pkt_5tuple *key, set_t *set_id)
 {
 	__u32 prim_bucket_idx = 0, sec_bucket_idx = 0;
 	sig_t tmp_sig = 0;
@@ -276,7 +284,7 @@ member_lookup_ht(struct member_ht_bucket *buckets, struct pkt_5tuple key, set_t 
 		goto not_found;
 	}
 	*set_id = MEMBER_NO_MATCH;
-	get_buckets_index(key, sizeof(__u32), &prim_bucket_idx, &sec_bucket_idx, &tmp_sig);
+	get_buckets_index(key, sizeof(struct pkt_5tuple), &prim_bucket_idx, &sec_bucket_idx, &tmp_sig);
 
 	asm_bound_check(prim_bucket_idx, NUM_BUCKETS);
 	struct member_ht_bucket prim_bkt = buckets[prim_bucket_idx];
@@ -291,7 +299,7 @@ not_found:
 }
 
 static __always_inline int
-member_add_ht(struct member_ht_bucket *buckets, struct pkt_5tuple key, set_t set_id)
+member_add_ht(struct member_ht_bucket *buckets, struct pkt_5tuple *key, set_t set_id)
 {
 	int ret;
 	unsigned int nr_pushes = 0;
@@ -305,7 +313,7 @@ member_add_ht(struct member_ht_bucket *buckets, struct pkt_5tuple key, set_t set
 		return -1;
 	}
 
-	get_buckets_index(key, sizeof(__u32), &prim_bucket, &sec_bucket, &tmp_sig);
+	get_buckets_index(key, sizeof(struct pkt_5tuple), &prim_bucket, &sec_bucket, &tmp_sig);
 
 	ret = try_insert(buckets, prim_bucket, sec_bucket, tmp_sig, set_id);
 	if (ret != -1)
@@ -325,9 +333,9 @@ member_add_ht(struct member_ht_bucket *buckets, struct pkt_5tuple key, set_t set
 /* test program */
 SEC("xdp")
 int test_htss(struct xdp_md *ctx) {
-	__u32 index = 0;
+	__u32 zero = 0;
 	__u32 set_id = 1;
-	struct htss_memory* __htss = bpf_map_lookup_elem(&map, &index);
+	struct htss_memory* __htss = bpf_map_lookup_elem(&map, &zero);
 	if (__htss == NULL) {
 		log_error("error at line %d\n", __LINE__);
 		goto finish;
@@ -353,7 +361,7 @@ int test_htss(struct xdp_md *ctx) {
 		pkt.src_port = i;
 		pkt.dst_port = i;
 		pkt.proto = 0x04;
-		int ret = member_add_ht(buckets, pkt, i);
+		int ret = member_add_ht(buckets, &pkt, i);
 		if (ret >= 0) {
 			log_info("add %d success\n", i);
 			add_count++;
@@ -370,7 +378,7 @@ int test_htss(struct xdp_md *ctx) {
 		pkt.src_port = i;
 		pkt.dst_port = i;
 		pkt.proto = 0x04;
-		int ret = member_lookup_ht(buckets, pkt, &set_id_res);
+		int ret = member_lookup_ht(buckets, &pkt, &set_id_res);
 		if (ret == 1) {
 			log_info("lookup %d success, set_id: %d\n", i, set_id_res);
 			lookup_res[i] = 1;
@@ -391,5 +399,44 @@ int test_htss(struct xdp_md *ctx) {
 	}
 
 finish:
-	return XDP_PASS;
+	return XDP_DROP;
+}
+
+/* exp program */
+SEC("xdp")
+int xdp_main(struct xdp_md *ctx) {
+	__u32 zero = 0;
+	set_t set_id = 1;
+	struct htss_memory* __htss = bpf_map_lookup_elem(&map, &zero);
+	if (__htss == NULL) {
+		log_error("error at line %d\n", __LINE__);
+		goto finish;
+	}
+	struct member_ht_bucket *buckets = __htss->buckets;
+
+	struct pkt_5tuple pkt;
+	void *data, *data_end;
+	struct hdr_cursor nh;
+	int ret;
+
+	data = (void *)(long)ctx->data;
+	data_end = (void *)(long)ctx->data_end;
+	nh.pos = data;
+	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
+		log_error("cannot parse packet: %d", ret);
+		goto finish;
+	} else {
+		log_debug(
+			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
+			pkt.src_ip, pkt.src_port, pkt.dst_ip,
+			pkt.dst_port, pkt.proto);
+	}
+
+
+	// member_add_ht(buckets, &pkt, set_id);
+
+	member_lookup_ht(buckets, &pkt, &set_id);
+
+finish:
+	return XDP_DROP;
 }
