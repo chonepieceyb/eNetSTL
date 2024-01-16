@@ -45,12 +45,10 @@ static uint32_t __cuckoo_hash_hash_default(const void *key, uint32_t key_len,
 	return xxh32(key, key_len, init_val);
 }
 
+typedef uint16_t __cuckoo_hash_key_idx_t;
+
 #define cuckoo_log(level, fmt, ...) \
 	pr_##level("cuckoo_hash: " fmt, ##__VA_ARGS__)
-
-/** Type of function used to compare the hash key. */
-typedef int (*__cuckoo_hash_cmp_eq_t)(const void *key1, const void *key2,
-				      size_t key_len);
 
 #define CUCKOO_IS_POWER_OF_2(n) ((n) && !(((n)-1) & (n)))
 
@@ -81,7 +79,7 @@ typedef int (*__cuckoo_hash_cmp_eq_t)(const void *key1, const void *key2,
  */
 #define CUCKOO_HASH_ALIGN(val, align) CUCKOO_HASH_ALIGN_CEIL(val, align)
 
-#define CUCKOO_HASH_BUCKET_ENTRIES 8
+#define CUCKOO_HASH_BUCKET_ENTRIES 16
 #if !CUCKOO_IS_POWER_OF_2(CUCKOO_HASH_BUCKET_ENTRIES)
 #error CUCKOO_HASH_BUCKET_ENTRIES must be a power of 2
 #endif
@@ -96,6 +94,10 @@ typedef int (*__cuckoo_hash_cmp_eq_t)(const void *key1, const void *key2,
 #define CUCKOO_HASH_BFS_QUEUE_MAX_LEN 1000
 
 #define CUCKOO_HASH_KEY_SIZE 16
+
+#define CUCKOO_HASH_KEY_IDX_SIZE sizeof(__cuckoo_hash_key_idx_t)
+/* FIXME: CUCKOO_HASH_KEY_IDX_SIZE must be 2 for current SIMD implementation to work */
+/* FIXME: CUCKOO_HASH_KEY_IDX_SIZE must be <= (sizeof(int32_t) / 2) for current implementation to work */
 
 #define CUCKOO_HASH_VALUE_SIZE 4
 
@@ -130,12 +132,12 @@ struct __cuckoo_hash_key {
 /** Bucket structure */
 struct __cuckoo_hash_bucket {
 	uint16_t sig_current[CUCKOO_HASH_BUCKET_ENTRIES];
-	uint32_t key_idx[CUCKOO_HASH_BUCKET_ENTRIES];
+	__cuckoo_hash_key_idx_t key_idx[CUCKOO_HASH_BUCKET_ENTRIES];
 };
 
 struct __cuckoo_hash_free_slot {
 	struct list_head list;
-	uint32_t slot_id;
+	__cuckoo_hash_key_idx_t slot_id;
 };
 
 /**
@@ -201,51 +203,29 @@ static inline int __cuckoo_hash_k16_cmp_eq(const void *key1, const void *key2,
 	(u64)(ptr) & ((1 << 5) - 1) ? _mm256_loadu_si256((__m256i_u *)(ptr)) : \
 				      (*(__m256i *)(ptr))
 
-#define _mm_loadu_si128_optional(ptr)                                       \
-	(u64)(ptr) & ((1 << 5) - 1) ? _mm_loadu_si128((__m128i_u *)(ptr)) : \
-				      *(__m128i *)(ptr)
-
-static inline u32 __find_mask_u32_avx(const u32 *arr, u32 val)
+static inline u32 __find_mask_u16_avx(const u16 *arr, u16 val)
 {
-	__m256i arr_vec = _mm256_loadu_si256_optional(arr),
-		val_vec = _mm256_set1_epi32(val);
-	__m256i cmp = _mm256_cmpeq_epi32(arr_vec, val_vec);
+	__m256i arr_vec = _mm256_loadu_si256_optional((const __m256i_u *)arr),
+		val_vec = _mm256_set1_epi16(val);
+	__m256i cmp = _mm256_cmpeq_epi16(arr_vec, val_vec);
 	u32 mask = _mm256_movemask_epi8(cmp);
 	return mask;
 }
 
-static inline u16 __find_mask_u16_sse(const u16 *arr, u16 val)
+static inline u32 find_u16_avx(const u16 *arr, u16 val)
 {
-	__m128i arr_vec = _mm_loadu_si128_optional((__m128i_u *)arr),
-		val_vec = _mm_set1_epi16(val);
-	__m128i cmp = _mm_cmpeq_epi16(arr_vec, val_vec);
-	u16 mask = _mm_movemask_epi8(cmp);
-	return mask;
+	u32 mask = __find_mask_u16_avx(arr, val);
+	return __tzcnt_u32(mask) >> 1;
 }
 
-static inline u32 find_u32_avx(const u32 *arr, u32 val)
-{
-	u32 mask = __find_mask_u32_avx(arr, val);
-	return __tzcnt_u32(mask) >> 2;
-}
-
-static inline u32 find_u16_sse(const u16 *arr, u16 val)
-{
-	u16 mask = __find_mask_u16_sse(arr, val);
-	return __tzcnt_u16(mask) >> 1;
-}
-
-#define for_each_u32_avx(arr, val, idx, mask, delta)                   \
-	(mask) = __find_mask_u32_avx((arr), (val));                    \
+#define __for_each_u16_avx(idx, mask, delta)                           \
 	(delta) = __tzcnt_u32(mask);                                   \
-	for ((idx) = ((delta) >> 2); (mask); (mask) >>= ((delta) + 1), \
-	    (delta) = __tzcnt_u32(mask), (idx) += ((delta) >> 2))
-
-#define for_each_u16_sse(arr, val, idx, mask, delta)                   \
-	(mask) = __find_mask_u16_sse((arr), (val));                    \
-	(delta) = __tzcnt_u16(mask);                                   \
 	for ((idx) = ((delta) >> 1); (mask); (mask) >>= ((delta) + 1), \
-	    (delta) = __tzcnt_u16(mask), (idx) += ((delta) >> 1))
+	    (delta) = __tzcnt_u32(mask), (idx) += ((delta) >> 1))
+
+#define for_each_u16_avx(arr, val, idx, mask, delta) \
+	(mask) = __find_mask_u16_avx((arr), (val));  \
+	__for_each_u16_avx((idx), (mask), (delta))
 #endif
 
 static inline int __cuckoo_hash_cmp_eq(const void *key1, const void *key2,
@@ -487,10 +467,15 @@ __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h, const void *key,
 	struct __cuckoo_hash_key *k, *keys = h->key_store;
 
 #if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
-	uint16_t mask, delta;
-	for_each_u16_sse(bkt->sig_current, sig, i, mask, delta)
+#if CUCKOO_HASH_BUCKET_ENTRIES != 16
+#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 16"
+#endif
+	uint32_t mask, delta;
+	mask = __find_mask_u16_avx(bkt->sig_current, sig) &
+	       ~__find_mask_u16_avx(bkt->key_idx, CUCKOO_HASH_EMPTY_SLOT);
+
+	__for_each_u16_avx(i, mask, delta)
 	{
-		if (bkt->key_idx[i] != CUCKOO_HASH_EMPTY_SLOT) {
 #else
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
 		if (bkt->sig_current[i] == sig &&
@@ -516,8 +501,12 @@ __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h, const void *key,
 			} else {
 				cuckoo_log(debug, "key does not match\n");
 			}
+#if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
+	}
+#else
 		}
 	}
+#endif
 	return -1;
 }
 
@@ -620,11 +609,11 @@ __cuckoo_hash_search_and_update(struct cuckoo_hash *h, void *data,
 	struct __cuckoo_hash_key *k, *keys = h->key_store;
 
 #if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
-#if CUCKOO_HASH_BUCKET_ENTRIES != 8
-#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 8"
+#if CUCKOO_HASH_BUCKET_ENTRIES != 16
+#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 16"
 #endif
 	uint32_t mask, delta;
-	for_each_u16_sse(bkt->sig_current, sig, i, mask, delta)
+	for_each_u16_avx(bkt->sig_current, sig, i, mask, delta)
 	{
 #else
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
@@ -639,16 +628,21 @@ __cuckoo_hash_search_and_update(struct cuckoo_hash *h, void *data,
 				 * Return index where key is stored,
 				 * subtracting the first dummy index
 				 */
+			cuckoo_log(debug, "found key at %d\n", i);
 			return bkt->key_idx[i] - 1;
-#if !(defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP))
 		}
-#endif
+#if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
 	}
-}
-return -1;
+#else
+		}
+	}
+#endif
+	cuckoo_log(debug, "key not found\n");
+	return -1;
 }
 
-static inline uint32_t __cuckoo_hash_alloc_slot(struct cuckoo_hash *h)
+static inline __cuckoo_hash_key_idx_t
+__cuckoo_hash_alloc_slot(struct cuckoo_hash *h)
 {
 	uint32_t slot_id;
 	struct __cuckoo_hash_free_slot *free_slot;
@@ -666,8 +660,9 @@ static inline uint32_t __cuckoo_hash_alloc_slot(struct cuckoo_hash *h)
 	return slot_id;
 }
 
-static inline int __cuckoo_hash_enqueue_slot_back(struct cuckoo_hash *h,
-						  uint32_t slot_id)
+static inline int32_t
+__cuckoo_hash_enqueue_slot_back(struct cuckoo_hash *h,
+				__cuckoo_hash_key_idx_t slot_id)
 {
 	struct __cuckoo_hash_free_slot *slot = h->free_slot_store + slot_id;
 
@@ -689,12 +684,11 @@ static inline int __cuckoo_hash_enqueue_slot_back(struct cuckoo_hash *h,
  * return 1 if matching existing key, return 0 if succeeds, return -1 for no
  * empty entry.
  */
-static inline int32_t
-__cuckoo_hash_cuckoo_insert_mw(struct cuckoo_hash *h,
-			       struct __cuckoo_hash_bucket *prim_bkt,
-			       struct __cuckoo_hash_bucket *sec_bkt,
-			       const struct __cuckoo_hash_key *key, void *data,
-			       uint16_t sig, uint32_t new_idx, int32_t *ret_val)
+static inline int32_t __cuckoo_hash_cuckoo_insert_mw(
+	struct cuckoo_hash *h, struct __cuckoo_hash_bucket *prim_bkt,
+	struct __cuckoo_hash_bucket *sec_bkt,
+	const struct __cuckoo_hash_key *key, void *data, uint16_t sig,
+	__cuckoo_hash_key_idx_t new_idx, int32_t *ret_val)
 {
 	unsigned int i;
 
@@ -702,16 +696,16 @@ __cuckoo_hash_cuckoo_insert_mw(struct cuckoo_hash *h,
 	 * bucket.
 	 */
 #if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
-#if CUCKOO_HASH_BUCKET_ENTRIES != 8
-#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 8"
+#if CUCKOO_HASH_BUCKET_ENTRIES != 16
+#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 16"
 #endif
-	i = find_u32_avx(prim_bkt->key_idx, CUCKOO_HASH_EMPTY_SLOT);
-
-	if (i == 8) {
+	i = find_u16_avx(prim_bkt->key_idx, CUCKOO_HASH_EMPTY_SLOT);
+	if (i == 16) {
 		/* no empty entry */
 		return -1;
 	}
 
+	cuckoo_log(debug, "found empty slot (with SIMD) at %d\n", i);
 	prim_bkt->sig_current[i] = sig;
 	prim_bkt->key_idx[i] = new_idx;
 	return 0;
@@ -752,17 +746,19 @@ struct __cuckoo_hash_bfs_queue_node {
  * return 1 if matched key found, return -1 if cuckoo path invalided and fail,
  * return 0 if succeeds.
  */
-static inline int __cuckoo_hash_cuckoo_move_insert_mw(
+static inline int32_t __cuckoo_hash_cuckoo_move_insert_mw(
 	struct cuckoo_hash *h, struct __cuckoo_hash_bucket *bkt,
 	struct __cuckoo_hash_bucket *alt_bkt,
 	const struct __cuckoo_hash_key *key, void *data,
 	struct __cuckoo_hash_bfs_queue_node *leaf, uint32_t leaf_slot,
-	uint16_t sig, uint32_t new_idx, int32_t *ret_val)
+	uint16_t sig, __cuckoo_hash_key_idx_t new_idx, int32_t *ret_val)
 {
 	uint32_t prev_alt_bkt_idx;
 	struct __cuckoo_hash_bfs_queue_node *prev_node, *curr_node = leaf;
 	struct __cuckoo_hash_bucket *prev_bkt, *curr_bkt = leaf->bkt;
 	uint32_t prev_slot, curr_slot = leaf_slot;
+
+	/* In this function, xxx_slot variables are indexes of buckets rather than keys */
 
 	while (likely(curr_node->prev != NULL)) {
 		prev_node = curr_node->prev;
@@ -802,11 +798,11 @@ static inline int __cuckoo_hash_cuckoo_move_insert_mw(
  * Make space for new key, using bfs Cuckoo Search and Multi-Writer safe
  * Cuckoo
  */
-static inline int __cuckoo_hash_cuckoo_make_space_mw(
+static inline int32_t __cuckoo_hash_cuckoo_make_space_mw(
 	struct cuckoo_hash *h, struct __cuckoo_hash_bucket *bkt,
 	struct __cuckoo_hash_bucket *sec_bkt,
 	const struct __cuckoo_hash_key *key, void *data, uint16_t sig,
-	uint32_t bucket_idx, uint32_t new_idx, int32_t *ret_val)
+	uint32_t bucket_idx, __cuckoo_hash_key_idx_t new_idx, int32_t *ret_val)
 {
 	unsigned int i;
 	struct __cuckoo_hash_bfs_queue_node *queue;
@@ -843,10 +839,10 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 		cuckoo_log(debug, "iterating: queue size = %ld, cur_idx = %d\n",
 			   head - tail, cur_idx);
 #if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
-#if CUCKOO_HASH_BUCKET_ENTRIES != 8
-#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 8"
+#if CUCKOO_HASH_BUCKET_ENTRIES != 16
+#error "currently SIMD implementation requires CUCKOO_HASH_BUCKET_ENTRIES == 16"
 #endif
-		for_each_u32_avx(curr_bkt->key_idx, CUCKOO_HASH_EMPTY_SLOT, i,
+		for_each_u16_avx(curr_bkt->key_idx, CUCKOO_HASH_EMPTY_SLOT, i,
 				 mask, delta)
 		{
 			ret = __cuckoo_hash_cuckoo_move_insert_mw(
@@ -862,19 +858,15 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 #else
 		for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
 			if (curr_bkt->key_idx[i] == CUCKOO_HASH_EMPTY_SLOT) {
-					ret = __cuckoo_hash_cuckoo_move_insert_mw(
-						h, bkt, sec_bkt, key, data,
-						tail, i, sig, new_idx, ret_val);
-					cuckoo_log(
-						debug,
-						"%d: done move insert ret = %d\n",
-						i, ret);
-					if (likely(ret != -1))
-						goto out_free_queue;
+			ret = __cuckoo_hash_cuckoo_move_insert_mw(
+				h, bkt, sec_bkt, key, data, tail, i, sig,
+				new_idx, ret_val);
+			cuckoo_log(debug, "%d: done move insert ret = %d\n", i,
+				   ret);
+			if (likely(ret != -1))
+					goto out_free_queue;
 			} else {
-					cuckoo_log(debug,
-						   "%d: skipped move insert\n",
-						   i);
+			cuckoo_log(debug, "%d: skipped move insert\n", i);
 			}
 #endif
 
@@ -912,8 +904,8 @@ static inline int32_t __cuckoo_hash_add_key_with_hash(struct cuckoo_hash *h,
 	uint32_t prim_bucket_idx, sec_bucket_idx;
 	struct __cuckoo_hash_bucket *prim_bkt, *sec_bkt;
 	struct __cuckoo_hash_key *new_k, *keys = h->key_store;
-	uint32_t slot_id;
-	int ret;
+	__cuckoo_hash_key_idx_t slot_id;
+	int32_t ret;
 	int32_t ret_val;
 
 	cuckoo_log(debug, "adding key with hash\n");
@@ -1178,7 +1170,7 @@ static ssize_t __testing_operation(struct file *flip, char __user *ubuf,
 			if (IS_ERR_OR_NULL(data)) {
 				cuckoo_log(
 					err,
-					"cuckoo_hash_lookup_elem() failed with %ld "
+					"cuckoo_hash_lookup_elem() failed with data/err %ld "
 					"but it should succeed (i = %d, j = %d, %d-th element)\n",
 					PTR_ERR(data), i, j, i * 32 + j + 1);
 				continue;
