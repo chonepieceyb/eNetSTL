@@ -22,7 +22,7 @@
 
 #define inline inline __attribute__((always_inline))
 
-#define CUCKOO_HASH_BUCKET_ENTRIES 8
+#define CUCKOO_HASH_BUCKET_ENTRIES 16
 #define CUCKOO_IS_POWER_OF_2(n) ((n) && !(((n)-1) & (n)))
 #if !CUCKOO_IS_POWER_OF_2(CUCKOO_HASH_BUCKET_ENTRIES)
 #error CUCKOO_HASH_BUCKET_ENTRIES must be a power of 2
@@ -102,6 +102,7 @@ struct pkt_5tuple_with_pad {
 } __attribute__((packed));
 
 typedef struct pkt_5tuple_with_pad cuckoo_hash_key_t;
+typedef uint16_t __cuckoo_hash_key_idx_t;
 typedef uint32_t cuckoo_hash_value_t;
 typedef uint32_t cuckoo_hash_sig_t;
 
@@ -119,7 +120,7 @@ struct __cuckoo_hash_key {
 
 struct __cuckoo_hash_bucket {
 	uint16_t sig_current[CUCKOO_HASH_BUCKET_ENTRIES];
-	uint32_t key_idx[CUCKOO_HASH_BUCKET_ENTRIES];
+	__cuckoo_hash_key_idx_t key_idx[CUCKOO_HASH_BUCKET_ENTRIES];
 };
 
 struct cuckoo_hash {
@@ -240,7 +241,8 @@ __cuckoo_hash_search_and_update(struct cuckoo_hash *h,
 				const cuckoo_hash_key_t *key,
 				struct __cuckoo_hash_bucket *bkt, uint16_t sig)
 {
-	uint32_t i, key_idx;
+	uint32_t i;
+	__cuckoo_hash_key_idx_t key_idx;
 	struct __cuckoo_hash_key *k, *keys = h->key_store;
 
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
@@ -526,11 +528,14 @@ static inline int cuckoo_hash_update_elem(struct cuckoo_hash *h,
 	}
 }
 
-static inline int32_t __cuckoo_hash_search_one_bucket(
-	struct cuckoo_hash *h, const cuckoo_hash_key_t *key, uint16_t sig,
-	cuckoo_hash_value_t **data, struct __cuckoo_hash_bucket *bkt)
+static int32_t __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h,
+					       const cuckoo_hash_key_t *key,
+					       uint16_t sig,
+					       cuckoo_hash_value_t **data,
+					       struct __cuckoo_hash_bucket *bkt)
 {
-	uint32_t i, key_idx;
+	uint32_t i;
+	__cuckoo_hash_key_idx_t key_idx;
 	struct __cuckoo_hash_key *k, *keys = h->key_store;
 
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
@@ -549,6 +554,10 @@ static inline int32_t __cuckoo_hash_search_one_bucket(
 			k = keys + key_idx;
 			if (__cuckoo_hash_cmp_eq(key, &k->key, h) == 0) {
 				*data = &k->value;
+				cuckoo_log(
+					debug,
+					"found key at entry %d, key index %d",
+					i, bkt->key_idx[i] - 1);
 				return bkt->key_idx[i] - 1;
 			}
 		}
