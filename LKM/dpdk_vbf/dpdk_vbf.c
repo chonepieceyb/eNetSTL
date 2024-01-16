@@ -74,7 +74,7 @@ static struct bpf_map *vbf_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	vbf_map->table = __alloc_percpu_gfp(attr->key_size * MAX_ENTRY, __alignof__(u64), GFP_USER | __GFP_NOWARN);
+	vbf_map->table = __alloc_percpu_gfp(sizeof(struct vbf_memory), __alignof__(u64), GFP_USER | __GFP_NOWARN);
 	if (vbf_map->table == NULL) {
 		res_ptr = ERR_PTR(-ENOMEM);
 		goto free_tmap;
