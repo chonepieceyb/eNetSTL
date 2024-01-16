@@ -7,30 +7,30 @@
 
 /**
  * bpf_find_u32_avx() - Find 32-bit value in array of 8 32-bit values.
- * 
+ *
  * @arr: Pointer to at least 8 32-bit values.
  * @val: Value to find in the array.
- * 
+ *
  * Return: index of value; 8 if not found
  */
 extern u32 bpf_find_u32_avx(const u32 *arr, u32 val) __ksym;
 
 /**
  * bpf_find_u16_avx() - Find 16-bit value in array of 16 16-bit values.
- * 
+ *
  * @arr: Pointer to at least 16 16-bit values.
  * @val: Value to find in the array.
- * 
+ *
  * Return: index of value; 16 if not found
  */
 extern u32 bpf_find_u16_avx(const u16 *arr, u16 val) __ksym;
 
 /**
  * bpf_find_u16_sse() - Find 16-bit value in array of 8 16-bit values.
- * 
+ *
  * @arr: Pointer to at least 8 16-bit values.
  * @val: Value to find in the array.
- * 
+ *
  * Return: index of value; 8 if not found
  */
 extern u32 bpf_find_u16_sse(const u16 *arr, u16 val) __ksym;
@@ -67,30 +67,30 @@ extern u32 bpf__find_mask_u16_sse(const u16 *arr, u16 val) __ksym;
 
 /**
  * bpf_find_mask_u32_avx() - Find 32-bit value in array of 8 32-bit values.
- * 
+ *
  * @arr: Pointer to at least 8 32-bit values.
  * @val: Value to find in the array.
- * 
+ *
  * Return: 8-bit mask
  */
 extern u32 bpf_find_mask_u32_avx(const u32 *arr, u32 val) __ksym;
 
 /**
  * bpf_find_mask_u16_avx() - Find 32-bit value in array of 16 16-bit values.
- * 
+ *
  * @arr: Pointer to at least 16 16-bit values.
  * @val: Value to find in the array.
- * 
+ *
  * Return: 16-bit mask
  */
 extern u32 bpf_find_mask_u16_avx(const u16 *arr, u16 val) __ksym;
 
 /**
  * bpf_find_mask_u32_sse() - Find 32-bit value in array of 8 16-bit values.
- * 
+ *
  * @arr: Pointer to at least 8 16-bit values.
  * @val: Value to find in the array.
- * 
+ *
  * Return: 8-bit mask
  */
 extern u32 bpf_find_mask_u16_sse(const u16 *arr, u16 val) __ksym;
@@ -143,7 +143,7 @@ extern u32 bpf_crc32_hash(const void *key, u32 key__sz, u32 seed) __ksym;
  * Return: haseh value of the key
  */
 extern u32 bpf_htss_sig_cmp(const void *sigs, size_t sigs__sz,
-			    u16 tmp_sig) __ksym;
+                            u16 tmp_sig) __ksym;
 /**
  * bpf_htss_bucket_search() - search given htss bucket for the tmp_sig.
  *
@@ -155,24 +155,62 @@ extern u32 bpf_htss_sig_cmp(const void *sigs, size_t sigs__sz,
  *
  * Return: set_id if found, 0 if not found
  */
-extern u32 bpf_htss_bucket_search(u16 *sigs, size_t sigs__sz,
-				      u16 tmp_sig, u16 *sets, size_t sets__sz) __ksym;
+extern u32 bpf_htss_bucket_search(u16 *sigs, size_t sigs__sz, u16 tmp_sig,
+                                  u16 *sets, size_t sets__sz) __ksym;
 
-#define for_each_bit_set(idx, mask, delta)                      \
-	(delta) = bpf_tzcnt_u32(mask);                          \
-	for ((idx) = (delta); (mask); (mask) >>= ((delta) + 1), \
-	    (delta) = bpf_tzcnt_u32(mask), (idx) += (delta))
+/**
+ * bpf_k16_cmp_eq() - Compare two 16-byte values for equality.
+ *
+ * @key1: Pointer to first 16-byte value.
+ * @key1__sz: Size of first 16-byte value (should be greater or equal to 16).
+ * @key2: Pointer to second 16-byte value.
+ * @key2__sz: Size of second 16-byte value (should be greater or equal to 16).
+ *
+ * Return: 1 if equal, 0 otherwise
+ */
+extern int bpf_k16_cmp_eq(const void *key1, size_t key1__sz, const void *key2,
+                          size_t key2__sz) __ksym;
 
-#define for_each_u32_avx(arr, val, idx, mask, delta)  \
-	(mask) = bpf_find_mask_u32_avx((arr), (val)); \
-	for_each_bit_set((idx), (mask), (delta))
+/**
+ * bpf_k32_cmp_eq() - Compare two 32-byte values for equality.
+ *
+ * @key1: Pointer to first 32-byte value.
+ * @key1__sz: Size of first 32-byte value (should be greater or equal to 32).
+ * @key2: Pointer to second 32-byte value.
+ * @key2__sz: Size of second 32-byte value (should be greater or equal to 32).
+ *
+ * Return: 1 if equal, 0 otherwise
+ */
+extern int bpf_k32_cmp_eq(const void *key1, size_t key1__sz, const void *key2,
+                          size_t key2__sz) __ksym;
 
-#define for_each_u16_avx(arr, val, idx, mask, delta)  \
-	(mask) = bpf_find_mask_u16_avx((arr), (val)); \
-	for_each_bit_set((idx), (mask), (delta))
+#define __for_each_u32_avx(idx, mask, delta)                                   \
+  (delta) = bpf_tzcnt_u32(mask);                                               \
+  (mask) >>= (delta);                                                          \
+  for ((idx) = ((delta) >> 2); (idx) < 8 && (mask); (mask) >> 4, (idx) += 1)   \
+    if ((mask)&0x01)
 
-#define for_each_u16_sse(arr, val, idx, mask, delta)  \
-	(mask) = bpf_find_mask_u16_sse((arr), (val)); \
-	for_each_bit_set((idx), (mask), (delta))
+#define for_each_u32_avx(arr, val, idx, mask, delta)                           \
+  (mask) = bpf_find_mask_u32_avx((arr), (val));                                \
+  __for_each_u32_avx((idx), (mask), (delta))
 
+#define __for_each_u16_avx(idx, mask, delta)                                   \
+  (delta) = bpf_tzcnt_u32(mask);                                               \
+  (mask) >>= (delta);                                                          \
+  for ((idx) = ((delta) >> 1); (idx) < 16 && (mask); (mask) >>= 2, (idx) += 1) \
+    if ((mask)&0x01)
+
+#define for_each_u16_avx(arr, val, idx, mask, delta)                           \
+  (mask) = bpf__find_mask_u16_avx((arr), (val));                               \
+  __for_each_u16_avx((idx), (mask), (delta))
+
+#define __for_each_u16_sse(idx, mask, delta)                                   \
+  (delta) = bpf_tzcnt_u16(mask);                                               \
+  (mask) >>= (delta);                                                          \
+  for ((idx) = ((delta) >> 1); (idx) < 8 && (mask); (mask) >>= 2, (idx) += 1)  \
+    if ((mask)&0x01)
+
+#define for_each_u16_sse(arr, val, idx, mask, delta)                           \
+  (mask) = bpf__find_mask_u16_sse((arr), (val));                               \
+  __for_each_u16_sse((idx), (mask), (delta))
 #endif
