@@ -197,6 +197,17 @@ static inline int __cuckoo_hash_k16_cmp_eq(const void *key1, const void *key2,
 
 	return ret;
 }
+
+static inline int __cuckoo_hash_k32_cmp_eq(const void *key1, const void *key2,
+					   size_t key_len)
+{
+	const __m256i k1 = _mm256_loadu_si256((const __m256i *)key1);
+	const __m256i k2 = _mm256_loadu_si256((const __m256i *)key2);
+	const __m256i x = _mm256_xor_si256(k1, k2);
+	int ret = !_mm256_testz_si256(x, x);
+
+	return ret;
+}
 #endif
 
 #define _mm256_loadu_si256_optional(ptr)                                       \
@@ -232,10 +243,13 @@ static inline int __cuckoo_hash_cmp_eq(const void *key1, const void *key2,
 				       struct cuckoo_hash *h)
 {
 #if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_KEY_CMP)
-#if CUCKOO_HASH_KEY_SIZE != 16
-#error "__cuckoo_hash_k16_cmp_eq is used, but CUCKOO_HASH_KEY_SIZE is not 16"
-#endif
+#if CUCKOO_HASH_KEY_SIZE == 16
 	return __cuckoo_hash_k16_cmp_eq(key1, key2, CUCKOO_HASH_KEY_SIZE);
+#elif CUCKOO_HASH_KEY_SIZE == 32
+	return __cuckoo_hash_k32_cmp_eq(key1, key2, CUCKOO_HASH_KEY_SIZE);
+#else
+#error "CUCKOO_HASH_KEY_SIZE not supported by current SIMD implementation"
+#endif
 #else
 	return memcmp(key1, key2, CUCKOO_HASH_KEY_SIZE);
 #endif
