@@ -42,7 +42,7 @@ struct {
 	__type(key, __u32);
 	__type(value, struct htss_memory);
 	__uint(max_entries, 1);
-} map SEC(".maps");
+} htss_memory_map SEC(".maps");
 
 struct record {
 	__u32 bkt_idx;
@@ -254,17 +254,11 @@ search_bucket_single(__u32 bucket_id, sig_t tmp_sig,
 		set_t *set_id)
 {
 	asm_bound_check(bucket_id, NUM_BUCKETS);
-	struct member_ht_bucket curr_bkt = buckets[bucket_id];
 	__u32 iter;
 	for (iter = 0; iter < MEMBER_BUCKET_ENTRIES; iter++) {
-		asm_bound_check(iter, MEMBER_BUCKET_ENTRIES);
-		sig_t curr_sig = curr_bkt.sigs[iter];
-		asm_bound_check(iter, MEMBER_BUCKET_ENTRIES);
-		set_t curr_set = curr_bkt.sets[iter];
 		log_debug("tmp_sig: %x, curr_sig:%x, curr_set:%d", tmp_sig, curr_sig, curr_set);
-		if (tmp_sig == curr_sig && curr_set != MEMBER_NO_MATCH) {
-			asm_bound_check(iter, MEMBER_BUCKET_ENTRIES);
-			*set_id = curr_bkt.sets[iter];
+		if (tmp_sig == buckets[bucket_id].sigs[iter] && buckets[bucket_id].sets[iter] != MEMBER_NO_MATCH) {
+			*set_id = buckets[bucket_id].sets[iter];
 			return 1;
 		}
 	}
@@ -285,10 +279,6 @@ member_lookup_ht(struct member_ht_bucket *buckets, struct pkt_5tuple *key, set_t
 	}
 	*set_id = MEMBER_NO_MATCH;
 	get_buckets_index(key, sizeof(struct pkt_5tuple), &prim_bucket_idx, &sec_bucket_idx, &tmp_sig);
-
-	asm_bound_check(prim_bucket_idx, NUM_BUCKETS);
-	struct member_ht_bucket prim_bkt = buckets[prim_bucket_idx];
-	log_debug("lookup prim_bucket_idx:%d, sec_bucket_idx:%d\n", prim_bucket_idx, sec_bucket_idx);
 
 	if (search_bucket_single(prim_bucket_idx, tmp_sig, buckets, set_id) 
 			|| search_bucket_single(sec_bucket_idx, tmp_sig, buckets, set_id))
@@ -335,7 +325,7 @@ SEC("xdp")
 int test_htss(struct xdp_md *ctx) {
 	__u32 zero = 0;
 	__u32 set_id = 1;
-	struct htss_memory* __htss = bpf_map_lookup_elem(&map, &zero);
+	struct htss_memory* __htss = bpf_map_lookup_elem(&htss_memory_map, &zero);
 	if (__htss == NULL) {
 		log_error("error at line %d\n", __LINE__);
 		goto finish;
@@ -407,7 +397,7 @@ SEC("xdp")
 int xdp_main(struct xdp_md *ctx) {
 	__u32 zero = 0;
 	set_t set_id = 1;
-	struct htss_memory* __htss = bpf_map_lookup_elem(&map, &zero);
+	struct htss_memory* __htss = bpf_map_lookup_elem(&htss_memory_map, &zero);
 	if (__htss == NULL) {
 		log_error("error at line %d\n", __LINE__);
 		goto finish;
