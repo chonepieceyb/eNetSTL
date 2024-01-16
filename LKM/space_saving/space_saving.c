@@ -37,6 +37,9 @@ typedef u16 ss_count_t;
 #define SS_COUNT_SIZE sizeof(ss_count_t)
 /* Currently SS_COUNT_SIZE must be 2 for SIMD implementation to work */
 
+extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
+				     const struct btf_kfunc_id_set *kset);
+
 struct ss_table {
 	u8 keys[SS_KEY_SIZE * SS_NUM_COUNTERS];
 	ss_count_t counts[SS_NUM_COUNTERS];
@@ -243,6 +246,14 @@ out:
 	return ret;
 }
 
+__bpf_kfunc long bpf_ss_update_elem(struct bpf_map *map, void *key,
+				    size_t key__sz, void *value,
+				    size_t value__sz, u64 flags)
+{
+	return ss_update_elem(map, key, value, flags);
+}
+EXPORT_SYMBOL_GPL(bpf_ss_update_elem);
+
 uint64_t ss_mem_usage(const struct bpf_map *map)
 {
 	return sizeof(struct ss_table_bpf_map) +
@@ -258,9 +269,32 @@ static struct bpf_map_ops ss_ops = {
 	.map_mem_usage = ss_mem_usage,
 };
 
+BTF_SET8_START(bpf_ss_kfunc_ids)
+BTF_ID_FLAGS(func, bpf_ss_update_elem)
+BTF_SET8_END(bpf_ss_kfunc_ids)
+
+static const struct btf_kfunc_id_set bpf_ss_kfunc_set = {
+	.owner = THIS_MODULE,
+	.set = &bpf_ss_kfunc_ids,
+};
+
 static int ss_initialize(void)
 {
-	return 0;
+	int ret;
+
+	if ((ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_XDP,
+					     &bpf_ss_kfunc_set)) < 0) {
+		ss_log(err, "failed to register kfunc set: %d\n", ret);
+		goto out;
+	}
+
+out:
+	return ret;
+}
+
+static void ss_cleanup(void)
+{
+	// Nothing to do
 }
 
 #ifdef SS_DEBUG
@@ -418,6 +452,7 @@ static void __exit ss_exit(void)
 	ss_proc_cleanup();
 #endif
 	bpf_unregister_static_cmap(THIS_MODULE);
+	ss_cleanup();
 
 	ss_log(info, "exiting\n");
 }
