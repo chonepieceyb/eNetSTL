@@ -3,6 +3,7 @@
 
 #include "vmlinux.h"
 #include <bpf_helpers.h>
+#include <bpf_endian.h>
 
 #ifndef LOG_LEVEL
 #define LOG_LEVEL 2
