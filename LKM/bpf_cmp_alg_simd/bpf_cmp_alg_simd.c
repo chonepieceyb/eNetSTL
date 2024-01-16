@@ -146,6 +146,30 @@ __bpf_kfunc u32 bpf_find_min_u16_sse(const u16 *arr)
 }
 EXPORT_SYMBOL_GPL(bpf_find_min_u16_sse);
 
+__bpf_kfunc int bpf_k16_cmp_eq(const void *key1, size_t key1__sz,
+			       const void *key2, size_t key2__sz)
+{
+	const __m128i k1 = _mm_loadu_si128((const __m128i *)key1);
+	const __m128i k2 = _mm_loadu_si128((const __m128i *)key2);
+	const __m128i x = _mm_xor_si128(k1, k2);
+	int ret = !_mm_test_all_zeros(x, x);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(bpf_k16_cmp_eq);
+
+__bpf_kfunc int bpf_k32_cmp_eq(const void *key1, size_t key1__sz,
+			       const void *key2, size_t key2__sz)
+{
+	const __m256i k1 = _mm256_loadu_si256((const __m256i *)key1);
+	const __m256i k2 = _mm256_loadu_si256((const __m256i *)key2);
+	const __m256i x = _mm256_xor_si256(k1, k2);
+	int ret = !_mm256_testz_si256(x, x);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(bpf_k32_cmp_eq);
+
 BTF_SET8_START(bpf_cmp_alg_simd_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_find_u32_avx)
 BTF_ID_FLAGS(func, bpf_find_u16_avx)
@@ -159,6 +183,8 @@ BTF_ID_FLAGS(func, bpf_find_mask_u16_sse)
 BTF_ID_FLAGS(func, bpf_tzcnt_u32)
 BTF_ID_FLAGS(func, bpf_tzcnt_u16)
 BTF_ID_FLAGS(func, bpf_find_min_u16_sse)
+BTF_ID_FLAGS(func, bpf_k16_cmp_eq)
+BTF_ID_FLAGS(func, bpf_k32_cmp_eq)
 BTF_SET8_END(bpf_cmp_alg_simd_kfunc_ids)
 
 static const struct btf_kfunc_id_set bpf_cmp_alg_simd_kfunc_set = {
