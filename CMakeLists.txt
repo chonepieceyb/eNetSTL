@@ -47,6 +47,13 @@ if(${USE_EBPF_IMPL})
     add_compile_definitions(USE_EBPF_IMPL)
 endif()
 
+set(USE_LOOKUP_ONLY OFF CACHE BOOL "should lookup only and never update")
+message(STATUS "USE_LOOKUP_ONLY: ${USE_LOOKUP_ONLY}")
+
+if(${USE_LOOKUP_ONLY})
+    add_compile_definitions(USE_LOOKUP_ONLY)
+endif()
+
 message(STATUS "LOG_LEVEL: ${LOG_LEVEL}")
 
 add_subdirectory("${BPF_KERN_SRC_FILES}")
