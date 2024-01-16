@@ -48,7 +48,8 @@ struct {
 	__type(key, int);
 	__type(value, struct vbf_memory);  
 	__uint(max_entries, 1);
-} map SEC(".maps");
+	__uint(pinning, 1);
+} vbf_memory_map SEC(".maps");
 
 /* vBF helper implementation */
 static __always_inline __u32
@@ -129,7 +130,7 @@ int test_vbf(struct xdp_md *ctx) {
 	__u32 mask;
 
 	int zero = 0;
-	struct vbf_memory *__vbf = bpf_map_lookup_elem(&map, &zero);
+	struct vbf_memory *__vbf = bpf_map_lookup_elem(&vbf_memory_map, &zero);
 	if (__vbf == NULL) {
 		log_error("memory initialization error at line %d\n", __LINE__);
 		return XDP_PASS;
@@ -168,12 +169,50 @@ int test_vbf(struct xdp_md *ctx) {
 	return XDP_DROP;
 }
 
+/* exp setup program */
+SEC("xdp")
+int add_data(struct xdp_md *ctx) {
+	set_t set_id = 1;
+	int zero = 0;
+	struct vbf_memory *__vbf = bpf_map_lookup_elem(&vbf_memory_map, &zero);
+	if (unlikely(__vbf == NULL)) {
+		log_error("memory initialization error at line %d\n", __LINE__);
+		goto finish;
+	}
+	__u32 *table = __vbf->table;
+
+	struct pkt_5tuple pkt;
+	void *data, *data_end;
+	struct hdr_cursor nh;
+	int ret;
+
+	data = (void *)(long)ctx->data;
+	data_end = (void *)(long)ctx->data_end;
+	nh.pos = data;
+	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
+		log_error("cannot parse packet: %d", ret);
+		goto finish;
+	} else {
+		log_debug(
+			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
+			pkt.src_ip, pkt.src_port, pkt.dst_ip,
+			pkt.dst_port, pkt.proto);
+	}
+
+	int add_res = member_add_vbf(table, &pkt, sizeof(struct pkt_5tuple), set_id);
+	if (add_res != 0) {
+		log_error("add failed\n");
+	}
+finish:
+	return XDP_DROP;
+}
+
 /* exp program */
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx) {
 	set_t set_id = 1;
 	int zero = 0;
-	struct vbf_memory *__vbf = bpf_map_lookup_elem(&map, &zero);
+	struct vbf_memory *__vbf = bpf_map_lookup_elem(&vbf_memory_map, &zero);
 	if (unlikely(__vbf == NULL)) {
 		log_error("memory initialization error at line %d\n", __LINE__);
 		goto finish;
@@ -201,13 +240,6 @@ int xdp_main(struct xdp_md *ctx) {
 	// member_add_vbf(table, &pkt, sizeof(struct pkt_5tuple), set_id);
 	int lookup_res = member_lookup_vbf(table, &pkt, sizeof(struct pkt_5tuple), &set_id);
 
-	// __u32 h1 = fasthash32(&pkt, sizeof(struct pkt_5tuple), HASH_SEED_1);
-	// __u32 h2 = 0;
-	// for (int i = 0; i < 10; i++) {
-	// 	h2 = fasthash32(&h1, sizeof(__u32), HASH_SEED_1);
-	// 	h1 = h2;
-	// }
-	// int lookup_res = member_lookup_vbf(table, &h2, sizeof(__u32), &set_id);
 finish:
 	return XDP_DROP;
 }
