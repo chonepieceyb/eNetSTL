@@ -82,6 +82,10 @@
 #define CUCKOO_HASH_GET_BFS_QUEUE_TAIL(h, node_idx_ptr) \
 	CUCKOO_HASH_GET_BFS_QUEUE_HEAD_OR_TAIL(h, node_idx_ptr, cons)
 
+#ifdef USE_LOOKUP_ONLY
+#define CUCKOO_HASH_LOOKUP_ONLY
+#endif
+
 struct __cuckoo_hash_bfs_queue_node {
 	uint32_t bkt_idx;
 
@@ -138,12 +142,14 @@ struct __cuckoo_hash_bfs_queue {
 };
 
 char LICENSE[] SEC("license") = "GPL";
+uint32_t dummy;
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, int);
 	__type(value, struct cuckoo_hash);
+	__uint(pinning, 1);
 } cuckoo_hash_map SEC(".maps");
 
 struct {
@@ -649,14 +655,22 @@ int xdp_main(struct xdp_md *ctx)
 	ret = cuckoo_hash_lookup_elem(h, &pkt, &curr_count);
 	if (likely(ret == 0)) {
 		cuckoo_log(debug, "found packet: %d", *curr_count);
+#ifdef CUCKOO_HASH_LOOKUP_ONLY
+		cuckoo_log(debug, "lookup only");
+		dummy = *curr_count;
+#else
 		*curr_count = *curr_count + 1;
 		cuckoo_log(debug, "updated packet in place");
+#endif
 		goto out;
 	} else {
 		cuckoo_log(debug, "cannot find packet: %d", ret);
 		count = 1;
 	}
 
+#ifdef CUCKOO_HASH_LOOKUP_ONLY
+	cuckoo_log(debug, "lookup only");
+#else
 	ret = cuckoo_hash_update_elem(h, &pkt, &count);
 	if (unlikely(ret != 0)) {
 		cuckoo_log(error, "cannot update packet: %d", ret);
@@ -664,6 +678,7 @@ int xdp_main(struct xdp_md *ctx)
 	} else {
 		cuckoo_log(debug, "updated packet");
 	}
+#endif
 
 out:
 	return XDP_DROP;

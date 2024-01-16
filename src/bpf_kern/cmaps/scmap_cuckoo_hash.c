@@ -6,7 +6,12 @@
 	log_##level(" cuckoo_hash (scmap): " fmt " (%s @ line %d)", \
 		    ##__VA_ARGS__, __func__, __LINE__)
 
+#ifdef USE_LOOKUP_ONLY
+#define CUCKOO_HASH_LOOKUP_ONLY
+#endif
+
 char _license[] SEC("license") = "GPL";
+uint32_t dummy;
 
 struct pkt_5tuple_with_pad {
 	struct pkt_5tuple pkt;
@@ -18,7 +23,8 @@ struct {
 	__type(key, struct pkt_5tuple_with_pad);
 	__type(value, uint32_t);
 	__uint(max_entries, CUCKOO_HASH_ENTRIES);
-} cuckoo_hash_map SEC(".maps");
+	__uint(pinning, 1);
+} cuckoo_hash_scmap SEC(".maps");
 
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx)
@@ -43,24 +49,33 @@ int xdp_main(struct xdp_md *ctx)
 			pkt.pkt.dst_port, pkt.pkt.proto);
 	}
 
-	curr_count = bpf_map_lookup_elem(&cuckoo_hash_map, &pkt);
+	curr_count = bpf_map_lookup_elem(&cuckoo_hash_scmap, &pkt);
 	if (likely(curr_count != NULL)) {
 		cuckoo_log(debug, "found packet: %d", *curr_count);
+#ifdef CUCKOO_HASH_LOOKUP_ONLY
+		cuckoo_log(debug, "lookup only");
+		dummy = *curr_count;
+#else
 		*curr_count = *curr_count + 1;
 		cuckoo_log(debug, "updated packet in place");
+#endif
 		goto out;
 	} else {
 		cuckoo_log(debug, "cannot find packet: %d", ret);
 		count = 1;
 	}
 
-	ret = bpf_map_update_elem(&cuckoo_hash_map, &pkt, &count, BPF_ANY);
+#ifdef CUCKOO_HASH_LOOKUP_ONLY
+	cuckoo_log(debug, "lookup only");
+#else
+	ret = bpf_map_update_elem(&cuckoo_hash_scmap, &pkt, &count, BPF_ANY);
 	if (unlikely(ret != 0)) {
 		cuckoo_log(error, "cannot update packet: %d", ret);
 		goto out;
 	} else {
 		cuckoo_log(debug, "updated packet");
 	}
+#endif
 
 out:
 	return XDP_DROP;
