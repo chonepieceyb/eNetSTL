@@ -12,7 +12,8 @@ struct {
 	__type(key, struct pkt_5tuple);
 	__type(value, int);
 	__uint(max_entries, MAX_ENTRY);
-} vbf SEC(".maps");
+	__uint(pinning, 1);
+} vbf_cm_map SEC(".maps");
 
 /* exp setup program */
 SEC("xdp")
@@ -37,8 +38,8 @@ int add_data(struct xdp_md *ctx) {
 	}
 
 	__u32 set_id = 1;
-	int add_res = bpf_map_update_elem(&vbf, &pkt, &set_id, BPF_ANY);
-	// int *lookup_res = bpf_map_lookup_elem(&vbf, &pkt);
+	int add_res = bpf_map_update_elem(&vbf_cm_map, &pkt, &set_id, BPF_ANY);
+	// int *lookup_res = bpf_map_lookup_elem(&vbf_cm_map, &pkt);
 	if (add_res != 0) {
 		log_error("add failed\n");
 	}
@@ -69,9 +70,9 @@ int xdp_main(struct xdp_md *ctx) {
 			pkt.dst_port, pkt.proto);
 	}
 
-	// int ret = bpf_map_update_elem(&vbf, &pkt, &set_id, BPF_ANY);
-	int *lookup_res = bpf_map_lookup_elem(&vbf, &pkt);
-
+	// int ret = bpf_map_update_elem(&vbf_cm_map, &pkt, &set_id, BPF_ANY);
+	int *lookup_res = bpf_map_lookup_elem(&vbf_cm_map, &pkt);
+	// bpf_printk("lookup_res: %d\n", lookup_res==NULL ? 0 : 1);
 finish:
 	return XDP_DROP;
 }
