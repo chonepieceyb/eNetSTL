@@ -30,7 +30,7 @@
 #define CUCKOO_HASH_EMPTY_SLOT 0
 #define CUCKOO_HASH_SEED 0xdeadbeef
 // h->entries in DPDK; we added an extra constraint that it must be a power of 2
-#define CUCKOO_HASH_ENTRIES 128
+#define CUCKOO_HASH_ENTRIES 512
 #define CUCKOO_HASH_KEY_SLOTS (CUCKOO_HASH_ENTRIES + 1)
 #if !CUCKOO_IS_POWER_OF_2(CUCKOO_HASH_ENTRIES)
 #error CUCKOO_HASH_ENTRIES must be a power of 2
@@ -54,7 +54,7 @@
 #endif
 
 // This needs to be consistent with CUCKOO_HASH_ENTRIES
-#define CUCKOO_HASH_KEY_SLOTS_SHIFT 7
+#define CUCKOO_HASH_KEY_SLOTS_SHIFT 9
 #if (1 << CUCKOO_HASH_KEY_SLOTS_SHIFT) != CUCKOO_HASH_ENTRIES
 #error CUCKOO_HASH_KEY_SLOTS_SHIFT must be consistent with CUCKOO_HASH_ENTRIES
 #endif
@@ -62,8 +62,8 @@
 #define CUCKOO_HASH_BFS_QUEUE_SHIFT 10
 #define CUCKOO_HASH_BFS_QUEUE_NODES \
 	SHIFT_TO_SIZE(CUCKOO_HASH_BFS_QUEUE_SHIFT + 1)
-#define CUCKOO_HASH_GET_BFS_QUEUE_NODE(h, idx)        \
-	INDEX_WITH_BOUND((h)->bfs_queue_nodes, (idx), \
+#define CUCKOO_HASH_GET_BFS_QUEUE_NODE(q, idx)        \
+	INDEX_WITH_BOUND((q)->bfs_queue_nodes, (idx), \
 			 CUCKOO_HASH_BFS_QUEUE_NODES)
 #define CUCKOO_HASH_GET_BFS_QUEUE_HEAD_OR_TAIL(h, node_idx_ptr, prod_or_cons) \
 	({                                                                    \
@@ -127,11 +127,13 @@ struct cuckoo_hash {
 	struct __cuckoo_hash_key key_store[CUCKOO_HASH_KEY_SLOTS];
 	struct __cuckoo_hash_bucket buckets[CUCKOO_HASH_NUM_BUCKETS];
 
+	uint32_t initialized : 1;
+};
+
+struct __cuckoo_hash_bfs_queue {
 	struct simple_rbuf__cuckoo_hash_bfs_queue bfs_queue;
 	struct __cuckoo_hash_bfs_queue_node
 		bfs_queue_nodes[CUCKOO_HASH_BFS_QUEUE_NODES];
-
-	uint32_t initialized : 1;
 };
 
 char LICENSE[] SEC("license") = "GPL";
@@ -142,6 +144,13 @@ struct {
 	__type(key, int);
 	__type(value, struct cuckoo_hash);
 } cuckoo_hash_map SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct __cuckoo_hash_bfs_queue);
+} __cuckoo_hash_bfs_queue_map SEC(".maps");
 
 static inline void __cuckoo_hash_enqueue_slot_back(struct cuckoo_hash *h,
 						   uint32_t slot_id)
@@ -303,19 +312,19 @@ static inline int __cuckoo_hash_cuckoo_move_insert_mw(
 	struct cuckoo_hash *h, struct __cuckoo_hash_bucket *bkt,
 	struct __cuckoo_hash_bucket *alt_bkt,
 	const struct __cuckoo_hash_key *key, cuckoo_hash_value_t *data,
-	uint32_t leaf_node_idx, uint32_t leaf_slot, uint16_t sig,
-	uint32_t new_idx, int32_t *ret_val)
+	struct __cuckoo_hash_bfs_queue *q, uint32_t leaf_node_idx,
+	uint32_t leaf_slot, uint16_t sig, uint32_t new_idx, int32_t *ret_val)
 {
 	uint32_t prev_alt_bkt_idx;
 	struct __cuckoo_hash_bfs_queue_node *prev_node,
-		*curr_node = CUCKOO_HASH_GET_BFS_QUEUE_NODE(h, leaf_node_idx);
+		*curr_node = CUCKOO_HASH_GET_BFS_QUEUE_NODE(q, leaf_node_idx);
 	struct __cuckoo_hash_bucket *prev_bkt,
 		*curr_bkt = CUCKOO_HASH_GET_BUCKET(h, curr_node->bkt_idx);
 	uint32_t prev_slot, curr_slot = leaf_slot;
 
 	while (likely(curr_node->prev_node_idx != -1)) {
 		prev_node = CUCKOO_HASH_GET_BFS_QUEUE_NODE(
-			h, curr_node->prev_node_idx);
+			q, curr_node->prev_node_idx);
 		prev_bkt = CUCKOO_HASH_GET_BUCKET(h, prev_node->bkt_idx);
 		prev_slot = curr_node->prev_slot;
 
@@ -353,17 +362,26 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 	const struct __cuckoo_hash_key *key, cuckoo_hash_value_t *data,
 	uint16_t sig, uint32_t new_idx, int32_t *ret_val)
 {
-	unsigned int i;
-	struct simple_rbuf__cuckoo_hash_bfs_queue *queue = &h->bfs_queue;
+	unsigned int i, zero = 0;
+	struct __cuckoo_hash_bfs_queue *q;
+	struct simple_rbuf__cuckoo_hash_bfs_queue *queue;
 	struct __cuckoo_hash_bfs_queue_node *tail, *head;
 	struct __cuckoo_hash_bucket *bkt, *sec_bkt, *curr_bkt, *alt_bkt;
 	uint32_t cur_bkt_idx, alt_bkt_idx, *tail_node_idx, *head_node_idx;
+
+	q = bpf_map_lookup_elem(&__cuckoo_hash_bfs_queue_map, &zero);
+	if (q == NULL) {
+		cuckoo_log(error, "cannot find bfs queue map");
+		return -EINVAL;
+	}
+
+	queue = &q->bfs_queue;
 
 	bkt = CUCKOO_HASH_GET_BUCKET(h, bkt_idx);
 	sec_bkt = CUCKOO_HASH_GET_BUCKET(h, sec_bkt_idx);
 
 	SIMPLE_RINGBUF_CLEAR(queue);
-	tail = CUCKOO_HASH_GET_BFS_QUEUE_TAIL(h, tail_node_idx);
+	tail = CUCKOO_HASH_GET_BFS_QUEUE_TAIL(q, tail_node_idx);
 	tail->bkt_idx = bkt_idx;
 	tail->prev_node_idx = -1;
 	tail->prev_slot = -1;
@@ -371,7 +389,7 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 	/* Cuckoo bfs Search */
 	while (likely(!cuckoo_hash_bfs_queue__simple_rbuf_empty(queue) &&
 		      !cuckoo_hash_bfs_queue__simple_rbuf_full(queue))) {
-		tail = CUCKOO_HASH_GET_BFS_QUEUE_TAIL(h, tail_node_idx);
+		tail = CUCKOO_HASH_GET_BFS_QUEUE_TAIL(q, tail_node_idx);
 		cur_bkt_idx = tail->bkt_idx;
 		curr_bkt = CUCKOO_HASH_GET_BUCKET(h, cur_bkt_idx);
 
@@ -379,7 +397,7 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 			if (curr_bkt->key_idx[i] == CUCKOO_HASH_EMPTY_SLOT) {
 				int32_t ret =
 					__cuckoo_hash_cuckoo_move_insert_mw(
-						h, bkt, sec_bkt, key, data,
+						h, bkt, sec_bkt, key, data, q,
 						*tail_node_idx, i, sig, new_idx,
 						ret_val);
 				if (likely(ret != -1))
@@ -391,7 +409,7 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 				h, cur_bkt_idx, curr_bkt->sig_current[i]);
 			alt_bkt = CUCKOO_HASH_GET_BUCKET(h, alt_bkt_idx);
 
-			head = CUCKOO_HASH_GET_BFS_QUEUE_HEAD(h, head_node_idx);
+			head = CUCKOO_HASH_GET_BFS_QUEUE_HEAD(q, head_node_idx);
 			head->bkt_idx = alt_bkt_idx;
 			head->prev_node_idx = *tail_node_idx;
 			head->prev_slot = i;

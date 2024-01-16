@@ -86,7 +86,7 @@ typedef int (*__cuckoo_hash_cmp_eq_t)(const void *key1, const void *key2,
 #error CUCKOO_HASH_BUCKET_ENTRIES must be a power of 2
 #endif
 
-#define CUCKOO_HASH_ENTRIES 128
+#define CUCKOO_HASH_ENTRIES 512
 #if !CUCKOO_IS_POWER_OF_2(CUCKOO_HASH_ENTRIES)
 #error CUCKOO_HASH_ENTRIES must be a power of 2
 #endif
@@ -1101,7 +1101,7 @@ static int __testing_alloc(struct inode *inode, struct file *filp)
 
 	attr.key_size = sizeof(struct pkt_5tuple);
 	attr.value_size = sizeof(uint32_t);
-	attr.max_entries = 128;
+	attr.max_entries = CUCKOO_HASH_ENTRIES;
 
 	if ((ret = cuckoo_hash_alloc_check(&attr))) {
 		cuckoo_log(err, "failed to check alloc: %d\n", ret);
@@ -1149,28 +1149,47 @@ static ssize_t __testing_operation(struct file *flip, char __user *ubuf,
 	struct pkt_5tuple keys[32];
 	uint32_t values[32];
 
-	for (int i = 0; i < 4; ++i) {
+	for (int i = 0; i < CUCKOO_HASH_ENTRIES / 32; ++i) {
 		get_random_bytes(keys, sizeof(keys));
 		get_random_bytes(values, sizeof(values));
 
 		for (int j = 0; j < 32; ++j) {
-			cuckoo_log(debug, "testing i = %d, j = %d\n", i, j);
+			cuckoo_log(
+				debug,
+				"testing normal lookup & update (i = %d, j = %d, %d-th element)\n",
+				i, j, i * 32 + j + 1);
 
 			preempt_disable();
 			ret = cuckoo_hash_update_elem(map, keys + j, values + j,
 						      BPF_ANY);
 			preempt_enable();
-			lkm_assert_eq(0, ret,
-				      "cuckoo_hash_update_elem should succeed");
+			if (ret != 0) {
+				cuckoo_log(
+					err,
+					"cuckoo_hash_update_elem() failed with %d "
+					"but it should succeed (i = %d, j = %d, %d-th element)\n",
+					ret, i, j, i * 32 + j + 1);
+				continue;
+			}
 
 			preempt_disable();
 			data = cuckoo_hash_lookup_elem(map, keys + j);
 			preempt_enable();
-			lkm_assert_eq(0, IS_ERR_OR_NULL(data),
-				      "cuckoo_hash_lookup_elem should succeed");
-			lkm_assert_eq(
-				values[j], *data,
-				"cuckoo_hash_lookup_elem should return correct value");
+			if (IS_ERR_OR_NULL(data)) {
+				cuckoo_log(
+					err,
+					"cuckoo_hash_lookup_elem() failed with %ld "
+					"but it should succeed (i = %d, j = %d, %d-th element)\n",
+					PTR_ERR(data), i, j, i * 32 + j + 1);
+				continue;
+			}
+			if (*data != values[j]) {
+				cuckoo_log(err,
+					   "data mismatch (i = %d, j = %d, "
+					   "%d-th element)\n",
+					   i, j, i * 32 + j + 1);
+				continue;
+			}
 		}
 	}
 
@@ -1178,29 +1197,35 @@ static ssize_t __testing_operation(struct file *flip, char __user *ubuf,
 	get_random_bytes(values, sizeof(values));
 
 	for (int i = 0; i < 32; ++i) {
-		cuckoo_log(debug, "testing i = %d\n", i);
+		cuckoo_log(debug,
+			   "testing lookup & update when full (i = %d)\n", i);
 
 		preempt_disable();
 		ret = cuckoo_hash_update_elem(map, keys + i, values + i,
 					      BPF_ANY);
 		preempt_enable();
-		lkm_assert_eq(
-			-ENOSPC, ret,
-			"cuckoo_hash_update_elem should fail with ENOSPC");
+		if (ret != -ENOSPC) {
+			cuckoo_log(err,
+				   "cuckoo_hash_update_elem() returned %d "
+				   "but it should fail with -ENOSPC (i = %d)\n",
+				   ret, i);
+			continue;
+		}
 
 		preempt_disable();
 		data = cuckoo_hash_lookup_elem(map, keys + i);
 		preempt_enable();
-		lkm_assert_eq(NULL, data,
-			      "cuckoo_hash_lookup_elem should return NULL");
+		if (data != NULL) {
+			cuckoo_log(err,
+				   "cuckoo_hash_lookup_elem() returned %p "
+				   "but it should fail with NULL (i = %d)\n",
+				   data, i);
+			continue;
+		}
 	}
 
-	cuckoo_log(info, "testing cuckoo_hash success\n");
+	cuckoo_log(info, "testing cuckoo_hash completed\n");
 	return 0; /*always not insert the mod*/
-
-lkm_test_error:
-	cuckoo_log(err, "testing cuckoo_hash failed with res %d\n", ret);
-	return 0;
 }
 
 static struct proc_ops testing_ops = {
