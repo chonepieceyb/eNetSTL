@@ -35,9 +35,7 @@ ctz32(__u32 v)
 {
 	return bpf_tzcnt_u32(v);
 }
-
-/* hash function */
-// #define HASH_FUNC fasthash
+// #define HASH_FUNC fasthash32
 #define HASH_FUNC bpf_crc32_hash
 
 /* core malloc area */
@@ -121,6 +119,56 @@ member_add_vbf(__u32 *table, struct pkt_5tuple *key, __u32 key_len, set_t set_id
 	return 0;
 }
 
+/* test program */
+SEC("xdp")
+int test_vbf(struct xdp_md *ctx) {
+
+	set_t set_id = 1;
+	__u32 key_len = sizeof(__u32);
+	__u32 i, j, h1, h2;
+	__u32 bit_loc;
+	__u32 mask;
+
+	int zero = 0;
+	struct vbf_memory *__vbf = bpf_map_lookup_elem(&vbf_memory_map, &zero);
+	if (__vbf == NULL) {
+		log_error("memory initialization error at line %d\n", __LINE__);
+		return XDP_PASS;
+	}
+	__u32 *table = __vbf->table;
+
+	struct pkt_5tuple pkt = {0};
+	__u8 add_res[TEST_RANGE] = {0};
+	__u8 lookup_res[TEST_RANGE] = {0};
+
+	for (int i = 1; i < TEST_RANGE; i += 2) {
+		pkt.src_ip = i;
+		pkt.dst_ip = i;
+		pkt.src_port = i;
+		pkt.dst_port = i;
+		pkt.proto = 0x04;
+		add_res[i] = member_add_vbf(table, &pkt, sizeof(struct pkt_5tuple), set_id);
+		if (add_res[i] == 0) {
+			log_info("add %d success\n", i);
+		} else {
+			log_error("add %d failed\n", i);
+		}
+	}
+
+	for (int i = 1; i < 20; i++) {
+		pkt.src_ip = i;
+		pkt.dst_ip = i;
+		pkt.src_port = i;
+		pkt.dst_port = i;
+		pkt.proto = 0x04;
+		lookup_res[i] = member_lookup_vbf(table, &pkt, sizeof(struct pkt_5tuple), &set_id);
+		if (lookup_res[i] == 1) {
+			log_info("lookup %d success, set_id: %d\n", i, set_id);
+		}
+	}
+	return XDP_DROP;
+}
+
 /* exp setup program */
 SEC("xdp")
 int add_data(struct xdp_md *ctx) {
@@ -191,7 +239,7 @@ int xdp_main(struct xdp_md *ctx) {
 
 	// member_add_vbf(table, &pkt, sizeof(struct pkt_5tuple), set_id);
 	int lookup_res = member_lookup_vbf(table, &pkt, sizeof(struct pkt_5tuple), &set_id);
-
+	// bpf_printk("lookup_res: %d, set_id: %d\n", lookup_res, set_id);
 finish:
 	return XDP_DROP;
 }
