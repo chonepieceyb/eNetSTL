@@ -1,6 +1,6 @@
 #pragma once
 
-#define _CS_ROWS 32
+#define _CS_ROWS 8
 #define _CS_COLUMNS 256
 #define _ACTION_DROP 1
 #define _SEED_HASHFN 0x2d31e867

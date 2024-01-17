@@ -15,7 +15,7 @@
 #include "fasthash_simd.h"
 #include "xxhash_simd.h"
 
-#define _CS_ROWS 32
+#define _CS_ROWS 8
 #define _CS_COLUMNS 256
 #define _NM_LAYERS 32
 #define HASHFN_N _CS_ROWS
