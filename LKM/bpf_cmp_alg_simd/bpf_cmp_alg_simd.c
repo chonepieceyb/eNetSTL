@@ -140,7 +140,7 @@ EXPORT_SYMBOL_GPL(bpf_tzcnt_u16);
 
 __bpf_kfunc u32 bpf_find_min_u16_sse(const u16 *arr)
 {
-	__m128i arr_vec = _mm_loadu_si128_optional((__m128i_u *)arr);
+	__m128i arr_vec = _mm_loadu_si128((__m128i_u *)arr);
 	__m128i res = _mm_minpos_epu16(arr_vec);
 	return _mm_extract_epi16(res, 1);
 }
@@ -149,8 +149,8 @@ EXPORT_SYMBOL_GPL(bpf_find_min_u16_sse);
 __bpf_kfunc int bpf_k16_cmp_eq(const void *key1, size_t key1__sz,
 			       const void *key2, size_t key2__sz)
 {
-	const __m128i k1 = _mm_loadu_si128_optional((const __m128i *)key1);
-	const __m128i k2 = _mm_loadu_si128_optional((const __m128i *)key2);
+	const __m128i k1 = _mm_loadu_si128((const __m128i *)key1);
+	const __m128i k2 = _mm_loadu_si128((const __m128i *)key2);
 	const __m128i x = _mm_xor_si128(k1, k2);
 	int ret = !_mm_test_all_zeros(x, x);
 
@@ -161,8 +161,8 @@ EXPORT_SYMBOL_GPL(bpf_k16_cmp_eq);
 __bpf_kfunc int bpf_k32_cmp_eq(const void *key1, size_t key1__sz,
 			       const void *key2, size_t key2__sz)
 {
-	const __m256i k1 = _mm256_loadu_si256_optional(key1);
-	const __m256i k2 = _mm256_loadu_si256_optional(key2);
+	const __m256i k1 = _mm256_loadu_si256((const __m256i *)key1);
+	const __m256i k2 = _mm256_loadu_si256((const __m256i *)key2);
 	const __m256i x = _mm256_xor_si256(k1, k2);
 	int ret = !_mm256_testz_si256(x, x);
 
