@@ -551,6 +551,9 @@ static int32_t __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h,
 	uint32_t mask, delta;
 	mask = bpf__find_mask_u16_avx(bkt->sig_current, sig) &
 	       ~bpf__find_mask_u16_avx(bkt->key_idx, CUCKOO_HASH_EMPTY_SLOT);
+	if (mask == 0) {
+		goto not_found;
+	}
 
 	__for_each_u16_avx(i, mask, delta)
 	{
@@ -573,6 +576,8 @@ static int32_t __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h,
 			return bkt->key_idx[i] - 1;
 		}
 	}
+
+not_found:
 	return -1;
 }
 
