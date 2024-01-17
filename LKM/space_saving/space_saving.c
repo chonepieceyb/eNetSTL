@@ -58,7 +58,7 @@ extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 #ifdef SS_SIMD
-static inline u32 __find_mask_u32_avx2(const u32 *arr, u32 val)
+static inline u32 __find_mask_u32_avx(const u32 *arr, u32 val)
 {
 	__m256i arr_vec = _mm256_loadu_si256_optional(arr),
 		val_vec = _mm256_set1_epi32(val);
@@ -166,9 +166,9 @@ static int ss_increment(struct ss_table *tbl, void *key)
 	u32 mask = ~0;
 
 	for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
-		mask &= __find_mask_u32_avx2((const u32 *)tbl->keys +
-						     blk_idx * 8,
-					     ((const u32 *)key)[blk_idx]);
+		mask &= __find_mask_u32_avx((const u32 *)tbl->keys +
+						    blk_idx * 8,
+					    ((const u32 *)key)[blk_idx]);
 		if (mask == 0) {
 			goto replace_or_insert;
 		}
