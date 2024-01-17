@@ -234,10 +234,13 @@ long ss_update_elem(struct bpf_map *map, void *key, void *value, u64 flags)
 	struct ss_table *tbl;
 	int ret = 0;
 
+#ifdef SS_DEBUG
 	if (ss_map == NULL) {
+		ss_log(err, "invalid map; this should never happen\n");
 		ret = -EINVAL;
 		goto out;
 	}
+#endif
 
 	tbl = this_cpu_ptr(ss_map->tbl);
 	ret = ss_increment(tbl, key);
