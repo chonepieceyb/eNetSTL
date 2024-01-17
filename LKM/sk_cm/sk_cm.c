@@ -10,7 +10,7 @@
 #include <linux/xxhash.h>
 #include <linux/minmax.h>
 
-#include "sketch_lib_exp.h"
+#include "sk_cm.h"
 #include "fasthash.h"
 #include "fasthash_simd.h"
 #include "xxhash_simd.h"
