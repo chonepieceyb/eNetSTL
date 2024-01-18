@@ -8,6 +8,8 @@
 #include "xxhash.h"
 #include "sk_config.h"
 
+// #define SK_CM_EMPTY_HASH
+
 _Static_assert((COLUMNS & (COLUMNS - 1)) == 0,
 	       "COLUMNS must be a power of two");
 
@@ -76,10 +78,15 @@ static void __always_inline countmin_add(struct countmin *cm, void *element,
 	/* Calculate just a single hash and re-use it to update and query the sketch */
 
 	for (int i = 0; i < HASHFN_N; i++) {
+#ifdef SK_CM_EMPTY_HASH
+		__u32 hash = ((const __u32 *)element)[(len >> 2) - 1] ^
+			     seeds[i];
+#else
 #if USE_XXHASH == 1
 		__u32 hash = xxh32(element, len, seeds[i]);
 #else
 		__u32 hash = fasthash32(element, len, seeds[i]);
+#endif
 #endif
 		__u32 target_idx = hash & (COLUMNS - 1);
 		NO_TEAR_ADD(cm->values[i][target_idx], 1);
@@ -168,6 +175,11 @@ int xdp_main(struct xdp_md *ctx)
 		goto DROP;
 	}
 
+#ifdef SK_CM_EMPTY_HASH
+	_Static_assert(
+		sizeof(pkt) >= 4,
+		"pkt size must be at least 4 bytes (for empty hash to work)");
+#endif
 	countmin_add(cm, &pkt, sizeof(pkt));
 
 #if PRINT_TIME
