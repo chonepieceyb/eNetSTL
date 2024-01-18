@@ -10,6 +10,8 @@
 #define _MM_MALLOC_H_INCLUDED
 #include <immintrin.h>
 
+#include "crc.h"
+
 extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 				     const struct btf_kfunc_id_set *kset);
 
@@ -170,6 +172,13 @@ __bpf_kfunc int bpf_k32_cmp_eq(const void *key1, size_t key1__sz,
 }
 EXPORT_SYMBOL_GPL(bpf_k32_cmp_eq);
 
+__bpf_kfunc uint32_t bpf_crc32c_sse(const void *data, uint32_t data__sz,
+				    uint32_t init_val)
+{
+	return crc32c(data, data__sz, init_val);
+}
+EXPORT_SYMBOL_GPL(bpf_crc32c_sse);
+
 BTF_SET8_START(bpf_cmp_alg_simd_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_find_u32_avx)
 BTF_ID_FLAGS(func, bpf_find_u16_avx)
@@ -185,6 +194,7 @@ BTF_ID_FLAGS(func, bpf_tzcnt_u16)
 BTF_ID_FLAGS(func, bpf_find_min_u16_sse)
 BTF_ID_FLAGS(func, bpf_k16_cmp_eq)
 BTF_ID_FLAGS(func, bpf_k32_cmp_eq)
+BTF_ID_FLAGS(func, bpf_crc32c_sse)
 BTF_SET8_END(bpf_cmp_alg_simd_kfunc_ids)
 
 static const struct btf_kfunc_id_set bpf_cmp_alg_simd_kfunc_set = {
