@@ -242,8 +242,8 @@ static inline u32 find_u16_avx(const u16 *arr, u16 val)
 
 #define __for_each_u16_avx(idx, mask, delta)                           \
 	(delta) = __tzcnt_u32(mask);                                   \
-	for ((idx) = ((delta) >> 1); (mask); (mask) >>= ((delta) + 1), \
-	    (delta) = __tzcnt_u32(mask), (idx) += ((delta) >> 1))
+	for ((idx) = ((delta) >> 1); (mask); (mask) >>= ((delta) + 2), \
+	    (delta) = __tzcnt_u32(mask), (idx) += ((delta) >> 1) + 1)
 
 #define for_each_u16_avx(arr, val, idx, mask, delta) \
 	(mask) = __find_mask_u16_avx((arr), (val));  \
