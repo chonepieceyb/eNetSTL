@@ -211,6 +211,41 @@ extern void bpf_mm256_cmpeq_epi16(const u16 *arr, u16 val, u16 *dest) __ksym;
  */
 extern u32 bpf_mm256_movemask_epi8(const u8 *arr) __ksym;
 
+/**
+ * bpf_find_u32_avx_emulated() - Find 32-bit value in array of 8 32-bit values.
+ *
+ * @arr: Pointer to at least 8 32-bit values.
+ * @val: Value to find in the array.
+ *
+ * Return: index of value; 8 if not found
+ */
+static inline u32 bpf_find_u32_avx_emulated(const u32 *arr, u32 val)
+{
+	u32 dest[8], mask;
+
+	bpf_mm256_cmpeq_epi32(arr, val, dest);
+	mask = bpf_mm256_movemask_epi8((const u8 *)dest);
+	return bpf_tzcnt_u32(mask) >> 2;
+}
+
+/**
+ * bpf_find_u16_avx_emulated() - Find 16-bit value in array of 16 16-bit values.
+ *
+ * @arr: Pointer to at least 16 16-bit values.
+ * @val: Value to find in the array.
+ *
+ * Return: index of value; 16 if not found
+ */
+static inline u32 bpf_find_u16_avx_emulated(const u16 *arr, u16 val)
+{
+	u16 dest[16];
+	u32 mask;
+
+	bpf_mm256_cmpeq_epi16(arr, val, dest);
+	mask = bpf_mm256_movemask_epi8((const u8 *)dest);
+	return bpf_tzcnt_u32(mask) >> 1;
+}
+
 #define __for_each_u32_avx(idx, mask, delta)              \
 	(delta) = bpf_tzcnt_u32(mask);                    \
 	(mask) >>= (delta);                               \

@@ -35,14 +35,20 @@ SEC("xdp") int xdp_main(struct xdp_md *ctx)
 		val = *(u32 *)data;
 	}
 
-#ifdef USE_EBPF_IMPL
+#if USE_IMPL == EBPF_IMPL
+	log_debug("test_bpf_cmp_alg_simd: using eBPF implementation");
 	for (i = 0; i < 8; i++) {
 		if (val == arr[i]) {
 			index = i;
 			break;
 		}
 	}
+#elif USE_IMPL == EBPF_WITH_HYPERCOM_INTRINSIC_IMPL
+	log_debug(
+		"test_bpf_cmp_alg_simd: using eBPF + HyperCom SIMD intrinsics implementation");
+	index = bpf_find_u32_avx_emulated(arr, val);
 #else
+	log_debug("test_bpf_cmp_alg_simd: using HyperCom implementation");
 	index = bpf_find_u32_avx(arr, val);
 #endif
 
