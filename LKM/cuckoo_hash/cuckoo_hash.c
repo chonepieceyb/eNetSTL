@@ -32,6 +32,13 @@
 #include <immintrin.h>
 #endif
 
+#ifdef CUCKOO_HASH_USE_CRC
+#ifndef CUCKOO_HASH_SIMD
+#error CUCKOO_HASH_USE_CRC requires CUCKOO_HASH_SIMD
+#endif
+#include "crc.h"
+#endif
+
 extern int bpf_register_static_cmap(struct bpf_map_ops *map,
 				    struct module *owner);
 extern void bpf_unregister_static_cmap(struct module *owner);
@@ -42,7 +49,11 @@ extern void *bpf_map_area_alloc(u64 size, int numa_node);
 static uint32_t __cuckoo_hash_hash_default(const void *key, uint32_t key_len,
 					   uint32_t init_val)
 {
+#ifdef CUCKOO_HASH_USE_CRC
+	return crc32c(key, key_len, init_val);
+#else
 	return xxh32(key, key_len, init_val);
+#endif
 }
 
 typedef uint16_t __cuckoo_hash_key_idx_t;
