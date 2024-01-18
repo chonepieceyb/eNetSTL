@@ -7,7 +7,7 @@
 /*rewrite by chonepieceyb*/
 
 #include "./common.h"
-
+char _license[] SEC("license") = "GPL";
 #define _FAKE_LRU_SIZE_PLACEHOLDER_ 1024
 #define _DEFAULT_LRU_SIZE_PLACEHOLDER_ 1024
 
@@ -24,6 +24,8 @@
 #include "./pcn_katran_headers/jhash.h"
 
 #define CTXTYPE xdp_md
+
+#define USE_EBPF_MAP 1
 
 __attribute__((__always_inline__))
 static inline __u32 get_packet_hash(struct packet_description *pckt,
@@ -145,7 +147,7 @@ static inline bool get_packet_dst(struct CTXTYPE *ctx,
 
    // pcn_log(ctx, LOG_TRACE, "Adding entry in lru map for this flow with real pos: %u", key);
     //bpf_map_update_elem_((uintptr_t)lru_map, &pckt->flow, &new_dst_lru, BPF_ANY);
-    bpf_map_update_elem(&lru_map, &pckt->flow, &new_dst_lru, BPF_ANY);
+    bpf_map_update_elem(lru_map, &pckt->flow, &new_dst_lru, BPF_ANY); /* !!! have bug here, unexpected & before lru_map */
   }
   return true;
 }
@@ -360,7 +362,7 @@ increment_quic_cid_drop_real_0() {
 __attribute__((__always_inline__))
 static inline int process_packet(struct CTXTYPE *ctx, void *data, __u64 off, void *data_end,
                                  bool is_ipv6, struct CTXTYPE *xdp) {
-
+  log_debug("--------------");
   struct ctl_value *cval;
   struct real_definition *dst = NULL;
   struct packet_description pckt = {};
@@ -405,14 +407,27 @@ static inline int process_packet(struct CTXTYPE *ctx, void *data, __u64 off, voi
   vip.proto = pckt.flow.proto;
   //vip_info = vip_map.lookup(&vip);
   /*data structures!*/
+
+  /* @@@1 optimise point begin*/
+#if USE_EBPF_MAP ==1
   vip_info = bpf_map_lookup_elem(&vip_map, &vip);
+#else
+  struct vip_meta vip_info_constant = {
+    .flags = 1<<5, //F_LOCAL_VIP
+    .vip_num = pckt.real_index
+  };
+  vip_info = &vip_info_constant;
+#endif
+  /* @@@1 optimise point end*/
 
   if (!vip_info) {
+    log_debug("First VIP lookup failed for vip: 0x%x, port: %u, proto: %u", vip.vip, vip.port, vip.proto);
     //pcn_log(ctx, LOG_TRACE, "First VIP lookup failed for port: %u, proto: %u", bpf_ntohs(vip.port), vip.proto);
-    vip.port = 0;
+    // vip.port = 0;
     //vip_info = vip_map.lookup(&vip);
     vip_info = bpf_map_lookup_elem(&vip_map, &vip);
     if (!vip_info) {
+      log_debug("Second VIP lookup failed for vip: 0x%x, port: %u, proto: %u", bpf_ntohs(vip.vip), bpf_ntohs(vip.port), bpf_ntohs(vip.proto));
       //pcn_log(ctx, LOG_TRACE, "VIP lookup failed for the default value. Dropping...");
       //return RX_DROP;
       return XDP_DROP;
@@ -434,58 +449,71 @@ static inline int process_packet(struct CTXTYPE *ctx, void *data, __u64 off, voi
 
   __u32 stats_key = MAX_VIPS + LRU_CNTRS;
   //data_stats = stats.lookup(&stats_key);
+
+  /* @@@2 optimise point */
+#if USE_EBPF_MAP ==1
   data_stats = bpf_map_lookup_elem(&stats, &stats_key);
+#else
+  struct lb_stats data_stats_constant = {
+    .v1 = 1,
+    .v2 = pckt.tos
+  };
+  data_stats = &data_stats_constant;
+#endif
+
   if (!data_stats) {
     //return RX_DROP;
+    log_debug("data_stats is null");
     return XDP_DROP;
   }
 
   // total packets
   data_stats->v1 += 1;
-
-  if ((vip_info->flags & F_QUIC_VIP)) {
-    //pcn_log(ctx, LOG_TRACE, "F_QUIC_VIP set for this VIP");
-    __u32 quic_stats_key = MAX_VIPS + QUIC_ROUTE_STATS;
-    //struct lb_stats* quic_stats = stats.lookup(&quic_stats_key);
-    struct lb_stats* quic_stats = bpf_map_lookup_elem(&quic_stats, &quic_stats_key);
-    if (!quic_stats) {
-      //return RX_DROP;
-      return XDP_DROP;
-    }
-    int real_index;
-    real_index = parse_quic(data, data_end, is_ipv6, &pckt);
-    if (real_index > 0) {
-      increment_quic_cid_version_stats(real_index);
-      __u32 key = real_index;
-      //__u32 *real_pos = quic_mapping.lookup(&key);
-      __u32 *real_pos = bpf_map_lookup_elem(&quic_mapping, &key);
-      if (real_pos) {
-        key = *real_pos;
-        // TODO: quic_mapping is array, which never fails to lookup element,
-        // resulting in default value 0 for real id
-        if (key == 0) {
-          increment_quic_cid_drop_real_0();
-        }
-        pckt.real_index = key;
-        //dst = reals.lookup(&key);
-        dst = bpf_map_lookup_elem(&reals, &key);
-        if (!dst) {
-          increment_quic_cid_drop_no_real();
-          REPORT_QUIC_PACKET_DROP_NO_REAL(xdp, data, data_end - data, false);
-          //return RX_DROP;
-          return XDP_DROP;
-        }
-        quic_stats->v2 += 1;
-      } else {
-        // increment counter for the CH based routing
-        quic_stats->v1 += 1;
-      }
-    } else {
-      quic_stats->v1 += 1;
-    }
-  }
+  log_debug("hit line %d", __LINE__);
+  // if ((vip_info->flags & F_QUIC_VIP)) {
+  //   //pcn_log(ctx, LOG_TRACE, "F_QUIC_VIP set for this VIP");
+  //   __u32 quic_stats_key = MAX_VIPS + QUIC_ROUTE_STATS;
+  //   //struct lb_stats* quic_stats = stats.lookup(&quic_stats_key);
+  //   struct lb_stats* quic_stats = bpf_map_lookup_elem(&quic_stats, &quic_stats_key); /* !!! have bug here, expect ebpf map ptr*/
+  //   if (!quic_stats) {
+  //     //return RX_DROP;
+  //     return XDP_DROP;
+  //   }
+  //   int real_index;
+  //   real_index = parse_quic(data, data_end, is_ipv6, &pckt);
+  //   if (real_index > 0) {
+  //     increment_quic_cid_version_stats(real_index);
+  //     __u32 key = real_index;
+  //     //__u32 *real_pos = quic_mapping.lookup(&key);
+  //     __u32 *real_pos = bpf_map_lookup_elem(&quic_mapping, &key);
+  //     if (real_pos) {
+  //       key = *real_pos;
+  //       // TODO: quic_mapping is array, which never fails to lookup element,
+  //       // resulting in default value 0 for real id
+  //       if (key == 0) {
+  //         increment_quic_cid_drop_real_0();
+  //       }
+  //       pckt.real_index = key;
+  //       //dst = reals.lookup(&key);
+  //       dst = bpf_map_lookup_elem(&reals, &key);
+  //       if (!dst) {
+  //         increment_quic_cid_drop_no_real();
+  //         REPORT_QUIC_PACKET_DROP_NO_REAL(xdp, data, data_end - data, false);
+  //         //return RX_DROP;
+  //         return XDP_DROP;
+  //       }
+  //       quic_stats->v2 += 1;
+  //     } else {
+  //       // increment counter for the CH based routing
+  //       quic_stats->v1 += 1;
+  //     }
+  //   } else {
+  //     quic_stats->v1 += 1;
+  //   }
+  // }
 
   if (!dst) {
+    log_debug("hit line %d", __LINE__);
     if ((vip_info->flags & F_HASH_NO_SRC_PORT)) {
       // service, where diff src port, but same ip must go to the same real,
       // e.g. gfs
@@ -493,8 +521,16 @@ static inline int process_packet(struct CTXTYPE *ctx, void *data, __u64 off, voi
     }
     __u32 cpu_num = bpf_get_smp_processor_id();
     //void *lru_map = lru_mapping.lookup(&cpu_num);
+
+    /* @@@3 optimise point */
+#if USE_EBPF_MAP ==1
     void *lru_map  = bpf_map_lookup_elem(&lru_mapping, &cpu_num);
+#else
+    void *lru_map = NULL;
+#endif
+
     if (!lru_map) {
+      log_debug("hit line %d", __LINE__);
       //pcn_log(ctx, LOG_TRACE, "LRU mapping lookup failed for CPU: %u", cpu_num);
       // lru_map = &fallback_cache;
       // I had to modify BCC to support this new kind of helper
@@ -505,6 +541,7 @@ static inline int process_packet(struct CTXTYPE *ctx, void *data, __u64 off, voi
       // struct lb_stats *lru_stats = stats.lookup(&lru_stats_key);
       struct lb_stats *lru_stats = bpf_map_lookup_elem(&stats, &lru_stats_key);
       if (!lru_stats) {
+        log_debug("hit line %d", __LINE__);
         //return RX_DROP;
         return XDP_DROP;
       }
@@ -513,20 +550,32 @@ static inline int process_packet(struct CTXTYPE *ctx, void *data, __u64 off, voi
       // we are going to use it for monitoring.
       lru_stats->v1 += 1;
     }
-
+    log_debug("hit line %d", __LINE__);
     if (!(vip_info->flags & F_LRU_BYPASS)) {
       //pcn_log(ctx, LOG_TRACE, "Packet is not SYN and F_LRU_BYPASS is not set");
       //pcn_log(ctx, LOG_TRACE, "Connection table lookup");
       //pcn_log(ctx, LOG_TRACE, "Current session info: IPsrc: %I, IPdst: %I", pckt.flow.src, pckt.flow.dst);
       //pcn_log(ctx, LOG_TRACE, "Port SRC: %u, Port DST: %u, Proto: %u", bpf_ntohs(pckt.flow.port16[0]), bpf_ntohs(pckt.flow.port16[1]), pckt.flow.proto);
-
+      log_debug("hit line %d", __LINE__);
       struct real_pos_lru *dst_lru;
       __u64 cur_time;
       __u32 key;
       //dst_lru = bpf_map_lookup_elem_((uintptr_t)lru_map, &pckt.flow);
+
+      /* @@@4 optimise point */
+#if USE_EBPF_MAP ==1
       dst_lru = bpf_map_lookup_elem(lru_map, &pckt.flow);
+#else
+      struct real_pos_lru dst_lru_constant = {
+        .pos = 0,
+        .atime = pckt.real_index
+      };
+      dst_lru = &dst_lru_constant;
+#endif
+
       if (!dst_lru) {
         //pcn_log(ctx, LOG_TRACE, "LRU map lookup failed for this flow");
+        log_debug("hit line %d", __LINE__);
         goto dst_lookup;
       }
       
@@ -536,18 +585,31 @@ static inline int process_packet(struct CTXTYPE *ctx, void *data, __u64 off, voi
       //pcn_log(ctx, LOG_TRACE, "Performing reals lookup for key: %u", key);
       //dst = reals.lookup(&key);
       /*important data structures lookup*/
+      log_debug("hit line %d", __LINE__);
+
+      /* @@@5 optimise point */
+#if USE_EBPF_MAP ==1
       dst = bpf_map_lookup_elem(&reals, &key);
+#else
+      struct real_definition dst_constant = {
+        .dst = 0,
+        .flags = pckt.flags,
+      };
+      dst = &dst_constant;
+#endif
     }
 
 dst_lookup:;
     if (!dst) {
       //pcn_log(ctx, LOG_TRACE, "Destination not found, allocate new");
       if (pckt.flow.proto == IPPROTO_TCP) {
+        log_debug("hit line %d", __LINE__);
         __u32 lru_stats_key = MAX_VIPS + LRU_MISS_CNTR;
         //struct lb_stats *lru_stats = stats.lookup(&lru_stats_key);
         struct lb_stats *lru_stats = bpf_map_lookup_elem(&stats, &lru_stats_key);
         if (!lru_stats) {
           //return RX_DROP;
+          log_debug("hit line %d", __LINE__);
           return XDP_DROP;
         }
         if (pckt.flags & F_SYN_SET) {
@@ -557,6 +619,7 @@ dst_lookup:;
           // miss of non-syn tcp packet. could be either because of LRU trashing
           // or because another katran is restarting and all the sessions
           // have been reshuffled
+          log_debug("hit line %d", __LINE__);
           REPORT_TCP_NONSYN_LRUMISS(xdp, data, data_end - data, false);
           lru_stats->v2 += 1;
         }
@@ -571,17 +634,39 @@ dst_lookup:;
   }
 
   //cval = ctl_array.lookup(&mac_addr_pos);
+  /* @@@6 optimise point */
+#if USE_EBPF_MAP ==1
   cval = bpf_map_lookup_elem(&ctl_array, &mac_addr_pos);
-
+#else
+  struct ctl_value cval_constant = {
+    .mac = pckt.real_index,
+  };
+  cval = &cval_constant;
+#endif
+  log_debug("hit line %d", __LINE__);
   if (!cval) {
+    log_debug("hit line %d", __LINE__);
     //return RX_DROP;
     return XDP_DROP;
   }
 
   vip_num = vip_info->vip_num;
   //data_stats = stats.lookup(&vip_num);
+
+  /* @@@7 optimise point */
+#if USE_EBPF_MAP ==1
   data_stats = bpf_map_lookup_elem(&stats, &vip_num);
+#else
+  struct lb_stats data_stats_constant2 = {
+    .v1 = 0,
+    .v2 = pckt.tos
+  };
+  data_stats = &data_stats_constant2;
+#endif
+
+  log_debug("hit line %d", __LINE__);
   if (!data_stats) {
+    log_debug("hit line %d", __LINE__);
     //return RX_DROP;
     return XDP_DROP;
   }
@@ -590,8 +675,21 @@ dst_lookup:;
 
   // per real statistics
   //data_stats = reals_stats.lookup(&pckt.real_index);
+
+  /* @@@8 optimise point */
+#if USE_EBPF_MAP ==1
   data_stats = bpf_map_lookup_elem(&reals_stats, &pckt.real_index);
+#else
+  struct lb_stats data_stats_constant3 = {
+    .v1 = 0,
+    .v2 = pckt.tos
+  };
+  data_stats = &data_stats_constant3;
+#endif
+
+  log_debug("hit line %d", __LINE__);
   if (!data_stats) {
+    log_debug("hit line %d", __LINE__);
     //return RX_DROP;
     return XDP_DROP;
   }
@@ -607,9 +705,10 @@ dst_lookup:;
     //pcn_log(ctx, LOG_TRACE, "New real destination is: %I", dst->dst);
     if(!PCKT_ENCAP_V4(xdp, cval, &pckt, dst, pkt_bytes)) {
       //return RX_DROP;
+      log_debug("hit line %d", __LINE__);
       return XDP_DROP;
     }
-
+  log_debug("hit line %d", __LINE__);
   return XDP_TX;
 }
 
@@ -625,7 +724,7 @@ struct pkt_metadata {
 } __attribute__((packed));
 
 
-int handle_rx(struct CTXTYPE *ctx, struct pkt_metadata *md) {
+int __attribute__((always_inline)) handle_rx(struct CTXTYPE *ctx, struct pkt_metadata *md) {
   void *data = (void *)(long)ctx->data;
   void *data_end = (void *)(long)ctx->data_end;
   struct eth_hdr *eth = data;
@@ -651,11 +750,10 @@ int handle_rx(struct CTXTYPE *ctx, struct pkt_metadata *md) {
   }
 }
 
-struct pkt_metadata meta = {
-        .in_port = 0,
-};
-
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx) {
-       return handle_rx(ctx, &meta);
+  struct pkt_metadata meta = {
+        .in_port = 0,
+  };
+  return handle_rx(ctx, &meta);
 }
