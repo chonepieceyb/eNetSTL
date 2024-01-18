@@ -1,33 +1,25 @@
-#include "common.h"
 #include "vmlinux.h"
+
+#include "common.h"
+#include "fasthash.h"
 #include "bpf_hash_alg_simd.h"
 
-#define PACKET_ATTRS                                                    \
-	.src_ip = 0x01020304, .dst_ip = 0x05060708, .src_port = 0x090a, \
-	.dst_port = 0x0b0c, .proto = 0x06
 #define SEEDx1 0x01020304
 #define SEEDx4 SEEDx1, 0x05060708, 0x090a0b0c, 0x0d0e0f10
 #define SEEDx8 SEEDx4, 0x11121314, 0x15161718, 0x191a1b1c, 0x1d1e1f20
 #define M 0x880355f21e6d1965ULL
 
-#define USE_EBPF_IMPL 1
-
 char _license[] SEC("license") = "GPL";
 
 static inline void test_bpf_fasthash32_alt_avx2_pkt5(struct pkt_5tuple *pkt,
-						     u32 *seeds)
+						     const u32 *seeds,
+						     u32 *dest)
 {
-	u32 dest[8] = { 0 };
-
-	log_debug("bpf_fasthash32_alt_avx2_pkt5() test started\n");
+	log_debug(" bpf_fasthash32_alt_avx2_pkt5() test started\n");
 
 	bpf_fasthash32_alt_avx2_pkt5(pkt, seeds, dest);
 
-	for (int i = 0; i < 8; i++) {
-		log_debug("dest[%d] = 0x%x\n", i, dest[i]);
-	}
-
-	log_debug("bpf_fasthash32_alt_avx2_pkt5() test passed\n");
+	log_debug(" bpf_fasthash32_alt_avx2_pkt5() test passed\n");
 }
 
 struct mem_block {
@@ -47,7 +39,7 @@ static inline void *alloc_mem_block(u32 *i)
 
 	block = bpf_map_lookup_elem(&mem_blocks, i);
 	if (!block) {
-		log_debug("failed to allocate memory\n");
+		log_debug(" failed to allocate memory\n");
 		return NULL;
 	}
 
@@ -93,10 +85,10 @@ static inline void bpf_fasthash_mix_avx2(u8 *hh, u32 *i,
 }
 
 static inline void
-test_bpf_fasthash32_alt_avx2_pkt5_in_bpf(struct pkt_5tuple *pkt, u32 *seeds)
+test_bpf_fasthash32_alt_avx2_pkt5_in_bpf(struct pkt_5tuple *pkt,
+					 const u32 *seeds, u32 *dest)
 {
 	u32 i = 0, j = 0;
-	u32 *dest = alloc_mem_block(&i);
 	u32 *mm_times_13 = alloc_mem_block(&i);
 	u32 *mm = alloc_mem_block(&i);
 	u32 *mix_constant = alloc_mem_block(&i);
@@ -161,24 +153,51 @@ test_bpf_fasthash32_alt_avx2_pkt5_in_bpf(struct pkt_5tuple *pkt, u32 *seeds)
 	bpf_fasthash_mix_avx2((u8 *)hh, &i, (const s64 *)mix_constant,
 			      (const u8 *)mullo_mask);
 
-	for (int i = 0; i < 8; i++) {
-		log_debug("dest[%d] = 0x%x\n", i, dest[i]);
-	}
-
 	log_debug(
 		"bpf_fasthash32_alt_avx2_pkt5() (BPF implementation) test passed\n");
 }
 
+static inline void test_fasthash32_alt(struct pkt_5tuple *pkt, const u32 *seeds,
+				       u32 *dest)
+{
+	int i;
+
+	log_debug(" bpf_fasthash32_alt() test started\n");
+
+	for (i = 0; i < 8; i += 2) {
+		fasthash32_alt(pkt, sizeof(*pkt), seeds + i, dest + i);
+	}
+
+	log_debug(" bpf_fasthash32_alt() test passed\n");
+}
+
 SEC("xdp") int xdp_main(struct xdp_md *ctx)
 {
-	struct pkt_5tuple pkt = { PACKET_ATTRS };
-	u32 seeds[8] = { SEEDx8 };
+	struct pkt_5tuple pkt;
+	u32 seeds[8] = { SEEDx8 }, dest[8];
+	struct hdr_cursor nh = {
+		.pos = (void *)(long)ctx->data,
+	};
+	void *data_end = (void *)(long)ctx->data_end;
+	int ret, i;
 
-#if USE_EBPF_IMPL
-	test_bpf_fasthash32_alt_avx2_pkt5_in_bpf(&pkt, seeds);
+	if ((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0) {
+		log_error(" parse_pkt_5tuple() failed: %d\n", ret);
+		goto out;
+	}
+
+#if USE_IMPL == EBPF_IMPL
+	test_fasthash32_alt(&pkt, seeds, dest);
+#elif USE_IMPL == EBPF_WITH_HYPERCOM_INTRINSIC_IMPL
+	test_bpf_fasthash32_alt_avx2_pkt5_in_bpf(&pkt, seeds, dest);
 #else
-	test_bpf_fasthash32_alt_avx2_pkt5(&pkt, seeds);
+	test_bpf_fasthash32_alt_avx2_pkt5(&pkt, seeds, dest);
 #endif
 
+	for (i = 0; i < 8; i++) {
+		log_debug(" dest[%d] = 0x%x\n", i, dest[i]);
+	}
+
+out:
 	return XDP_DROP;
 }
