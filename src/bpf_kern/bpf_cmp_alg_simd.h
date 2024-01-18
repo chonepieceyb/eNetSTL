@@ -184,6 +184,33 @@ extern int bpf_k16_cmp_eq(const void *key1, size_t key1__sz, const void *key2,
 extern int bpf_k32_cmp_eq(const void *key1, size_t key1__sz, const void *key2,
 			  size_t key2__sz) __ksym;
 
+/**
+ * bpf_mm256_cmpeq_epi32() - Call _mm256_cmpeq_epi32 intrinsic.
+ *
+ * @arr: Pointer to 256-bit vector.
+ * @val: 32-bit value to compare against.
+ * @dest: Pointer to 256-bit vector to store result.
+ */
+extern void bpf_mm256_cmpeq_epi32(const u32 *arr, u32 val, u32 *dest) __ksym;
+
+/**
+ * bpf_mm256_cmpeq_epi16() - Call _mm256_cmpeq_epi16 intrinsic.
+ *
+ * @arr: Pointer to 256-bit vector.
+ * @val: 16-bit value to compare against.
+ * @dest: Pointer to 256-bit vector to store result.
+ */
+extern void bpf_mm256_cmpeq_epi16(const u16 *arr, u16 val, u16 *dest) __ksym;
+
+/**
+ * bpf_mm256_movemask_epi8() - Call _mm256_movemask_epi8 intrinsic.
+ *
+ * @arr: Pointer to 256-bit vector.
+ *
+ * Return: 32-bit mask
+ */
+extern u32 bpf_mm256_movemask_epi8(const u8 *arr) __ksym;
+
 #define __for_each_u32_avx(idx, mask, delta)              \
 	(delta) = bpf_tzcnt_u32(mask);                    \
 	(mask) >>= (delta);                               \

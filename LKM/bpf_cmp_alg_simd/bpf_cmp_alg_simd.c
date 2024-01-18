@@ -215,6 +215,31 @@ __bpf_kfunc int bpf_k32_cmp_eq(const void *key1, size_t key1__sz,
 }
 EXPORT_SYMBOL_GPL(bpf_k32_cmp_eq);
 
+__bpf_kfunc void bpf_mm256_cmpeq_epi32(const u32 *arr, u32 val, u32 *dest)
+{
+	__m256i arr_vec = _mm256_loadu_si256_optional(arr),
+		val_vec = _mm256_set1_epi32(val);
+	__m256i cmp = _mm256_cmpeq_epi32(arr_vec, val_vec);
+	_mm256_storeu_si256((__m256i_u *)dest, cmp);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_cmpeq_epi32);
+
+__bpf_kfunc void bpf_mm256_cmpeq_epi16(const u16 *arr, u16 val, u16 *dest)
+{
+	__m256i arr_vec = _mm256_loadu_si256_optional((const __m256i_u *)arr),
+		val_vec = _mm256_set1_epi16(val);
+	__m256i cmp = _mm256_cmpeq_epi16(arr_vec, val_vec);
+	_mm256_storeu_si256((__m256i_u *)dest, cmp);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_cmpeq_epi16);
+
+__bpf_kfunc u32 bpf_mm256_movemask_epi8(const u8 *arr)
+{
+	__m256i arr_vec = _mm256_loadu_si256_optional((const __m256i_u *)arr);
+	return _mm256_movemask_epi8(arr_vec);
+}
+EXPORT_SYMBOL_GPL(bpf_mm256_movemask_epi8);
+
 __bpf_kfunc uint32_t bpf_crc32c_sse(const void *data, uint32_t data__sz,
 				    uint32_t init_val)
 {
@@ -241,6 +266,9 @@ BTF_ID_FLAGS(func, bpf_htss_bucket_search)
 BTF_ID_FLAGS(func, bpf_crc32c_sse)
 BTF_ID_FLAGS(func, bpf_k16_cmp_eq)
 BTF_ID_FLAGS(func, bpf_k32_cmp_eq)
+BTF_ID_FLAGS(func, bpf_mm256_cmpeq_epi32)
+BTF_ID_FLAGS(func, bpf_mm256_cmpeq_epi16)
+BTF_ID_FLAGS(func, bpf_mm256_movemask_epi8)
 BTF_ID_FLAGS(func, bpf_crc32c_sse)
 BTF_SET8_END(bpf_cmp_alg_simd_kfunc_ids)
 
