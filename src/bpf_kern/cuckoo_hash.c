@@ -6,6 +6,9 @@
 #include "simple_ringbuf.h"
 
 #define CUCKOO_HASH_USE_CRC
+// #define CUCKOO_HASH_EMPTY_HASH
+// #define CUCKOO_HASH_EMPTY_KEY_CMP
+// #define CUCKOO_HASH_EMPTY_OTHER_CMP
 
 #define INDEX_WITH_BOUND(arr, idx, size)                                   \
 	({                                                                 \
@@ -203,10 +206,16 @@ get_cuckoo_hash(struct cuckoo_hash_parameters *params)
 static inline cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h,
 						   const cuckoo_hash_key_t *key)
 {
+#ifdef CUCKOO_HASH_EMPTY_HASH
+	_Static_assert(CUCKOO_HASH_KEY_SIZE >= 4,
+		       "CUCKOO_HASH_KEY_SIZE must be >= 4");
+	return ((const uint32_t *)key)[(CUCKOO_HASH_KEY_SIZE >> 2) - 1];
+#else
 #ifdef CUCKOO_HASH_USE_CRC
 	return crc32c(key, CUCKOO_HASH_KEY_SIZE, CUCKOO_HASH_SEED);
 #else
 	return xxh32(key, CUCKOO_HASH_KEY_SIZE, CUCKOO_HASH_SEED);
+#endif
 #endif
 }
 
@@ -245,7 +254,12 @@ static inline int __cuckoo_hash_cmp_eq(const cuckoo_hash_key_t *key1,
 				       const cuckoo_hash_key_t *key2,
 				       struct cuckoo_hash *h)
 {
+#ifdef CUCKOO_HASH_EMPTY_KEY_CMP
+	return ((const u8 *)key1)[sizeof(*key1) - 1] !=
+	       ((const u8 *)key2)[sizeof(*key2) - 1];
+#else
 	return __cuckoo_hash_memcmp(key1, key2, sizeof(*key1));
+#endif
 }
 
 static inline int32_t
@@ -258,6 +272,22 @@ __cuckoo_hash_search_and_update(struct cuckoo_hash *h,
 	__cuckoo_hash_key_idx_t key_idx;
 	struct __cuckoo_hash_key *k, *keys = h->key_store;
 
+#ifdef CUCKOO_HASH_EMPTY_OTHER_CMP
+	i = 0;
+	key_idx = bkt->key_idx[i];
+	if (key_idx >= CUCKOO_HASH_KEY_SLOTS) {
+		cuckoo_log(error,
+			   "invalid key index %d > CUCKOO_HASH_KEY_SLOTS %d",
+			   key_idx, CUCKOO_HASH_KEY_SLOTS);
+		return -EINVAL;
+	}
+
+	k = keys + key_idx;
+	if (__cuckoo_hash_cmp_eq(key, &k->key, h) == 0) {
+		__builtin_memcpy(&k->value, data, CUCKOO_HASH_VALUE_SIZE);
+		return bkt->key_idx[i] - 1;
+	}
+#else
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
 		if (bkt->sig_current[i] == sig) {
 			key_idx = bkt->key_idx[i];
@@ -277,6 +307,7 @@ __cuckoo_hash_search_and_update(struct cuckoo_hash *h,
 			}
 		}
 	}
+#endif
 	return -1;
 }
 
@@ -304,6 +335,11 @@ static inline int32_t __cuckoo_hash_cuckoo_insert_mw(
 {
 	unsigned int i;
 
+#ifdef CUCKOO_HASH_EMPTY_OTHER_CMP
+	i = 0;
+	prim_bkt->sig_current[i] = sig;
+	prim_bkt->key_idx[i] = new_idx;
+#else
 	/* Insert new entry if there is room in the primary
 	 * bucket.
 	 */
@@ -314,6 +350,7 @@ static inline int32_t __cuckoo_hash_cuckoo_insert_mw(
 			break;
 		}
 	}
+#endif
 
 	if (i != CUCKOO_HASH_BUCKET_ENTRIES) {
 		return 0;
@@ -408,6 +445,16 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 		cur_bkt_idx = tail->bkt_idx;
 		curr_bkt = CUCKOO_HASH_GET_BUCKET(h, cur_bkt_idx);
 
+#ifdef CUCKOO_HASH_EMPTY_OTHER_CMP
+		i = 0;
+		int32_t ret = __cuckoo_hash_cuckoo_move_insert_mw(
+			h, bkt, sec_bkt, key, data, q, *tail_node_idx, i, sig,
+			new_idx, ret_val);
+		if (likely(ret != -1))
+			return ret;
+
+		for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
+#else
 		for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
 			if (curr_bkt->key_idx[i] == CUCKOO_HASH_EMPTY_SLOT) {
 				int32_t ret =
@@ -418,6 +465,7 @@ static inline int __cuckoo_hash_cuckoo_make_space_mw(
 				if (likely(ret != -1))
 					return ret;
 			}
+#endif
 
 			/* Enqueue new node and keep prev node info */
 			alt_bkt_idx = __cuckoo_hash_get_alt_bucket_index(
@@ -551,6 +599,25 @@ static int32_t __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h,
 	__cuckoo_hash_key_idx_t key_idx;
 	struct __cuckoo_hash_key *k, *keys = h->key_store;
 
+#ifdef CUCKOO_HASH_EMPTY_OTHER_CMP
+	i = 0;
+	key_idx = bkt->key_idx[i];
+
+	if (key_idx >= CUCKOO_HASH_KEY_SLOTS) {
+		cuckoo_log(error,
+			   "invalid key index %d > CUCKOO_HASH_KEY_SLOTS %d",
+			   key_idx, CUCKOO_HASH_KEY_SLOTS);
+		return -EINVAL;
+	}
+
+	k = keys + key_idx;
+	if (__cuckoo_hash_cmp_eq(key, &k->key, h) == 0) {
+		*data = &k->value;
+		cuckoo_log(debug, "found key at entry %d, key index %d", i,
+			   bkt->key_idx[i] - 1);
+		return bkt->key_idx[i] - 1;
+	}
+#else
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
 		key_idx = bkt->key_idx[i];
 
@@ -575,6 +642,7 @@ static int32_t __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h,
 			}
 		}
 	}
+#endif
 	return -1;
 }
 
