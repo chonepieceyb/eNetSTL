@@ -4,6 +4,9 @@
 #include "../xxhash.h"
 #include "../simple_ringbuf.h"
 #include "../bpf_cmp_alg_simd.h"
+#include "../bpf_hash_alg_simd.h"
+
+#define CUCKOO_HASH_USE_CRC
 
 #define INDEX_WITH_BOUND(arr, idx, size)                                   \
 	({                                                                 \
@@ -206,7 +209,11 @@ get_cuckoo_hash(struct cuckoo_hash_parameters *params)
 static inline cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h,
 						   const cuckoo_hash_key_t *key)
 {
+#ifdef CUCKOO_HASH_USE_CRC
+	return bpf_crc32c_sse(key, CUCKOO_HASH_KEY_SIZE, CUCKOO_HASH_SEED);
+#else
 	return xxh32(key, CUCKOO_HASH_KEY_SIZE, CUCKOO_HASH_SEED);
+#endif
 }
 
 static inline uint16_t __cuckoo_hash_get_short_sig(const cuckoo_hash_sig_t hash)
