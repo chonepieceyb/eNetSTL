@@ -11,6 +11,8 @@
 
 char _license[] SEC("license") = "GPL";
 
+static u32 dest[8] __attribute__((used));
+
 static inline void test_bpf_fasthash32_alt_avx2_pkt5(struct pkt_5tuple *pkt,
 						     const u32 *seeds,
 						     u32 *dest)
@@ -174,7 +176,7 @@ static inline void test_fasthash32_alt(struct pkt_5tuple *pkt, const u32 *seeds,
 SEC("xdp") int xdp_main(struct xdp_md *ctx)
 {
 	struct pkt_5tuple pkt;
-	u32 seeds[8] = { SEEDx8 }, dest[8];
+	u32 seeds[8] = { SEEDx8 };
 	struct hdr_cursor nh = {
 		.pos = (void *)(long)ctx->data,
 	};
