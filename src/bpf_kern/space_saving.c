@@ -6,8 +6,6 @@
 	log_##level(" space_saving (ebpf): " fmt " (%s @ line %d)", \
 		    ##__VA_ARGS__, __func__, __LINE__)
 
-#define inline inline __attribute__((always_inline))
-
 struct pkt_5tuple_with_pad {
 	struct pkt_5tuple pkt;
 	__u8 pad[3];
