@@ -148,6 +148,27 @@ __bpf_kfunc u32 bpf_find_min_u16_sse(const u16 *arr)
 }
 EXPORT_SYMBOL_GPL(bpf_find_min_u16_sse);
 
+__bpf_kfunc u32 bpf__find_min_u16_sse(const u16 *arr, size_t len, u16 *min_val)
+{
+	u16 value, min_value = arr[0];
+	u32 i, min_index = 0;
+	__m128i arr_vec, res;
+
+	for (i = 0; i < len; i += 8) {
+		arr_vec = _mm_loadu_si128((__m128i_u *)(arr + i));
+		res = _mm_minpos_epu16(arr_vec);
+		value = _mm_extract_epi16(res, 0);
+		if (value < min_value) {
+			min_value = value;
+			min_index = i + _mm_extract_epi16(res, 1);
+		}
+	}
+
+	*min_val = min_value;
+	return min_index;
+}
+EXPORT_SYMBOL_GPL(bpf__find_min_u16_sse);
+
 __bpf_kfunc int bpf_k16_cmp_eq(const void *key1, size_t key1__sz,
 			       const void *key2, size_t key2__sz)
 {
@@ -217,6 +238,7 @@ BTF_ID_FLAGS(func, bpf_find_mask_u16_sse)
 BTF_ID_FLAGS(func, bpf_tzcnt_u32)
 BTF_ID_FLAGS(func, bpf_tzcnt_u16)
 BTF_ID_FLAGS(func, bpf_find_min_u16_sse)
+BTF_ID_FLAGS(func, bpf__find_min_u16_sse)
 BTF_ID_FLAGS(func, bpf_k16_cmp_eq)
 BTF_ID_FLAGS(func, bpf_k32_cmp_eq)
 BTF_ID_FLAGS(func, bpf_mm256_cmpeq_epi32)
