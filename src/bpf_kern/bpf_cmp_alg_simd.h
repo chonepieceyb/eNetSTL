@@ -159,6 +159,18 @@ extern u32 bpf_htss_bucket_search(u16 *sigs, size_t sigs__sz, u16 tmp_sig,
 				  u16 *sets, size_t sets__sz) __ksym;
 
 /**
+ * bpf__find_min_u16_sse() - Find minimum value in array of 16-bit values.
+ *
+ * @arr: Pointer to at least 8 16-bit values.
+ * @len: Length of array; must be a multiple of 8.
+ * @min_val: Pointer to store minimum value.
+ *
+ * Return: index of minimum value
+ */
+extern u32 bpf__find_min_u16_sse(const u16 *arr, size_t len,
+				 u16 *min_val) __ksym;
+
+/**
  * bpf_k16_cmp_eq() - Compare two 16-byte values for equality.
  *
  * @key1: Pointer to first 16-byte value.
