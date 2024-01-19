@@ -24,9 +24,19 @@ struct lb_stats {
 static int callback_load(struct pcn_katran_dp *skel)
 { 
   // add vip backend info
-  struct vip_definition vip = {
-    .vip = 0,
-    .port = 0,
+  struct vip_definition vip1 = {
+    .vip = 0x6F6F6F6F,
+    .port = 0x1111,
+    .proto = 17
+  };
+  struct vip_definition vip2 = {
+    .vip = 0xDEDEDEDE,
+    .port = 0x2222,
+    .proto = 17
+  };
+  struct vip_definition vip3 = {
+    .vip = 0x79797979,
+    .port = 0x3333,
     .proto = 17
   };
   struct vip_meta meta = {
@@ -34,7 +44,9 @@ static int callback_load(struct pcn_katran_dp *skel)
     .vip_num = 1
   };
   struct bpf_map *vip_map = skel->maps.vip_map;
-  int res = bpf_map__update_elem(vip_map, &vip, sizeof(struct vip_definition), &meta, sizeof(struct vip_meta), BPF_ANY);
+  int res = bpf_map__update_elem(vip_map, &vip1, sizeof(struct vip_definition), &meta, sizeof(struct vip_meta), BPF_ANY);
+  res = bpf_map__update_elem(vip_map, &vip2, sizeof(struct vip_definition), &meta, sizeof(struct vip_meta), BPF_ANY);
+  res = bpf_map__update_elem(vip_map, &vip3, sizeof(struct vip_definition), &meta, sizeof(struct vip_meta), BPF_ANY);
   printf("add res: %d\n", res);
 
   //add load balance stat info
