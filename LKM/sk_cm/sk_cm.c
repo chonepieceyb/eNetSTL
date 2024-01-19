@@ -315,10 +315,50 @@ static struct bpf_map_ops cache_raw_skp_ops = {
 	.map_mem_usage = cache_raw_skp_map_mem_usage,
 };
 
+/************************* kfuncs **************************/
+
+#define NO_TEAR_ADD(x, val) WRITE_ONCE((x), READ_ONCE(x) + (val))
+
+__bpf_kfunc void bpf_countmin_add_avx2_pkt5(const struct pkt_5tuple *buf,
+					    const u32 *seeds, u32 **values)
+{
+	const __m256i seeds_vec = _mm256_loadu_si256((const __m256i_u *)seeds);
+	const __m256i hashes_vec = _fasthash64_avx2_pkt5(buf, &seeds_vec);
+	const u32 *hashes = (const u32 *)&hashes_vec;
+
+	for (int i = 0; i < HASHFN_N; i++) {
+		u32 target_idx = hashes[i] & (COLUMNS - 1);
+		NO_TEAR_ADD(values[i][target_idx], 1);
+	}
+}
+EXPORT_SYMBOL_GPL(bpf_countmin_add_avx2_pkt5);
+
+BTF_SET8_START(sk_cm_kfunc_ids)
+BTF_ID_FLAGS(func, bpf_countmin_add_avx2_pkt5)
+BTF_SET8_END(sk_cm_kfunc_ids)
+
+static const struct btf_kfunc_id_set sk_cm_kfunc_set = {
+	.owner = THIS_MODULE,
+	.set = &sk_cm_kfunc_ids,
+};
+
+static int register_kfuncs(void)
+{
+	int ret;
+	if ((ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_XDP,
+					     &sk_cm_kfunc_set)) != 0) {
+		pr_err("sk_cm: failed to register kfuncs: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 static int __init sketch_lib_exp_init(void)
 {
 	init_simd_seeds();
 	init_hash_constants();
+	register_kfuncs();
 	pr_info("sketch_lib_exp  module init");
 	return bpf_register_static_cmap(&cache_raw_skp_ops, THIS_MODULE);
 }
