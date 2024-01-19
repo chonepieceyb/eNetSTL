@@ -618,7 +618,12 @@ static int32_t __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h,
 		return bkt->key_idx[i] - 1;
 	}
 #else
-	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; i++) {
+	#define LOOP_NUM 16
+	int count = 1;
+	int32_t res = 0;
+	// log_error("enter loop 1");
+	for (i = 0; i < LOOP_NUM; i++) {
+		// log_error("hit %dth", i);
 		key_idx = bkt->key_idx[i];
 
 		if (bkt->sig_current[i] == sig &&
@@ -638,11 +643,60 @@ static int32_t __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h,
 					debug,
 					"found key at entry %d, key index %d",
 					i, bkt->key_idx[i] - 1);
-				return bkt->key_idx[i] - 1;
+				res = bkt->key_idx[i] - 1;
+				count++;
 			}
 		}
 	}
+	if (count == LOOP_NUM){
+		return res;
+	}
 #endif
+	return -1;
+}
+
+static int32_t __cuckoo_hash_search_one_bucket2(struct cuckoo_hash *h,
+					       const cuckoo_hash_key_t *key,
+					       uint16_t sig,
+					       cuckoo_hash_value_t **data,
+					       struct __cuckoo_hash_bucket *bkt)
+{
+	uint32_t i;
+	__cuckoo_hash_key_idx_t key_idx;
+	struct __cuckoo_hash_key *k, *keys = h->key_store;
+	#define LOOP_NUM2 16
+	int count = 1;
+	int32_t res = 0;
+	// log_error("enter loop 2");
+	for (i = 0; i < LOOP_NUM2; i++) {
+		// log_error("hit %dth", i);
+		key_idx = bkt->key_idx[i];
+
+		if (bkt->sig_current[i] == sig &&
+		    key_idx != CUCKOO_HASH_EMPTY_SLOT) {
+			if (key_idx >= CUCKOO_HASH_KEY_SLOTS) {
+				cuckoo_log(
+					error,
+					"invalid key index %d > CUCKOO_HASH_KEY_SLOTS %d",
+					bkt->key_idx[i], CUCKOO_HASH_KEY_SLOTS);
+				return -EINVAL;
+			}
+
+			k = keys + key_idx;
+			if (__cuckoo_hash_cmp_eq(key, &k->key, h) == 0) {
+				*data = &k->value;
+				cuckoo_log(
+					debug,
+					"found key at entry %d, key index %d",
+					i, bkt->key_idx[i] - 1);
+				res = bkt->key_idx[i] - 1;
+				count++;
+			}
+		}
+	}
+	if (count == LOOP_NUM2){
+		return res;
+	}
 	return -1;
 }
 
@@ -671,7 +725,7 @@ static inline int32_t __cuckoo_hash_lookup_with_hash(
 	bkt = &h->buckets[sec_bucket_idx];
 
 	/* Check if key is in secondary location */
-	ret = __cuckoo_hash_search_one_bucket(h, key, short_sig, data, bkt);
+	ret = __cuckoo_hash_search_one_bucket2(h, key, short_sig, data, bkt);
 	if (ret != -1) {
 		return ret;
 	}
