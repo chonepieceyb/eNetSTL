@@ -8,6 +8,6 @@
 #include "common.h"
 
 extern void bpf_countmin_add_avx2_pkt5(const struct pkt_5tuple *buf,
-				       const u32 *seeds, u32 **values) __ksym;
+				       const u32 *seeds, u32 *values) __ksym;
 
 #endif

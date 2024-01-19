@@ -205,7 +205,7 @@ static void __always_inline countmin_add_hypercom(struct countmin *cm,
 						  void *element, __u64 len)
 {
 	bpf_countmin_add_avx2_pkt5((struct pkt_5tuple *)element, seeds,
-				   (__u32 **)cm->values);
+				   (u32 *)cm->values);
 }
 
 SEC("xdp") int xdp_main(struct xdp_md *ctx)

@@ -320,7 +320,7 @@ static struct bpf_map_ops cache_raw_skp_ops = {
 #define NO_TEAR_ADD(x, val) WRITE_ONCE((x), READ_ONCE(x) + (val))
 
 __bpf_kfunc void bpf_countmin_add_avx2_pkt5(const struct pkt_5tuple *buf,
-					    const u32 *seeds, u32 **values)
+					    const u32 *seeds, u32 *values)
 {
 	const __m256i seeds_vec = _mm256_loadu_si256((const __m256i_u *)seeds);
 	const __m256i hashes_vec = _fasthash64_avx2_pkt5(buf, &seeds_vec);
@@ -328,7 +328,7 @@ __bpf_kfunc void bpf_countmin_add_avx2_pkt5(const struct pkt_5tuple *buf,
 
 	for (int i = 0; i < HASHFN_N; i++) {
 		u32 target_idx = hashes[i] & (COLUMNS - 1);
-		NO_TEAR_ADD(values[i][target_idx], 1);
+		NO_TEAR_ADD(*(values + i * COLUMNS + target_idx), 1);
 	}
 }
 EXPORT_SYMBOL_GPL(bpf_countmin_add_avx2_pkt5);
