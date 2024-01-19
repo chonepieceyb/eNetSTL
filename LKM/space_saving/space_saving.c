@@ -25,8 +25,8 @@
 typedef u16 ss_count_t;
 
 #define SS_NUM_COUNTERS 8
-#if SS_NUM_COUNTERS != 8
-#error currently SS_NUM_COUNTERS must be 8 for SIMD implementation to work
+#if SS_NUM_COUNTERS % 8 != 0
+#error currently SS_NUM_COUNTERS must be a multiple of 8 for SIMD implementation to work
 #endif
 
 #define SS_KEY_SIZE 16
@@ -67,11 +67,24 @@ static inline u32 __find_mask_u32_avx(const u32 *arr, u32 val)
 	return mask;
 }
 
-static inline u32 find_min_u16_sse(const u16 *arr)
+static inline u32 __find_min_u16_sse(const u16 *arr, size_t len, u16 *min_val)
 {
-	__m128i arr_vec = _mm_loadu_si128((__m128i_u *)arr);
-	__m128i res = _mm_minpos_epu16(arr_vec);
-	return _mm_extract_epi16(res, 1);
+	u16 value, min_value = arr[0];
+	u32 i, min_index = 0;
+	__m128i arr_vec, res;
+
+	for (i = 0; i < len; i += 8) {
+		arr_vec = _mm_loadu_si128((__m128i_u *)(arr + i));
+		res = _mm_minpos_epu16(arr_vec);
+		value = _mm_extract_epi16(res, 0);
+		if (value < min_value) {
+			min_value = value;
+			min_index = i + _mm_extract_epi16(res, 1);
+		}
+	}
+
+	*min_val = min_value;
+	return min_index;
 }
 #endif
 
@@ -163,22 +176,28 @@ static int ss_increment(struct ss_table *tbl, void *key)
 #endif
 
 #ifdef SS_SIMD
-	u32 mask = ~0;
+	u32 mask;
 
-	for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
-		mask &= __find_mask_u32_avx((const u32 *)tbl->keys +
-						    blk_idx * 8,
-					    ((const u32 *)key)[blk_idx]);
-		if (mask == 0) {
-			goto replace_or_insert;
+	for (i = 0; i < SS_NUM_COUNTERS; i += 8) {
+		mask = ~0;
+
+		for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
+			mask &= __find_mask_u32_avx(
+				(const u32 *)tbl->keys +
+					blk_idx * SS_NUM_COUNTERS + i,
+				((const u32 *)key)[blk_idx]);
+			if (mask == 0) {
+				goto replace_or_insert;
+			}
 		}
-	}
 
-	i = __tzcnt_u32(mask) >> 2;
-	ss_log(debug, "found matching key (with SIMD) at %d, count = %d\n", i,
-	       tbl->counts[i]);
-	tbl->counts[i]++;
-	goto out;
+		i += __tzcnt_u32(mask) >> 2;
+		ss_log(debug,
+		       "found matching key (with SIMD) at %d, count = %d\n", i,
+		       tbl->counts[i]);
+		tbl->counts[i]++;
+		goto out;
+	}
 #else
 	for (i = 0; i < SS_NUM_COUNTERS; i++) {
 		for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
@@ -202,8 +221,7 @@ static int ss_increment(struct ss_table *tbl, void *key)
      */
 #ifdef SS_SIMD
 replace_or_insert:
-	min_idx = find_min_u16_sse(tbl->counts);
-	min_count = tbl->counts[min_idx];
+	min_idx = __find_min_u16_sse(tbl->counts, SS_NUM_COUNTERS, &min_count);
 #else
 	for (i = 0; i < SS_NUM_COUNTERS; i++) {
 		if (tbl->counts[i] < min_count) {
@@ -217,7 +235,7 @@ replace_or_insert:
 	       min_idx, min_count);
 
 	for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
-		((u32 *)tbl->keys)[blk_idx * 8 + min_idx] =
+		((u32 *)tbl->keys)[blk_idx * SS_NUM_COUNTERS + min_idx] =
 			((const u32 *)key)[blk_idx];
 	}
 	tbl->overestimates[min_idx] = min_count;
