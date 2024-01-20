@@ -322,13 +322,18 @@ static struct bpf_map_ops cache_raw_skp_ops = {
 __bpf_kfunc void bpf_countmin_add_avx2_pkt5(const struct pkt_5tuple *buf,
 					    const u32 *seeds, u32 *values)
 {
-	const __m256i seeds_vec = _mm256_loadu_si256((const __m256i_u *)seeds);
-	const __m256i hashes_vec = _fasthash64_avx2_pkt5(buf, &seeds_vec);
-	const u32 *hashes = (const u32 *)&hashes_vec;
+	for (u32 j = 0; j < HASHFN_N; j += 8) {
+		const __m256i seeds_vec =
+			_mm256_loadu_si256((const __m256i_u *)seeds + j);
+		const __m256i hashes_vec =
+			_fasthash64_avx2_pkt5(buf, &seeds_vec);
+		const u32 *hashes = (const u32 *)&hashes_vec;
 
-	for (int i = 0; i < HASHFN_N; i++) {
-		u32 target_idx = hashes[i] & (COLUMNS - 1);
-		NO_TEAR_ADD(*(values + i * COLUMNS + target_idx), 1);
+		for (int i = 0; i < 8; i++) {
+			u32 target_idx = hashes[i] & (COLUMNS - 1);
+			NO_TEAR_ADD(*(values + (i + j) * COLUMNS + target_idx),
+				    1);
+		}
 	}
 }
 EXPORT_SYMBOL_GPL(bpf_countmin_add_avx2_pkt5);
