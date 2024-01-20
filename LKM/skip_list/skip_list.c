@@ -1,3 +1,5 @@
+#include "linux/bpf.h"
+#include <linux/bpf_mem_alloc.h>
 #include "linux/gfp_types.h"
 #include <linux/init.h>
 #include <linux/printk.h>
@@ -32,6 +34,7 @@ struct static_sl_map {
 	struct bpf_map map;
 	sl_entry *skiplist;
 	__u32 entry_count;
+	struct bpf_mem_alloc ma;
 };
 
 static inline void random(int *num)
@@ -64,6 +67,7 @@ int skip_list_alloc_check(union bpf_attr *attr)
 static struct bpf_map *skip_list_alloc(union bpf_attr *attr)
 {
 	struct static_sl_map *skiplist_map;
+	void *res_ptr;
 
 	skiplist_map =
 		bpf_map_area_alloc(sizeof(struct static_sl_map), NUMA_NO_NODE);
@@ -71,24 +75,38 @@ static struct bpf_map *skip_list_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	skiplist_map->skiplist = kzalloc(sizeof(sl_entry), GFP_KERNEL);
-	if (skiplist_map->skiplist == NULL)
-		return ERR_PTR(-ENOMEM);
+	if (bpf_mem_alloc_init(&skiplist_map->ma, 0, false)) {
+		/* alloc mem_alloc_cache*/
+		res_ptr = ERR_PTR(-ENOMEM);
+		goto free_bmap;
+	}
+
+	skiplist_map->skiplist = bpf_mem_alloc(&skiplist_map->ma, sizeof(sl_entry));
+	if (skiplist_map->skiplist == NULL) {
+		res_ptr = ERR_PTR(-ENOMEM);
+		goto free_ma;
+	}
 
 	skiplist_map->skiplist->height = MAX_SKIPLIST_HEIGHT;
 	skiplist_map->entry_count = 0;
 	return (struct bpf_map *)skiplist_map;
+
+free_ma:;
+	bpf_mem_alloc_destroy(&skiplist_map->ma);
+free_bmap:;
+	bpf_map_area_free(skiplist_map);
+	return res_ptr;
 }
 
 // Frees the memory allocated for a skiplist entry.
-void sl_free_entry(sl_entry *entry)
+void sl_free_entry(struct bpf_mem_alloc *ma, sl_entry *entry)
 {
-	kfree(entry->key);
+	bpf_mem_free(ma, entry->key);
 	entry->key = NULL;
-	kfree(entry->value);
+	bpf_mem_free(ma, entry->value);
 	entry->value = NULL;
 
-	kfree(entry);
+	bpf_mem_free(ma, entry);
 	entry = NULL;
 }
 
@@ -104,7 +122,7 @@ static void skip_list_free(struct bpf_map *map)
 	sl_entry *next_entry = NULL;
 	while (current_entry) {
 		next_entry = current_entry->next[0];
-		sl_free_entry(current_entry);
+		sl_free_entry(&skip_list_map->ma, current_entry);
 		current_entry = next_entry;
 	}
 
@@ -159,9 +177,10 @@ static long skip_list_update_elem(struct bpf_map *map, void *key, void *value,
 		} else {
 			int cmp = strcmp(curr->next[level]->key, key);
 			if (cmp == 0) { // Found a match, replace the old value
-				kfree(curr->next[level]->value);
-				curr->next[level]->value =
-					kstrdup(value, GFP_KERNEL);
+				bpf_mem_free(&skip_list_map->ma, curr->next[level]->value);
+				char *new_value = bpf_mem_alloc(&skip_list_map->ma, map->value_size);
+				__builtin_memcpy(new_value, value, map->value_size);
+				curr->next[level]->value = new_value;
 				skip_list_map->entry_count++;
 				return 0;
 			} else if (cmp > 0) { // Drop down a level
@@ -173,10 +192,14 @@ static long skip_list_update_elem(struct bpf_map *map, void *key, void *value,
 	}
 
 	// Didn't find it, we need to insert a new entry
-	sl_entry *new_entry = kmalloc(sizeof(sl_entry), GFP_KERNEL);
+	sl_entry *new_entry = bpf_mem_alloc(&skip_list_map->ma, sizeof(sl_entry));
+	char *new_key = bpf_mem_alloc(&skip_list_map->ma, map->key_size);
+	__builtin_memcpy(new_key, key, map->key_size);
+	char *new_value = bpf_mem_alloc(&skip_list_map->ma, map->value_size);
+	__builtin_memcpy(new_value, value, map->value_size);
 	new_entry->height = grand(head->height);
-	new_entry->key = kstrdup(key, GFP_KERNEL);
-	new_entry->value = kstrdup(value, GFP_KERNEL);
+	new_entry->key = new_key;
+	new_entry->value = new_value;
 	int i;
 	// Null out pointers above height
 	for (i = MAX_SKIPLIST_HEIGHT - 1; i > new_entry->height; --i) {
@@ -227,7 +250,7 @@ static long skip_list_delete_elem(struct bpf_map *map, void *key)
 			prev[i]->next[i] = condemned->next[i];
 		}
 		// Free it
-		sl_free_entry(condemned);
+		sl_free_entry(&skip_list_map->ma, condemned);
 		condemned = NULL;
 		return 0;
 	}
@@ -330,7 +353,6 @@ static ssize_t testing_operation(struct file *flip, char __user *ubuf,
 		if (res != NULL) {
 			lookup_res[i] = 1;
 		}
-		pr_info("lookup_res[%d]: %d\n", i, lookup_res[i]);
 	}
 
 	for (int i = 0; i < TEST_RANGE; i++) {
