@@ -4,6 +4,7 @@ USE_SIMD ?= 1
 USE_SIMD_KEY_CMP ?= 1
 USE_SIMD_OTHER_CMP ?= 1
 USE_CRC ?= 1
+USE_PREFILL ?= 0
 GCC_VERSION := 13
 
 obj-m := ${OBJ_NAME}.o
@@ -29,6 +30,10 @@ endif
 
 ifeq (${USE_CRC},1)
 ccflags-y += -DCUCKOO_HASH_USE_CRC
+endif
+
+ifeq (${USE_PREFILL},1)
+ccflags-y += -DCUCKOO_HASH_PREFILL
 endif
 
 default:
