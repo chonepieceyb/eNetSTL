@@ -11,6 +11,7 @@ char _license[] SEC("license") = "GPL";
 /* set rate limit threshould here, less LIMIT_NUM, more Throughput, because the XDP_TX performance loss */
 #define LIMIT_NUM 1
 #define PERFORMANCE_TEST 1
+#define DESIGN_PATTERN_TEST 0
 
 #define FH_SEED (0x2d31e867)
 #define L3_SEED (0x6ad611c3)
@@ -448,9 +449,11 @@ process_packet(struct pkt_5tuple *pkt, __u64 ts, __u32 rand,
 			gen_hash(gen, &ph[0]),
 			gen_hash(gen, &ph[1]),
 		} };
-
+#if DESIGN_PATTERN_TEST == 0
 		__u32 rate = add_to_node(i, ts, &h);
-
+#else
+		__u32 rate = 65535;
+#endif
 		if (rate > max_rate) {
 			max_rate = rate;
 		}
