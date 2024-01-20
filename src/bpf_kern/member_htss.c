@@ -25,6 +25,8 @@ char _license[] SEC("license") = "GPL";
 #define BUCKET_MASK 127
 #define MEMBER_BUCKET_ENTRIES 8
 
+/* set to 1 enable design pattern test, it will replace the kfunc to constant operation */
+#define DESIGN_PATTERN_TEST 1
 #define TEST_RANGE 20
 /* core malloc aera */
 typedef __u16 sig_t;
@@ -42,6 +44,7 @@ struct {
 	__type(key, __u32);
 	__type(value, struct htss_memory);
 	__uint(max_entries, 1);
+	__uint(pinning, 1)
 } htss_memory_map SEC(".maps");
 
 struct record {
@@ -84,8 +87,13 @@ static __always_inline void
 get_buckets_index(struct pkt_5tuple *key, __u32 key_len, __u32 *prim_bkt, __u32 *sec_bkt, sig_t *sig)
 {
 	/* 和vbf一样，计算两个hash值，其中 h1 = hash(key) h2 = hash(hash(key)) */
+#if DESIGN_PATTERN_TEST == 0
 	__u32 first_hash = fasthash32(key, key_len, HASH_SEED_1);
 	__u32 sec_hash = fasthash32(&first_hash, sizeof(__u32), HASH_SEED_2);
+#else
+	__u32 first_hash = 0xdeadbeef;
+	__u32 sec_hash = 0xaaaabbbb;
+#endif
 
 	if (prim_bkt == NULL || sec_bkt == NULL || sig == NULL) {
 		log_error("error at line %d", __LINE__);
@@ -255,6 +263,7 @@ search_bucket_single(__u32 bucket_id, sig_t tmp_sig,
 {
 	asm_bound_check(bucket_id, NUM_BUCKETS);
 	__u32 iter;
+#if DESIGN_PATTERN_TEST == 0
 	for (iter = 0; iter < MEMBER_BUCKET_ENTRIES; iter++) {
 		log_debug("tmp_sig: %x, curr_sig:%x, curr_set:%d", tmp_sig, curr_sig, curr_set);
 		if (tmp_sig == buckets[bucket_id].sigs[iter] && buckets[bucket_id].sets[iter] != MEMBER_NO_MATCH) {
@@ -262,6 +271,12 @@ search_bucket_single(__u32 bucket_id, sig_t tmp_sig,
 			return 1;
 		}
 	}
+#else
+	if (tmp_sig == buckets[bucket_id].sigs[iter] && buckets[bucket_id].sets[iter] != MEMBER_NO_MATCH) {
+		*set_id = buckets[bucket_id].sets[iter];
+		return 1;
+	}
+#endif
 not_found:
 	return 0;
 }
@@ -388,6 +403,46 @@ int test_htss(struct xdp_md *ctx) {
 		}
 	}
 
+finish:
+	return XDP_DROP;
+}
+/* exp setup program */
+SEC("xdp")
+int add_data(struct xdp_md *ctx) {
+	__u32 zero = 0;
+	set_t set_id = 1;
+	struct htss_memory* __htss = bpf_map_lookup_elem(&htss_memory_map, &zero);
+	if (__htss == NULL) {
+		log_error("error at line %d\n", __LINE__);
+		goto finish;
+	}
+	struct member_ht_bucket *buckets = __htss->buckets;
+
+	struct pkt_5tuple pkt;
+	void *data, *data_end;
+	struct hdr_cursor nh;
+	int ret;
+
+	data = (void *)(long)ctx->data;
+	data_end = (void *)(long)ctx->data_end;
+	nh.pos = data;
+	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
+		log_error("cannot parse packet: %d", ret);
+		goto finish;
+	} else {
+		log_debug(
+			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
+			pkt.src_ip, pkt.src_port, pkt.dst_ip,
+			pkt.dst_port, pkt.proto);
+	}
+
+
+	// member_add_ht(buckets, &pkt, set_id);
+
+	int add_res = member_add_ht(buckets, &pkt,  set_id);
+	if (add_res != 0) {
+		log_error("add failed\n");
+	}
 finish:
 	return XDP_DROP;
 }
