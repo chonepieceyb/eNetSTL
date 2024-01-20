@@ -10,7 +10,7 @@ int prefill(struct xdp_md *ctx)
 {
 	struct cuckoo_hash_parameters params = {};
 	struct cuckoo_hash *h;
-	struct pkt_5tuple_with_pad pkt;
+	struct pkt_5tuple_with_pad pkt = { 0 };
 	uint32_t i;
 	uint16_t key_idx;
 

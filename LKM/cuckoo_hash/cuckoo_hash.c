@@ -364,7 +364,7 @@ cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h, const void *key)
 
 int __cuckoo_hash_prefill(struct cuckoo_hash *h)
 {
-	struct pkt_5tuple pkt;
+	struct pkt_5tuple pkt = { 0 };
 	uint32_t i, one = 1;
 	uint16_t key_idx;
 	struct __cuckoo_hash_key *k;
@@ -630,26 +630,26 @@ __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h, const void *key,
 		if (bkt->sig_current[i] == sig &&
 		    bkt->key_idx[i] != CUCKOO_HASH_EMPTY_SLOT) {
 #endif
-			k = (struct __cuckoo_hash_key
-				     *)((char *)keys +
-					bkt->key_idx[i] *
+		k = (struct __cuckoo_hash_key
+			     *)((char *)keys +
+				bkt->key_idx[i] *
 						CUCKOO_HASH_KEY_ENTRY_SIZE);
-			cuckoo_log(debug, "checking key i = %d, key_idx = %d\n",
+		cuckoo_log(debug, "checking key i = %d, key_idx = %d\n",
 				   i, bkt->key_idx[i]);
 
-			if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
-				cuckoo_log(debug, "key matches\n");
+		if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
+			cuckoo_log(debug, "key matches\n");
 
-				if (data != NULL)
-					*data = &k->value;
-				/*
+			if (data != NULL)
+				*data = &k->value;
+			/*
 				 * Return index where key is stored,
 				 * subtracting the first dummy index
 				 */
-				return bkt->key_idx[i] - 1;
-			} else {
-				cuckoo_log(debug, "key does not match\n");
-			}
+			return bkt->key_idx[i] - 1;
+		} else {
+			cuckoo_log(debug, "key does not match\n");
+		}
 #if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
 	}
 #else
@@ -866,11 +866,11 @@ static inline int32_t __cuckoo_hash_cuckoo_insert_mw(
 		}
 	}
 
-		if (i != CUCKOO_HASH_BUCKET_ENTRIES)
-			return 0;
+	if (i != CUCKOO_HASH_BUCKET_ENTRIES)
+		return 0;
 
-		/* no empty entry */
-		return -1;
+	/* no empty entry */
+	return -1;
 #endif
 }
 
@@ -1006,7 +1006,7 @@ static inline int32_t __cuckoo_hash_cuckoo_make_space_mw(
 			cuckoo_log(debug, "%d: done move insert ret = %d\n", i,
 				   ret);
 			if (likely(ret != -1))
-					goto out_free_queue;
+				goto out_free_queue;
 			} else {
 			cuckoo_log(debug, "%d: skipped move insert\n", i);
 			}
