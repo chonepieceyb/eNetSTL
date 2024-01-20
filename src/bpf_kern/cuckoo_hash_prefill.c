@@ -27,7 +27,8 @@ int prefill(struct xdp_md *ctx)
 
 	cuckoo_log(info, "prefilling primary bucket 0");
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; ++i) {
-		pkt.pkt.dst_port = __cuckoo_hash_prim_bucket_ports[0][i];
+		pkt.pkt.dst_port =
+			bpf_htons(__cuckoo_hash_prim_bucket_ports[0][i]);
 		key_idx = i + 1;
 
 		h->buckets[0].sig_current[i] = __cuckoo_hash_get_short_sig(
@@ -46,7 +47,8 @@ int prefill(struct xdp_md *ctx)
 
 	cuckoo_log(info, "prefilling secondary bucket 1");
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; ++i) {
-		pkt.pkt.dst_port = __cuckoo_hash_sec_bucket_ports[1][i];
+		pkt.pkt.dst_port =
+			bpf_htons(__cuckoo_hash_sec_bucket_ports[1][i]);
 		key_idx = i + CUCKOO_HASH_BUCKET_ENTRIES + 1;
 
 		h->buckets[1].sig_current[i] = __cuckoo_hash_get_short_sig(
@@ -65,7 +67,8 @@ int prefill(struct xdp_md *ctx)
 
 	cuckoo_log(info, "prefilling primary bucket 2");
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; ++i) {
-		pkt.pkt.dst_port = __cuckoo_hash_prim_bucket_ports[2][i];
+		pkt.pkt.dst_port =
+			bpf_htons(__cuckoo_hash_prim_bucket_ports[2][i]);
 		key_idx = i + CUCKOO_HASH_BUCKET_ENTRIES * 2 + 1;
 
 		h->buckets[2].sig_current[i] = __cuckoo_hash_get_short_sig(
@@ -84,7 +87,8 @@ int prefill(struct xdp_md *ctx)
 
 	cuckoo_log(info, "prefilling secondary bucket 3");
 	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; ++i) {
-		pkt.pkt.dst_port = __cuckoo_hash_sec_bucket_ports[3][i];
+		pkt.pkt.dst_port =
+			bpf_htons(__cuckoo_hash_sec_bucket_ports[3][i]);
 		key_idx = i + CUCKOO_HASH_BUCKET_ENTRIES * 3 + 1;
 
 		h->buckets[3].sig_current[i] = __cuckoo_hash_get_short_sig(
