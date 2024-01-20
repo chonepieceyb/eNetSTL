@@ -2,6 +2,8 @@
 
 #include "common.h"
 
+// #define SS_EMPTY_CMP
+
 #define ss_log(level, fmt, ...)                                     \
 	log_##level(" space_saving (ebpf): " fmt " (%s @ line %d)", \
 		    ##__VA_ARGS__, __func__, __LINE__)
@@ -63,6 +65,12 @@ static inline int ss_increment(struct ss *tbl, const ss_key_t *key)
 	u32 min_idx = 0, i;
 	int ret = 0;
 
+#ifdef SS_EMPTY_CMP
+	_Static_assert((SS_NUM_COUNTERS & (SS_NUM_COUNTERS - 1)) == 0,
+		       "SS_NUM_COUNTERS must be a power of 2");
+	min_idx = *(u32 *)key & (SS_NUM_COUNTERS - 1);
+	min_count = tbl->counts[min_idx];
+#else
 	for (i = 0; i < SS_NUM_COUNTERS; i++) {
 		if (__ss_key_cmp(tbl->keys + i, key) == 0) {
 			ss_log(debug, "found matching key at %d, count = %d", i,
@@ -82,6 +90,7 @@ static inline int ss_increment(struct ss *tbl, const ss_key_t *key)
 			min_idx = i;
 		}
 	}
+#endif
 
 	ss_log(debug, "replacing (or inserting new) key at %d, count = %d",
 	       min_idx, min_count);
