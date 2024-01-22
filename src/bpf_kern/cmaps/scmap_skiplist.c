@@ -12,8 +12,8 @@ char _license[] SEC("license") = "GPL";
 
 struct {
 	__uint(type, BPF_MAP_TYPE_STATIC_CUSTOM_MAP);
-	__type(key, __u32);
-	__type(value, struct pkt_5tuple);
+	__type(key, __u64);
+	__type(value, __u64);
 	__uint(max_entries, MAX_ENTRY);
 	__uint(pinning, 1);
 } skip_list SEC(".maps");
@@ -40,10 +40,10 @@ int add_data(struct xdp_md *ctx)
 			pkt.proto);
 	}
 
-	__u32 key = fasthash32(&pkt, sizeof(struct pkt_5tuple), HASH_SEED);
+	__u64 key = (__u64)pkt.dst_port;
 
-	int add_res = bpf_map_update_elem(&skip_list, &key, &pkt, BPF_ANY);
-
+	int add_res = bpf_map_update_elem(&skip_list, &key, &key, BPF_ANY);
+	log_debug("dst port: %d, add_res: %d\n", pkt.dst_port, add_res);
 	if (add_res != 0) {
 		log_error("add failed\n");
 	}
@@ -53,6 +53,43 @@ finish:
 }
 
 /* exp program */
+SEC("xdp")
+int delete_data(struct xdp_md *ctx)
+{
+	struct pkt_5tuple pkt = { 0 };
+	void *data, *data_end;
+	struct hdr_cursor nh;
+	int ret;
+
+	data = (void *)(long)ctx->data;
+	data_end = (void *)(long)ctx->data_end;
+	nh.pos = data;
+	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
+		log_error("cannot parse packet: %d", ret);
+		goto finish;
+	} else {
+		log_debug(
+			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
+			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
+			pkt.proto);
+	}
+
+	__u64 key = (__u64)pkt.dst_port;
+
+	if (pkt.dst_port % 2 == 0) {
+		long delete_res = bpf_map_delete_elem(&skip_list, &key);
+		log_debug("dst port: %d, delete_res: %d\n", pkt.dst_port,
+			  delete_res == NULL ? 0 : 1);
+		if (delete_res != 0) {
+			log_error("delete failed\n");
+		}
+	}
+
+finish:
+	return XDP_DROP;
+}
+
+/* lookup program */
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx)
 {
@@ -74,10 +111,11 @@ int xdp_main(struct xdp_md *ctx)
 			pkt.proto);
 	}
 
-	__u32 key = fasthash32(&pkt, sizeof(struct pkt_5tuple), HASH_SEED);
+	__u64 key = (__u64)pkt.dst_port;
 
-	struct pkt_5tuple *lookup_res = bpf_map_lookup_elem(&skip_list, &key);
-	log_debug("lookup_res: %d\n", lookup_res==NULL ? 0 : 1);
+	struct __u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &key);
+	log_debug("dst port: %d, lookup_res: %d\n", pkt.dst_port,
+		  lookup_res == NULL ? 0 : 1);
 finish:
 	return XDP_DROP;
 }

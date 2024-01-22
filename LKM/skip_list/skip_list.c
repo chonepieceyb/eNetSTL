@@ -1,4 +1,5 @@
 #include "linux/bpf.h"
+#include "linux/compiler_attributes.h"
 #include <linux/bpf_mem_alloc.h>
 #include "linux/gfp_types.h"
 #include <linux/init.h>
@@ -24,8 +25,8 @@ extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 typedef struct sl_entry {
-	char *key;
-	char *value;
+	__u64 key;
+	__u64 value;
 	int height;
 	struct sl_entry *next[MAX_SKIPLIST_HEIGHT];
 } sl_entry;
@@ -75,13 +76,13 @@ static struct bpf_map *skip_list_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	if (bpf_mem_alloc_init(&skiplist_map->ma, 0, false)) {
+	if (bpf_mem_alloc_init(&skiplist_map->ma, sizeof(sl_entry), false)) {
 		/* alloc mem_alloc_cache*/
 		res_ptr = ERR_PTR(-ENOMEM);
 		goto free_bmap;
 	}
 
-	skiplist_map->skiplist = bpf_mem_alloc(&skiplist_map->ma, sizeof(sl_entry));
+	skiplist_map->skiplist = bpf_mem_cache_alloc(&skiplist_map->ma);
 	if (skiplist_map->skiplist == NULL) {
 		res_ptr = ERR_PTR(-ENOMEM);
 		goto free_ma;
@@ -98,18 +99,6 @@ free_bmap:;
 	return res_ptr;
 }
 
-// Frees the memory allocated for a skiplist entry.
-void sl_free_entry(struct bpf_mem_alloc *ma, sl_entry *entry)
-{
-	bpf_mem_free(ma, entry->key);
-	entry->key = NULL;
-	bpf_mem_free(ma, entry->value);
-	entry->value = NULL;
-
-	bpf_mem_free(ma, entry);
-	entry = NULL;
-}
-
 static void skip_list_free(struct bpf_map *map)
 {
 	struct static_sl_map *skip_list_map;
@@ -122,15 +111,17 @@ static void skip_list_free(struct bpf_map *map)
 	sl_entry *next_entry = NULL;
 	while (current_entry) {
 		next_entry = current_entry->next[0];
-		sl_free_entry(&skip_list_map->ma, current_entry);
+		bpf_mem_cache_free(&skip_list_map->ma, current_entry);
+		current_entry = NULL;
 		current_entry = next_entry;
 	}
 
+	bpf_mem_alloc_destroy(&skip_list_map->ma);
 	bpf_map_area_free(skip_list_map);
 	return;
 }
 
-static void *skip_list_lookup_elem(struct bpf_map *map, void *key)
+static void *skip_list_lookup_elem(struct bpf_map *map, void* key_ptr)
 {
 	struct static_sl_map *skip_list_map =
 		container_of(map, struct static_sl_map, map);
@@ -139,15 +130,17 @@ static void *skip_list_lookup_elem(struct bpf_map *map, void *key)
 	sl_entry *curr = head;
 	int level = head->height - 1;
 
+	__u64 key = *(__u64 *)key_ptr;
+
 	// Find the position where the key is expected
 	while (curr != NULL && level >= 0) {
 		if (curr->next[level] == NULL) {
 			--level;
 		} else {
-			int cmp = strcmp(curr->next[level]->key, key);
-			if (cmp == 0) { // Found a match
+
+			if (curr->next[level]->key == key) { // Found a match
 				return &(curr->next[level]->value);
-			} else if (cmp > 0) { // Drop down a level
+			} else if (curr->next[level]->key > key) { // Drop down a level
 				--level;
 			} else { // Keep going at this level
 				curr = curr->next[level];
@@ -158,7 +151,7 @@ static void *skip_list_lookup_elem(struct bpf_map *map, void *key)
 	return NULL;
 }
 
-static long skip_list_update_elem(struct bpf_map *map, void *key, void *value,
+static long skip_list_update_elem(struct bpf_map *map, void* key_ptr, void* value_ptr,
 				  u64 flag)
 {
 	struct static_sl_map *skip_list_map =
@@ -169,21 +162,20 @@ static long skip_list_update_elem(struct bpf_map *map, void *key, void *value,
 	sl_entry *curr = head;
 	int level = head->height - 1;
 
+	__u64 key = *(__u64 *)key_ptr;
+	__u64 value = *(__u64 *)value_ptr;
+
 	// Find the position where the key is expected
 	while (curr != NULL && level >= 0) {
 		prev[level] = curr;
 		if (curr->next[level] == NULL) {
 			--level;
 		} else {
-			int cmp = strcmp(curr->next[level]->key, key);
-			if (cmp == 0) { // Found a match, replace the old value
-				bpf_mem_free(&skip_list_map->ma, curr->next[level]->value);
-				char *new_value = bpf_mem_alloc(&skip_list_map->ma, map->value_size);
-				__builtin_memcpy(new_value, value, map->value_size);
-				curr->next[level]->value = new_value;
+			if (curr->next[level]->key == key) { // Found a match, replace the old value
+				curr->next[level]->value = value;
 				skip_list_map->entry_count++;
 				return 0;
-			} else if (cmp > 0) { // Drop down a level
+			} else if (curr->next[level]->key > key) { // Drop down a level
 				--level;
 			} else { // Keep going at this level
 				curr = curr->next[level];
@@ -192,14 +184,10 @@ static long skip_list_update_elem(struct bpf_map *map, void *key, void *value,
 	}
 
 	// Didn't find it, we need to insert a new entry
-	sl_entry *new_entry = bpf_mem_alloc(&skip_list_map->ma, sizeof(sl_entry));
-	char *new_key = bpf_mem_alloc(&skip_list_map->ma, map->key_size);
-	__builtin_memcpy(new_key, key, map->key_size);
-	char *new_value = bpf_mem_alloc(&skip_list_map->ma, map->value_size);
-	__builtin_memcpy(new_value, value, map->value_size);
+	sl_entry *new_entry = bpf_mem_cache_alloc(&skip_list_map->ma);
 	new_entry->height = grand(head->height);
-	new_entry->key = new_key;
-	new_entry->value = new_value;
+	new_entry->key = key;
+	new_entry->value = value;
 	int i;
 	// Null out pointers above height
 	for (i = MAX_SKIPLIST_HEIGHT - 1; i > new_entry->height; --i) {
@@ -214,7 +202,7 @@ static long skip_list_update_elem(struct bpf_map *map, void *key, void *value,
 	return 0;
 }
 
-static long skip_list_delete_elem(struct bpf_map *map, void *key)
+static long skip_list_delete_elem(struct bpf_map *map, void *key_ptr)
 {
 	struct static_sl_map *skip_list_map =
 		container_of(map, struct static_sl_map, map);
@@ -224,6 +212,8 @@ static long skip_list_delete_elem(struct bpf_map *map, void *key)
 	sl_entry *curr = head;
 	int level = head->height - 1;
 
+	__u64 key = *(__u64 *)key_ptr;
+
 	// Find the list node just before the condemned node at every
 	// level of the chain
 	int cmp = 1;
@@ -232,7 +222,7 @@ static long skip_list_delete_elem(struct bpf_map *map, void *key)
 		if (curr->next[level] == NULL) {
 			--level;
 		} else {
-			cmp = strcmp(curr->next[level]->key, key);
+			cmp = curr->next[level]->key - key;
 			if (cmp >= 0) { // Drop down a level
 				--level;
 			} else { // Keep going at this level
@@ -250,7 +240,7 @@ static long skip_list_delete_elem(struct bpf_map *map, void *key)
 			prev[i]->next[i] = condemned->next[i];
 		}
 		// Free it
-		sl_free_entry(&skip_list_map->ma, condemned);
+		bpf_mem_cache_free(&skip_list_map->ma, condemned);
 		condemned = NULL;
 		return 0;
 	}
