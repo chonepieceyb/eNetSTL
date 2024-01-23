@@ -3,10 +3,10 @@
 
 #include "common.h"
 
-typedef __u64 bitmap_type;
-#define PER_LONG_BITS_SHIFT 6  //64 per long
+typedef __u32 bitmap_type;
+#define PER_LONG_BITS_SHIFT 5  //64 per long
 #define __ffs __ffs64
-#define BITS_PER_LONG 64
+#define BITS_PER_LONG 32
 #define __inline __noinline
 
 #ifndef PKT_BKT_SIZE_SHIFT 
@@ -110,7 +110,7 @@ static __always_inline __bitmap_type hpiq_front_idx_lvl_4__##_name(struct hpiq__
 
 #define hpiq_get_idx_offset_lvl_4(__bitmap_type, bucket)      \
         hpiq_get_idx_offset_lvl_3(__bitmap_type, bucket)                          \
-        __tmp = (___tmp >> PER_LONG_BITS_SHIFT);                                             \
+        __tmp = (__tmp >> PER_LONG_BITS_SHIFT);                                             \
         __bitmap_type __off4 =  BOUND_INDEX(__tmp, PER_LONG_BITS_SHIFT);
 
 #define hpiq_get_idx_offset_lvl(level, __bitmap_type, bucke) hpiq_get_idx_offset_lvl_##level(__bitmap_type, bucket)
