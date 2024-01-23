@@ -10,8 +10,8 @@ extern void bpf_unregister_static_cmap(struct module *onwer);
 extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
-typedef __u64 bitmap_type;
-#define PER_LONG_BITS_SHIFT 6  //64 per long
+typedef __u32 bitmap_type;
+#define PER_LONG_BITS_SHIFT 5  //64 per long
 
 #ifndef PKT_BKT_SIZE_SHIFT 
 #define PKT_BKT_SIZE_SHIFT 8
