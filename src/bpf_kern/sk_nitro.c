@@ -23,6 +23,8 @@
 #include "fasthash.h"
 #include "xxhash.h"
 
+// #define SK_NITRO_EMPTY_HASH
+
 char _license[] SEC("license") = "GPL";
 
 const static __u32 seeds[] = {
@@ -79,10 +81,15 @@ static void FORCE_INLINE nitrosketch_countmin_add(struct countmin *cm,
 						  uint32_t row_to_update)
 {
 	for (int i = 0; i < HASHFN_N; i++) {
+#ifdef SK_NITRO_EMPTY_HASH
+		__u32 hash = ((const __u32 *)element)[(len >> 2) - 1] ^
+			     seeds[row_to_update];
+#else
 #if USE_XXHASH == 1
 		__u32 hash = xxh32(element, len, seeds[row_to_update]);
 #else
 		__u32 hash = fasthash32(element, len, seeds[row_to_update]);
+#endif
 #endif
 		__u32 target_idx = hash & (COLUMNS - 1);
 		NO_TEAR_ADD(cm->values[row_to_update][target_idx], 1);
@@ -196,6 +203,11 @@ int xdp_main(struct xdp_md *ctx)
 	for (int i = 0; i < HASHFN_N; i++) {
 		// Here we start updating the sketch
 		//nitrosketch_add_with_hash(cm, hashes, row_to_update);
+#ifdef SK_NITRO_EMPTY_HASH
+		_Static_assert(
+			sizeof(pkt) >= 4,
+			"pkt size must be at least 4 bytes (for empty hash to work)");
+#endif
 		nitrosketch_countmin_add(cm, &pkt, sizeof(pkt),
 					 row_to_update & (HASHFN_N - 1));
 
