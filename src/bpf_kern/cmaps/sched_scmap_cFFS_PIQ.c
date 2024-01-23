@@ -2,7 +2,7 @@
 
 char _license[] SEC("license") = "GPL";
 
-#define PER_LONG_BITS_SHIFT 6
+#define PER_LONG_BITS_SHIFT 5
 
 #define HBITMAP_LEVEL_1_SHIFT (PER_LONG_BITS_SHIFT)
 #define HBITMAP_LEVEL_1 SHIFT_TO_SIZE(HBITMAP_LEVEL_1_SHIFT)
