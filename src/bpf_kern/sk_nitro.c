@@ -23,7 +23,8 @@
 #include "fasthash.h"
 #include "xxhash.h"
 
-#define SK_NITRO_UPDATE_PROB 0.2
+#define SK_NITRO_UPDATE_PROB_PERCENT 10
+#define SK_NITRO_UPDATE_PROB ((double)SK_NITRO_UPDATE_PROB_PERCENT / 100)
 
 // #define SK_NITRO_EMPTY_RANDOM
 
