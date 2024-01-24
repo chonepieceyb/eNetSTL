@@ -25,6 +25,8 @@
 
 #define SK_NITRO_UPDATE_PROB 0.2
 
+// #define SK_NITRO_EMPTY_RANDOM
+
 char _license[] SEC("license") = "GPL";
 
 const static __u32 seeds[] = {
@@ -155,7 +157,11 @@ int xdp_main(struct xdp_md *ctx)
 	u32 random, thres = ((u32)-1) * SK_NITRO_UPDATE_PROB;
 
 	for (int i = 0; i < HASHFN_N; i++) {
+#ifdef SK_NITRO_EMPTY_RANDOM
+		random = 0;
+#else
 		random = bpf_get_prandom_u32();
+#endif
 		if (random < thres) {
 			nitrosketch_countmin_add(cm, &pkt, sizeof(pkt), i);
 			log_debug("updated row %d", i);
