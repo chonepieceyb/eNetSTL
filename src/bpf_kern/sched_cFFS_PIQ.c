@@ -4,6 +4,8 @@
 
 char _license[] SEC("license") = "GPL";
 
+#define DESIGN_PATTERN_TEST 0
+
 /***********************************************
 *********************PKTBKT PERCPU**************
 ************************************************/
@@ -87,7 +89,11 @@ static __inline struct simple_rbuf__pkt_bkt* cffs_first_bkt(struct cffs_piq *cff
                 }
         }
         log_debug("cffs_first_bkt: current prime: %d", cffs->prime);
+#if DESIGN_PATTERN_TEST == 0
         __u32 __bktnum  =(__u32)hpiq_front_idx__cffs(phpiq);
+#else
+        __u32 __bktnum  = 10;
+#endif
         log_debug("cffs_first_bkt: front bkt %u", __bktnum);
         int key = (int)cffs->prime * BUCKET_NUM + (int)(__bktnum);
         *bktnum = __bktnum;
