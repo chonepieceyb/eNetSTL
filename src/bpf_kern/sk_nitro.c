@@ -23,6 +23,8 @@
 #include "fasthash.h"
 #include "xxhash.h"
 
+#define SK_NITRO_UPDATE_PROB 0.2
+
 char _license[] SEC("license") = "GPL";
 
 const static __u32 seeds[] = {
@@ -46,33 +48,12 @@ struct countmin {
 	__u32 values[HASHFN_N][COLUMNS];
 };
 
-struct pkt_md {
-	uint32_t cnt;
-	uint32_t geo_sampling_idx;
-#if RECORD
-#if _COUNT_PACKETS == 1
-	uint64_t drop_cnt;
-#endif
-#if _COUNT_BYTES == 1
-	uint64_t bytes_cnt;
-#endif
-#endif
-	uint32_t geo_sampling_array[MAX_GEOSAMPLING_SIZE];
-};
-
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
 	__type(key, int);
 	__type(value, struct countmin);
 	__uint(max_entries, 1);
 } countmin SEC(".maps");
-
-struct {
-	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-	__type(key, int);
-	__type(value, struct pkt_md);
-	__uint(max_entries, 1);
-} metadata SEC(".maps");
 
 static void FORCE_INLINE nitrosketch_countmin_add(struct countmin *cm,
 						  void *element, __u64 len,
@@ -97,18 +78,6 @@ int xdp_main(struct xdp_md *ctx)
 	void *data = (void *)(long)ctx->data;
 
 	uint32_t zero = 0;
-	struct pkt_md *md;
-
-	md = bpf_map_lookup_elem(&metadata, &zero);
-	if (!md) {
-		bpf_printk("Error! Invalid metadata.");
-		goto DROP;
-	}
-
-	if (md->cnt >= HASHFN_N) {
-		md->cnt -= HASHFN_N;
-		goto SKIP;
-	}
 
 	uint64_t nh_off = 0;
 	struct eth_hdr *eth = data;
@@ -183,46 +152,20 @@ int xdp_main(struct xdp_md *ctx)
 		goto DROP;
 	}
 
-	uint32_t row_to_update;
-	uint32_t next_geo_value;
-
-	// This is required otherwise the verifier triggers an error
-	bpf_probe_read_kernel(&row_to_update, sizeof(row_to_update), &md->cnt);
-
-	// In the worst case, we do HASHFN_N cycles to update the counters
-	// But in most of the case we jump out of the cycle because of the
-	// geometric variable that increases the row_to_update
+	u32 random, thres = ((u32)-1) * SK_NITRO_UPDATE_PROB;
 
 	for (int i = 0; i < HASHFN_N; i++) {
-		// Here we start updating the sketch
-		//nitrosketch_add_with_hash(cm, hashes, row_to_update);
-		nitrosketch_countmin_add(cm, &pkt, sizeof(pkt),
-					 row_to_update & (HASHFN_N - 1));
-
-		// We should now generate again a new discrete variable for the geometric sampling
-		uint32_t geo_value_idx = md->geo_sampling_idx;
-
-		geo_value_idx = (geo_value_idx + 1) &
-				(MAX_GEOSAMPLING_SIZE - 1);
-		next_geo_value = md->geo_sampling_array[geo_value_idx];
-		row_to_update += next_geo_value;
-		// geo_value_idx = (geo_value_idx + 1) & (MAX_GEOSAMPLING_SIZE - 1);
-		md->geo_sampling_idx = geo_value_idx;
-
-		if (row_to_update >= HASHFN_N)
-			break;
+		random = bpf_get_prandom_u32();
+		if (random < thres) {
+			nitrosketch_countmin_add(cm, &pkt, sizeof(pkt), i);
+			log_debug("updated row %d", i);
+		} else {
+			log_debug("skipped row %d", i);
+		}
 	}
 #if PRINT_TIME
 	bpf_printk("nitro update : %llu\n", bpf_ktime_get_ns() - start);
 #endif
-
-	if (next_geo_value > 0) {
-		md->cnt = next_geo_value - 1;
-	} else {
-		bpf_printk(
-			"Geo sammpling variable is 0. This should never happen");
-		goto DROP;
-	}
 
 SKIP:;
 #if RECORD
