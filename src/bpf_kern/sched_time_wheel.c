@@ -29,6 +29,11 @@ char _license[] SEC("license") = "GPL";
 #define TIMER_MAX_LOOKS 128
 #define CPU_NUM 40
 
+#define NUM_TIME_WHEELS 5
+#if NUM_TIME_WHEELS < 2 || NUM_TIME_WHEELS > 5
+#error NUM_TIME_WHEELS must be between 2 and 5
+#endif
+
 #define time_after(a,b)		\
 	(typecheck(unsigned long, a) && \
 	 typecheck(unsigned long, b) && \
@@ -44,7 +49,7 @@ char _license[] SEC("license") = "GPL";
 
 /* Two level time wheel*/
 
-#define BKT_NUM_PER_CPU (TVR_SIZE + TVN_SIZE)
+#define BKT_NUM_PER_CPU (TVR_SIZE + TVN_SIZE * (NUM_TIME_WHEELS - 1))
 
 /*elem of the time list*/
 struct bpf_time_list {
@@ -89,14 +94,44 @@ static int add_timer_on(__u32 cpu, struct time_wheel_queue *base, void *timer_bk
         } else if (idx < 1 << (TVR_BITS + TVN_BITS)) {
 		i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;      /*index is lv1 + offset in lv2*/
 		log_debug("add timer to lv2 index %d", i);
-	} else if ((signed long) idx < 0) {
+#if NUM_TIME_WHEELS >= 3
+	} else if (idx < (1 << (TVR_BITS + 2 * TVN_BITS))) {
+		i = ((expires >> (TVR_BITS + TVN_BITS)) & TVN_MASK) + TVR_SIZE +
+		    TVN_SIZE;
+		log_debug("add timer to lv3 index %d", i);
+#if NUM_TIME_WHEELS >= 4
+	} else if (idx < (1 << (TVR_BITS + 3 * TVN_BITS))) {
+		i = ((expires >> (TVR_BITS + 2 * TVN_BITS)) & TVN_MASK) +
+		    TVR_SIZE + 2 * TVN_SIZE;
+		log_debug("add timer to lv4 index %d", i);
+#endif
+#endif
+	} else if ((signed long)idx < 0) {
 		i = (base->clk & TVR_MASK);
 		log_warn("idx < 0 add timer to current clk %d", i);
 	} else {
+#if NUM_TIME_WHEELS == 2
 		expires = base->clk + (1 << (TVR_BITS + TVN_BITS)) - 1;
-                i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;
+		i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;
 		log_warn("add timer to lv2(max) index %d", i);
-        }
+#elif NUM_TIME_WHEELS == 3
+		expires = base->clk + (1 << (TVR_BITS + 2 * TVN_BITS)) - 1;
+		i = ((expires >> (TVR_BITS + TVN_BITS)) & TVN_MASK) + TVR_SIZE +
+		    TVN_SIZE;
+		log_warn("add timer to lv3(max) index %d", i);
+#else /* NUM_TIME_WHEELS >= 4 */
+		expires = base->clk + (1 << (TVR_BITS + 3 * TVN_BITS)) - 1;
+#if NUM_TIME_WHEELS == 4
+		i = ((expires >> (TVR_BITS + 2 * TVN_BITS)) & TVN_MASK) +
+		    TVR_SIZE + 2 * TVN_SIZE;
+		log_warn("add timer to lv4(max) index %d", i);
+#else /* NUM_TIME_WHEELS == 5 */
+		i = ((expires >> (TVR_BITS + 3 * TVN_BITS)) & TVN_MASK) +
+		    TVR_SIZE;
+		log_warn("add timer to lv5(max) index %d", i);
+#endif
+#endif
+	}
 
 	key = cpu * BKT_NUM_PER_CPU + i;
 	tl = bpf_map_lookup_elem(timer_bkt_map, &key);
@@ -234,11 +269,24 @@ static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt
                 struct time_wheel_bkt_list *tl;
                 int index = base->clk  & TVR_MASK;  /*current timer bkt idx*/
 
-		if (!index) {
-			//cascade
-			cascade(cpu, base, timer_bkt_map, INDEX(0), TVR_SIZE);
-		}	
-
+		if (index) {
+		} else if (cascade(cpu, base, timer_bkt_map, INDEX(0),
+				   TVR_SIZE) == 0) {
+#if NUM_TIME_WHEELS >= 3
+		} else if (cascade(cpu, base, timer_bkt_map, INDEX(1),
+				   TVN_SIZE + TVR_SIZE) == 0) {
+#if NUM_TIME_WHEELS >= 4
+		} else if (cascade(cpu, base, timer_bkt_map, INDEX(2),
+				   2 * TVN_SIZE + TVR_SIZE) == 0) {
+#if NUM_TIME_WHEELS >= 5
+		} else if (cascade(cpu, base, timer_bkt_map, INDEX(3),
+				   3 * TVN_SIZE + TVR_SIZE) == 0) {
+#endif
+#endif
+#endif
+			log_error("this should not happen (at line %d)",
+				  __LINE__);
+		}
 
 		int key = cpu * BKT_NUM_PER_CPU + index; 
 		tl = bpf_map_lookup_elem(timer_bkt_map, &key);
