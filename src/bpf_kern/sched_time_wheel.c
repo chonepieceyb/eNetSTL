@@ -271,16 +271,16 @@ static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt
 
 		if (index) {
 		} else if (cascade(cpu, base, timer_bkt_map, INDEX(0),
-				   TVR_SIZE) == 0) {
+				   TVR_SIZE)) {
 #if NUM_TIME_WHEELS >= 3
 		} else if (cascade(cpu, base, timer_bkt_map, INDEX(1),
-				   TVN_SIZE + TVR_SIZE) == 0) {
+				   TVN_SIZE + TVR_SIZE)) {
 #if NUM_TIME_WHEELS >= 4
 		} else if (cascade(cpu, base, timer_bkt_map, INDEX(2),
-				   2 * TVN_SIZE + TVR_SIZE) == 0) {
+				   2 * TVN_SIZE + TVR_SIZE)) {
 #if NUM_TIME_WHEELS >= 5
 		} else if (cascade(cpu, base, timer_bkt_map, INDEX(3),
-				   3 * TVN_SIZE + TVR_SIZE) == 0) {
+				   3 * TVN_SIZE + TVR_SIZE)) {
 #endif
 #endif
 #endif
