@@ -1,3 +1,4 @@
+#include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/types.h>
 #include <linux/module.h>
@@ -14,7 +15,6 @@
 #include "fasthash.h"
 #include "fasthash_simd.h"
 #include "xxhash_simd.h"
-#include "geo_sampling_pool.h"
 
 #define _CS_ROWS 8
 #define _CS_COLUMNS 256
@@ -37,6 +37,9 @@
 
 #define SKP_ROW_SIZE sizeof(__sk_elem[COLUMNS])
 #define SKP_SIZE sizeof(__sk_elem[HASHFN_N][COLUMNS])
+
+#define SK_NITRO_UPDATE_PROB_PERCENT 10
+#include "geo_sampling_pool.h"
 
 extern int bpf_register_static_cmap(struct bpf_map_ops *map,
 				    struct module *onwer);
