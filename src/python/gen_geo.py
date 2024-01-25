@@ -68,7 +68,7 @@ uint32_t GEO_SAMPLING_POOL[ONLINE_CPU_NUM][MAX_GEOSAMPLING_SIZE] = {{
         content += "};"
     content += """
 #else
-#error unsupported SK_NITRO_UPDATE_PROB
+#error unsupported SK_NITRO_UPDATE_PROB_PERCENT
 #endif
 
 #endif
