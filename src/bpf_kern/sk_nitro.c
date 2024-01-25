@@ -155,15 +155,21 @@ int xdp_main(struct xdp_md *ctx)
 		goto DROP;
 	}
 
+#ifdef SK_NITRO_EMPTY_RANDOM
+	u32 thres = HASHFN_N * SK_NITRO_UPDATE_PROB < 1 ?
+			    1 :
+			    HASHFN_N * SK_NITRO_UPDATE_PROB;
+#else
 	u32 random, thres = ((u32)-1) * SK_NITRO_UPDATE_PROB;
+#endif
 
 	for (int i = 0; i < HASHFN_N; i++) {
 #ifdef SK_NITRO_EMPTY_RANDOM
-		random = 0;
+		if (i < thres) {
 #else
 		random = bpf_get_prandom_u32();
-#endif
 		if (random < thres) {
+#endif
 			nitrosketch_countmin_add(cm, &pkt, sizeof(pkt), i);
 			log_debug("updated row %d", i);
 		} else {
