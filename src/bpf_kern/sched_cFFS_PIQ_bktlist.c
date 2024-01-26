@@ -116,7 +116,7 @@ static __inline int cffs_enqueue(struct cffs_piq *cffs,
 	//insert the packet to bucket ringbuf
 	int push_res = bucket_list_push_back(&bucket_list->head,
 					     &bucket_list->lock, pkt);
-	if (!push_res)
+	if (push_res != 0)
 		return -2; //ring buffer is full
 	asm_bound_check(idx, 2); //to make the verifier happy
 	hpiq_insert__cffs(&cffs->hpiq[idx], __bktnum);
@@ -125,7 +125,7 @@ static __inline int cffs_enqueue(struct cffs_piq *cffs,
 	return 0;
 }
 
-static __inline struct simple_rbuf__pkt_bkt *
+static __inline struct bucket_list *
 cffs_first_bkt(struct cffs_piq *cffs, void *__bucket_list_percpu_map,
 	       __u32 *bktnum, __u32 cpu)
 {
@@ -147,11 +147,7 @@ cffs_first_bkt(struct cffs_piq *cffs, void *__bucket_list_percpu_map,
 		}
 	}
 	log_debug("cffs_first_bkt: current prime: %d", cffs->prime);
-#if DESIGN_PATTERN_TEST == 0
 	__u32 __bktnum = (__u32)hpiq_front_idx__cffs(phpiq);
-#else
-	__u32 __bktnum = 10;
-#endif
 	log_debug("cffs_first_bkt: front bkt %u", __bktnum);
 	int key = (int)cffs->prime * BUCKET_NUM + (int)(__bktnum) + (2 * BUCKET_NUM * cpu);
 	*bktnum = __bktnum;
