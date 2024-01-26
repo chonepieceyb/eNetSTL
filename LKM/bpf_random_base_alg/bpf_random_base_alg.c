@@ -40,7 +40,6 @@ static void init_geo_sampling_pool(struct geo_sampling_ctx *ctx, int cpu)
 __bpf_kfunc struct geo_sampling_ctx *bpf_geo_sampling_ctx_new(void)
 {
 	struct geo_sampling_ctx *ctx;
-	int cpu;
 
 	ctx = bpf_mem_cache_alloc(&geo_sampling_ctx_ma);
 	if (ctx == NULL) {
@@ -48,9 +47,7 @@ __bpf_kfunc struct geo_sampling_ctx *bpf_geo_sampling_ctx_new(void)
 		goto out;
 	}
 
-	for_each_possible_cpu(cpu) {
-		init_geo_sampling_pool(per_cpu_ptr(ctx, cpu), cpu);
-	}
+	init_geo_sampling_pool(ctx, smp_processor_id());
 
 out:
 	return ctx;
