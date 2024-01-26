@@ -391,7 +391,7 @@ static struct bpf_map *cffs_piq_alloc(union bpf_attr *attr)
 	struct cffs_piq_map *cmap;
 	void *res_ptr;
 	int cpu;
-	cmap = bpf_map_area_alloc(sizeof(*cmap), NUMA_NO_NODE);
+	cmap = bpf_map_area_alloc(sizeof(*cmap) + sizeof(void*) * BUCKETLIST_NUM, NUMA_NO_NODE);
 	if (cmap == NULL) {
 		return ERR_PTR(-ENOMEM);
 	}
