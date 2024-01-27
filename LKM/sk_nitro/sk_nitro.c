@@ -84,28 +84,6 @@ static __always_inline void init_hash_constants(void)
 #endif
 }
 
-static __always_inline __m256i hash_func_batch(const void *input, size_t length,
-					       const __m256i *seeds)
-{
-#if USE_XXHASH
-
-#if USE_PKT5_HASH
-	return xxh32_avx2_pkt5(input, seeds);
-#else
-#error Generalized SIMD xxHash has not been implemented yet
-#endif
-
-#else
-
-#if USE_PKT5_HASH
-	return _fasthash64_avx2_pkt5(input, seeds);
-#else
-	return _fasthash64_avx2(input, length, seeds);
-#endif
-
-#endif
-}
-
 #if USE_HASH32
 static __always_inline __m256i hash_func_pkts(const __m256i *b0,
 					      const __m256i *b1,
@@ -134,13 +112,6 @@ struct pkt_5tuple {
 
 typedef struct pkt_5tuple raw_skp_key_type;
 
-static int raw_sketch_primitive_alloc_check(u32 key_size)
-{
-	if (key_size != sizeof(raw_skp_key_type))
-		return -EINVAL;
-	return 0;
-}
-
 /***********************cache_raw_sketch_primitive****************/
 
 struct pkt_5tuple_cache_value {
@@ -148,114 +119,7 @@ struct pkt_5tuple_cache_value {
 	__sk_elem value;
 } __attribute__((aligned(8)));
 
-struct pkts_cache {
-	struct pkt_5tuple_cache_value data[SIMD_CACHE_PKTS];
-	__u32 num;
-};
-
-struct cache_raw_sketch_primitive_map {
-	struct bpf_map map;
-	__sk_elem __percpu *arrays;
-	struct pkts_cache __percpu *cache;
-};
-
 #define CRSKP_IN_CACHE 1
-
-static __always_inline struct pkts_cache *
-__cache_raw_sketch_lookup_elem(struct cache_raw_sketch_primitive_map *crskp)
-{
-	struct pkts_cache *cache = this_cpu_ptr(crskp->cache);
-	return cache;
-}
-
-static __always_inline int __cache_raw_sketch_primitive_update_elem(
-	struct cache_raw_sketch_primitive_map *crskp, raw_skp_key_type *key)
-{
-	__sk_elem *arrays = this_cpu_ptr(crskp->arrays);
-	struct pkts_cache *cache = this_cpu_ptr(crskp->cache);
-	int i;
-	u32 index;
-	struct pkt_5tuple *pkt;
-#if PRINT_HASH_TIME
-	u64 start;
-	u64 end;
-#endif
-	int j, p;
-	int row;
-	u32 num;
-
-	num = cache->num;
-	memcpy(&(cache->data[num++]), key, sizeof(*key));
-	cache->num = num;
-
-	if (num < SIMD_CACHE_PKTS) {
-		/*just cache 5tuple*/
-		return CRSKP_IN_CACHE;
-	}
-
-	/*cache full, use simd cacluatinig hashes*/
-
-#if USE_SIMD == 1
-
-#if PRINT_HASH_TIME
-	start = ktime_get_mono_fast_ns();
-#endif
-	kernel_fpu_begin();
-	for (p = 0; p < SIMD_CACHE_PKTS; p++) {
-		row = 0;
-		//memcpy(&pkt, (struct pkt_5tuple*)(&cache->data[p]), sizeof(struct pkt_5tuple));
-		pkt = (struct pkt_5tuple *)(&cache->data[p]);
-#pragma GCC unroll 8
-		for (i = 0; i < _HASH_BATCH_NUM; i++) {
-			__m256i hh = hash_func_batch(
-				pkt, sizeof(struct pkt_5tuple), &simd_seeds[i]);
-#pragma GCC unroll 8
-			for (j = 0; j < _HASH_BATCH_SIZE; j++) {
-				index = *((u32 *)&hh + j) & (COLUMNS - 1);
-				*(arrays + row * COLUMNS + index) += 1;
-				row += 1;
-			}
-		}
-	}
-	kernel_fpu_end();
-
-#if PRINT_HASH_TIME
-	end = ktime_get_mono_fast_ns();
-#endif
-
-#if PRINT_HASH_TIME
-	pr_info("cach skp simd hash time used %llu\n", end - start);
-#endif
-
-#else
-
-#if PRINT_HASH_TIME
-	start = ktime_get_mono_fast_ns();
-#endif
-	for (p = 0; p < SIMD_CACHE_PKTS; p++) {
-		pkt = (struct pkt_5tuple *)(&cache->data[p]);
-//struct pkt_5tuple *pkt = (struct pkt_5tuple*)(&cache->data[p]);
-#pragma GCC unroll 64
-		for (i = 0; i < HASHFN_N; i++) {
-			index = hash_func(pkt, sizeof(struct pkt_5tuple),
-					  seeds[i]) &
-				(COLUMNS - 1);
-			*(arrays + i * COLUMNS + index) += 1;
-		}
-	}
-
-#if PRINT_HASH_TIME
-	end = ktime_get_mono_fast_ns();
-#endif
-
-#if PRINT_HASH_TIME
-	pr_info("cach skp hash time used %llu\n", end - start);
-#endif
-
-#endif
-	cache->num = 0;
-	return 0;
-}
 
 /***********************************************************************/
 /******************************cache_rr_sketch_primitive*****************/
@@ -326,7 +190,9 @@ static __always_inline void ins_pkts_vec(raw_skp_key_type *key, __m256i *low,
 
 static int cache_row_raw_skp_alloc_check(u32 key_size)
 {
-	return raw_sketch_primitive_alloc_check(key_size);
+	if (key_size != sizeof(raw_skp_key_type))
+		return -EINVAL;
+	return 0;
 }
 
 void crrskp_free_rows(struct cache_row_raw_skp_map *crrskp)
@@ -338,7 +204,7 @@ void crrskp_free_rows(struct cache_row_raw_skp_map *crrskp)
 	}
 }
 
-static void *cache_row_raw_skp_alloc(void)
+static struct cache_row_raw_skp_map *cache_row_raw_skp_alloc(void)
 {
 	struct cache_row_raw_skp_map *crrskp;
 	int cpu;
@@ -361,7 +227,7 @@ static void *cache_row_raw_skp_alloc(void)
 		}
 	}
 
-	return (void *)(crrskp);
+	return crrskp;
 }
 
 static void cache_row_raw_skp_free(struct cache_row_raw_skp_map *crrskp)
@@ -490,6 +356,7 @@ static __always_inline u32 gen_geo_cnt(struct geo_sampling_ctx *ctx)
 /**********NITRO SKETCH KERENL MODUEL IMPL***************/
 
 struct sketch_nitro_map {
+	struct bpf_map map;
 	struct cache_row_raw_skp_map *crrskp;
 	struct geo_sampling_ctx __percpu *geo_ctx;
 };
@@ -501,8 +368,7 @@ static int sketch_nitro_alloc_check(union bpf_attr *attr)
 
 static struct bpf_map *sketch_nitro_alloc(union bpf_attr *attr)
 {
-	void *map;
-	int cpu;
+	int cpu, err;
 	struct sketch_nitro_map *nitro;
 	nitro = kmalloc(sizeof(*nitro), GFP_KERNEL);
 	if (nitro == NULL)
@@ -512,7 +378,7 @@ static struct bpf_map *sketch_nitro_alloc(union bpf_attr *attr)
 	/*init geo*/
 	nitro->geo_ctx = alloc_percpu(struct geo_sampling_ctx);
 	if (nitro->geo_ctx == NULL) {
-		map = ERR_PTR(-ENOMEM);
+		err = -ENOMEM;
 		goto free_nitro;
 	}
 
@@ -520,18 +386,18 @@ static struct bpf_map *sketch_nitro_alloc(union bpf_attr *attr)
 		init_geo_sampling_pool(per_cpu_ptr(nitro->geo_ctx, cpu), cpu);
 	}
 
-	map = nitro->crrskp = cache_row_raw_skp_alloc();
-	if (IS_ERR(map))
+	nitro->crrskp = cache_row_raw_skp_alloc();
+	if (IS_ERR(nitro->crrskp))
 		goto free_geo_ctx;
 
-	return (void *)nitro;
+	return (struct bpf_map *)nitro;
 
 free_geo_ctx:;
 	free_percpu(nitro->geo_ctx);
 
 free_nitro:;
 	kfree(nitro);
-	return map;
+	return ERR_PTR(err);
 }
 
 static void sketch_nitro_free(struct bpf_map *map)
