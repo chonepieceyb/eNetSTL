@@ -48,6 +48,7 @@ extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 typedef struct pkt_5tuple raw_skp_key_type;
+typedef typeof(GEO_SAMPLING_POOL[0][0]) geo_cnt_t;
 
 const u32 seeds[] = {
 	0xec5853, 0xec5859, 0xec5861, 0xec587f, 0xec58a7, 0xec58b3, 0xec58c7,
@@ -325,10 +326,12 @@ __cache_row_raw_skp_update_elem(struct cache_row_raw_skp_map *crrskp,
 #define GEO_SAMPLING_MASK (MAX_GEOSAMPLING_SIZE - 1)
 
 struct geo_sampling_ctx {
-	u32 cnt;
+	geo_cnt_t cnt;
 	u32 geo_sampling_idx ____cacheline_aligned;
-	u32 pool[MAX_GEOSAMPLING_SIZE] ____cacheline_aligned;
+	geo_cnt_t (*pool)[MAX_GEOSAMPLING_SIZE] ____cacheline_aligned;
 };
+
+static geo_cnt_t empty_geo_cnts[MAX_GEOSAMPLING_SIZE] = { 0 };
 
 static void init_geo_sampling_pool(struct geo_sampling_ctx *ctx, int cpu)
 {
@@ -337,11 +340,9 @@ static void init_geo_sampling_pool(struct geo_sampling_ctx *ctx, int cpu)
 	ctx->cnt = 0;
 	if (cpu >= ONLINE_CPU_NUM) {
 		/*TODO: currently we only provide online cpu's data*/
-		//memset(__geo_sampling_pool, 0, sizeof(u32) * MAX_GEOSAMPLING_SIZE);
-		memset(ctx->pool, 0, sizeof(u32) * MAX_GEOSAMPLING_SIZE);
+		ctx->pool = &empty_geo_cnts;
 	} else {
-		memcpy(ctx->pool, GEO_SAMPLING_POOL[cpu],
-		       sizeof(u32) * MAX_GEOSAMPLING_SIZE);
+		ctx->pool = GEO_SAMPLING_POOL + cpu;
 	}
 }
 
@@ -350,7 +351,7 @@ static __always_inline u32 gen_geo_cnt(struct geo_sampling_ctx *ctx)
 	uint32_t geo_value_idx = ctx->geo_sampling_idx;
 	geo_value_idx = (geo_value_idx + 1) & GEO_SAMPLING_MASK;
 	ctx->geo_sampling_idx = geo_value_idx;
-	return ctx->pool[geo_value_idx];
+	return (*ctx->pool)[geo_value_idx];
 };
 
 /**********NITRO SKETCH KERENL MODUEL IMPL***************/
@@ -417,7 +418,8 @@ static long sketch_nitro_update_elem(struct bpf_map *map, void *key,
 	 */
 	struct sketch_nitro_map *nitro = (struct sketch_nitro_map *)map;
 	int i, res;
-	u32 row_to_update, next_geo_value;
+	u32 row_to_update;
+	geo_cnt_t next_geo_value;
 	struct geo_sampling_ctx *geo_ctx;
 	geo_ctx = this_cpu_ptr(nitro->geo_ctx);
 	if (geo_ctx->cnt >= HASHFN_N) {
