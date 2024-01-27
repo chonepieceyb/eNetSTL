@@ -12,6 +12,6 @@ python3 "$PROJECT_DIR/src/python/gen_geo.py" \
     -o "$PROJECT_DIR/LKM/bpf_random_base_alg/geo_sampling_pool.h" \
     -o "$PROJECT_DIR/LKM/sk_nitro/geo_sampling_pool.h" \
     --cpus 40 \
-    --max-geosampling-size 512 \
+    --max-geosampling-size 1024 \
     --geo-cnt-cap 2147483647 \
     --geo-cnt-type uint32_t
