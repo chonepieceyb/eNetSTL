@@ -4,8 +4,8 @@ from scipy import stats
 
 from utils import *
 
-DEFAULT_MAX_GEOSAMPLING_SIZE = 512
-DEFAULT_GEO_CNT_CAP = 255
+DEFAULT_MAX_GEOSAMPLING_SIZE = 1024
+DEFAULT_GEO_CNT_CAP = (1 << 31) - 1
 DEFAULT_GEO_CNT_TYPE = "uint8_t"
 
 
