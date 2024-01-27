@@ -1,18 +1,24 @@
 import argparse
-import numpy as np
+from functools import reduce
 from scipy import stats
 
 from utils import *
 
-DEFAULT_MAX_GEOSAMPLING_SIZE = 1024
+DEFAULT_MAX_GEOSAMPLING_SIZE = 512
+DEFAULT_GEO_CNT_CAP = 255
 
 
-def gen_geo_cnts(prob, max_geosampling_size):
+def gen_geo_cnts(prob, max_geosampling_size, bound):
     geo_cnts = []
     geo_var = stats.geom(prob)
+    capped_cnt = 0
     for _ in range(max_geosampling_size):
-        geo_cnts.append(str(geo_var.rvs()))
-    return geo_cnts
+        geo_cnt = geo_var.rvs()
+        if geo_cnt > bound:
+            capped_cnt += 1
+            geo_cnt = bound
+        geo_cnts.append(geo_cnt)
+    return geo_cnts, capped_cnt
 
 
 def main():
@@ -44,6 +50,12 @@ def main():
         default=DEFAULT_MAX_GEOSAMPLING_SIZE,
         help=f"MAX_GEOSAMPLING_SIZE; defaults to {DEFAULT_MAX_GEOSAMPLING_SIZE}",
     )
+    parser.add_argument(
+        "--geo-cnt-cap",
+        type=int,
+        default=DEFAULT_GEO_CNT_CAP,
+        help=f"cap of geo cnt; defaults to {DEFAULT_GEO_CNT_CAP}",
+    )
     args = parser.parse_args()
 
     content = ""
@@ -55,16 +67,28 @@ def main():
 """
     for i, prob_percent in enumerate(args.probability_percent):
         prob = prob_percent / 100
+        geo_cnts_per_cpu, capped_cnt = reduce(
+            lambda prev, curr: ([*prev[0], curr[0]], prev[1] + curr[1]),
+            map(
+                lambda _: gen_geo_cnts(
+                    prob, args.max_geosampling_size, args.geo_cnt_cap
+                ),
+                range(args.cpus),
+            ),
+            ([], 0),
+        )
+        if capped_cnt:
+            geo_cnts_size = len(geo_cnts_per_cpu[0]) * args.cpus
+            print(
+                f"{capped_cnt / geo_cnts_size * 100:.2f}% ({capped_cnt} / {geo_cnts_size}) "
+                f"element(s) are capped at {args.geo_cnt_cap} for {prob_percent}% update probability"
+            )
         content += f"""
 #{'el' if i else ''}if SK_NITRO_UPDATE_PROB_PERCENT == {prob_percent}
-uint32_t GEO_SAMPLING_POOL[ONLINE_CPU_NUM][MAX_GEOSAMPLING_SIZE] = {{
+uint8_t GEO_SAMPLING_POOL[ONLINE_CPU_NUM][MAX_GEOSAMPLING_SIZE] = {{
 """
-        for _ in range(args.cpus):
-            content += (
-                "\t{"
-                + ", ".join(map(str, gen_geo_cnts(prob, args.max_geosampling_size)))
-                + "},\n"
-            )
+        for geo_cnts in geo_cnts_per_cpu:
+            content += "\t{" + ", ".join(map(str, geo_cnts)) + "},\n"
         content += "};"
     content += """
 #else
