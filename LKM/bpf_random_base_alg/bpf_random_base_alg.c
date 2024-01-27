@@ -26,6 +26,8 @@ static typeof(GEO_SAMPLING_POOL[0]) empty_geo_cnts = { 0 };
 
 static struct bpf_mem_alloc geo_sampling_ctx_ma;
 
+static struct geo_sampling_ctx __percpu *_ctx;
+
 static void init_geo_sampling_pool(struct geo_sampling_ctx *ctx, int cpu)
 {
 	/*init*/
@@ -43,13 +45,12 @@ __bpf_kfunc struct geo_sampling_ctx *bpf_geo_sampling_ctx_new(void)
 {
 	struct geo_sampling_ctx *ctx;
 
-	ctx = bpf_mem_cache_alloc(&geo_sampling_ctx_ma);
+	ctx = _ctx;
 	if (ctx == NULL) {
-		pr_err("bpf_random_base_alg: failed to alloc geo_sampling_ctx\n");
+		pr_err("bpf_random_base_alg: _ctx not initialized yet\n");
+		ctx = ERR_PTR(-EFAULT);
 		goto out;
 	}
-
-	init_geo_sampling_pool(ctx, smp_processor_id());
 
 out:
 	return ctx;
@@ -58,20 +59,22 @@ EXPORT_SYMBOL_GPL(bpf_geo_sampling_ctx_new);
 
 __bpf_kfunc void bpf_geo_sampling_ctx_free(struct geo_sampling_ctx *ctx)
 {
-	bpf_mem_cache_free(&geo_sampling_ctx_ma, ctx);
+	pr_debug("bpf_random_base_alg: %s is not required\n", __func__);
 }
 EXPORT_SYMBOL_GPL(bpf_geo_sampling_ctx_free);
 
 __bpf_kfunc bool bpf_geo_sampling_should_do(struct geo_sampling_ctx *ctx)
 {
-	u32 geo_value_idx = ctx->geo_sampling_idx;
+	u32 geo_value_idx;
+
+	ctx = this_cpu_ptr(ctx);
 
 	if (ctx->cnt > 0) {
 		ctx->cnt--;
 		return false;
 	}
 
-	geo_value_idx = (geo_value_idx + 1) & GEO_SAMPLING_MASK;
+	geo_value_idx = (ctx->geo_sampling_idx + 1) & GEO_SAMPLING_MASK;
 	ctx->geo_sampling_idx = geo_value_idx;
 	ctx->cnt = (*ctx->pool)[geo_value_idx];
 
@@ -138,6 +141,45 @@ static void mem_alloc_destroy(void)
 	bpf_mem_alloc_destroy(&geo_sampling_ctx_ma);
 }
 
+static int __geo_sampling_ctx_init(void)
+{
+	struct geo_sampling_ctx *ctx;
+	int ret = 0, cpu;
+
+	ctx = alloc_percpu_gfp(typeof(*ctx), GFP_KERNEL | __GFP_ZERO);
+	if (ctx == NULL) {
+		pr_err("bpf_random_base_alg: failed to alloc geo sampling ctx\n");
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	for_each_possible_cpu(cpu) {
+		init_geo_sampling_pool(per_cpu_ptr(ctx, cpu), cpu);
+	}
+
+	_ctx = ctx;
+
+out:
+	return ret;
+}
+
+static void __geo_sampling_ctx_cleanup(void)
+{
+	struct geo_sampling_ctx *ctx;
+
+	ctx = _ctx;
+	if (ctx == NULL) {
+		pr_err("bpf_random_base_alg: _ctx not initialized yet (on free)\n");
+		goto out;
+	}
+
+	free_percpu(ctx);
+	_ctx = NULL;
+
+out:
+	return;
+}
+
 static int __init bpf_random_base_alg_init(void)
 {
 	int ret;
@@ -153,12 +195,18 @@ static int __init bpf_random_base_alg_init(void)
 		return ret;
 	}
 
+	if ((ret = __geo_sampling_ctx_init()) < 0) {
+		pr_err("bpf_random_base_alg: failed to init geo sampling ctx: %d\n",
+		       ret);
+	}
+
 	pr_info("bpf_random_base_alg: initialized\n");
 	return 0;
 }
 
 static void __exit bpf_random_base_alg_exit(void)
 {
+	__geo_sampling_ctx_cleanup();
 	mem_alloc_destroy();
 
 	pr_info("bpf_random_base_alg: exiting\n");
