@@ -6,6 +6,7 @@ from utils import *
 
 DEFAULT_MAX_GEOSAMPLING_SIZE = 512
 DEFAULT_GEO_CNT_CAP = 255
+DEFAULT_GEO_CNT_TYPE = "uint8_t"
 
 
 def gen_geo_cnts(prob, max_geosampling_size, bound):
@@ -56,6 +57,11 @@ def main():
         default=DEFAULT_GEO_CNT_CAP,
         help=f"cap of geo cnt; defaults to {DEFAULT_GEO_CNT_CAP}",
     )
+    parser.add_argument(
+        "--geo-cnt-type",
+        default=DEFAULT_GEO_CNT_TYPE,
+        help=f"type of geo cnt; defaults to {DEFAULT_GEO_CNT_TYPE}",
+    )
     args = parser.parse_args()
 
     content = ""
@@ -85,7 +91,7 @@ def main():
             )
         content += f"""
 #{'el' if i else ''}if SK_NITRO_UPDATE_PROB_PERCENT == {prob_percent}
-uint8_t GEO_SAMPLING_POOL[ONLINE_CPU_NUM][MAX_GEOSAMPLING_SIZE] = {{
+{args.geo_cnt_type} GEO_SAMPLING_POOL[ONLINE_CPU_NUM][MAX_GEOSAMPLING_SIZE] = {{
 """
         for geo_cnts in geo_cnts_per_cpu:
             content += "\t{" + ", ".join(map(str, geo_cnts)) + "},\n"
