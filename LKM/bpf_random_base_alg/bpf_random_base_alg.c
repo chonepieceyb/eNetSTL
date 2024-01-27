@@ -14,27 +14,29 @@ extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
+typedef typeof(GEO_SAMPLING_POOL[0][0]) geo_cnt_t;
+
 struct geo_sampling_ctx {
-	u32 cnt;
+	geo_cnt_t cnt;
 	u32 geo_sampling_idx ____cacheline_aligned;
-	u8 pool[MAX_GEOSAMPLING_SIZE] ____cacheline_aligned;
+	geo_cnt_t (*pool)[MAX_GEOSAMPLING_SIZE] ____cacheline_aligned;
 };
+
+static typeof(GEO_SAMPLING_POOL[0]) empty_geo_cnts = { 0 };
 
 static struct bpf_mem_alloc geo_sampling_ctx_ma;
 
 static void init_geo_sampling_pool(struct geo_sampling_ctx *ctx, int cpu)
 {
 	/*init*/
-	ctx->geo_sampling_idx = 0;
-	ctx->cnt = 0;
 	if (cpu >= ONLINE_CPU_NUM) {
 		/*TODO: currently we only provide online cpu's data*/
-		//memset(__geo_sampling_pool, 0, sizeof(u32) * MAX_GEOSAMPLING_SIZE);
-		memset(ctx->pool, 0, ARRAY_SIZE(ctx->pool));
+		ctx->pool = &empty_geo_cnts;
 	} else {
-		memcpy(ctx->pool, GEO_SAMPLING_POOL[cpu],
-		       ARRAY_SIZE(ctx->pool));
+		ctx->pool = GEO_SAMPLING_POOL + cpu;
 	}
+	ctx->geo_sampling_idx = 0;
+	ctx->cnt = (*ctx->pool)[0];
 }
 
 __bpf_kfunc struct geo_sampling_ctx *bpf_geo_sampling_ctx_new(void)
@@ -62,16 +64,16 @@ EXPORT_SYMBOL_GPL(bpf_geo_sampling_ctx_free);
 
 __bpf_kfunc bool bpf_geo_sampling_should_do(struct geo_sampling_ctx *ctx)
 {
-	uint32_t geo_value_idx = ctx->geo_sampling_idx;
+	u32 geo_value_idx = ctx->geo_sampling_idx;
 
-	if (ctx->cnt < ctx->pool[geo_value_idx]) {
-		ctx->cnt = ctx->cnt + 1;
+	if (ctx->cnt > 0) {
+		ctx->cnt--;
 		return false;
 	}
 
 	geo_value_idx = (geo_value_idx + 1) & GEO_SAMPLING_MASK;
 	ctx->geo_sampling_idx = geo_value_idx;
-	ctx->cnt = 0;
+	ctx->cnt = (*ctx->pool)[geo_value_idx];
 
 	return true;
 }
