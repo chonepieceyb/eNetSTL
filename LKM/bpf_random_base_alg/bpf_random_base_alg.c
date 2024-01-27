@@ -17,7 +17,7 @@ extern void *bpf_map_area_alloc(u64 size, int numa_node);
 struct geo_sampling_ctx {
 	u32 cnt;
 	u32 geo_sampling_idx ____cacheline_aligned;
-	u32 pool[MAX_GEOSAMPLING_SIZE] ____cacheline_aligned;
+	u8 pool[MAX_GEOSAMPLING_SIZE] ____cacheline_aligned;
 };
 
 static struct bpf_mem_alloc geo_sampling_ctx_ma;
@@ -30,10 +30,10 @@ static void init_geo_sampling_pool(struct geo_sampling_ctx *ctx, int cpu)
 	if (cpu >= ONLINE_CPU_NUM) {
 		/*TODO: currently we only provide online cpu's data*/
 		//memset(__geo_sampling_pool, 0, sizeof(u32) * MAX_GEOSAMPLING_SIZE);
-		memset(ctx->pool, 0, sizeof(u32) * MAX_GEOSAMPLING_SIZE);
+		memset(ctx->pool, 0, ARRAY_SIZE(ctx->pool));
 	} else {
 		memcpy(ctx->pool, GEO_SAMPLING_POOL[cpu],
-		       sizeof(u32) * MAX_GEOSAMPLING_SIZE);
+		       ARRAY_SIZE(ctx->pool));
 	}
 }
 
