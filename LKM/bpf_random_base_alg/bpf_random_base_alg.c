@@ -96,6 +96,7 @@ BTF_SET8_START(bpf_random_base_alg_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_geo_sampling_ctx_new, KF_ACQUIRE | KF_RET_NULL)
 BTF_ID_FLAGS(func, bpf_geo_sampling_ctx_free, KF_RELEASE)
 BTF_ID_FLAGS(func, bpf_geo_sampling_should_do)
+BTF_ID_FLAGS(func, bpf_crc32c_sse)
 BTF_SET8_END(bpf_random_base_alg_kfunc_ids)
 
 BTF_ID_LIST(bpf_random_base_alg_dtor_ids)
