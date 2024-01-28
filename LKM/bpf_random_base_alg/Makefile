@@ -1,6 +1,10 @@
 OBJ_NAME := bpf_random_base_alg
+GCC_VERSION ?= 13
+CC_SIMD_OPTS ?= -msse4.2
 
 obj-m := ${OBJ_NAME}.o
+
+ccflags-y += -I/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VERSION)/include $(CC_SIMD_OPTS)
 
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
 KDIR ?= /lib/modules/$(shell uname -r)/build

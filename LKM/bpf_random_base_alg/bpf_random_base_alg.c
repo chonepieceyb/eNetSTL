@@ -4,6 +4,8 @@
 #include <linux/bpf_mem_alloc.h>
 #include <linux/btf.h>
 
+#include "../bpf_hash_alg_simd/crc.h"
+
 #define SK_NITRO_UPDATE_PROB_PERCENT 10
 #include "geo_sampling_pool.h"
 
@@ -81,6 +83,14 @@ __bpf_kfunc bool bpf_geo_sampling_should_do(struct geo_sampling_ctx *ctx)
 	return true;
 }
 EXPORT_SYMBOL_GPL(bpf_geo_sampling_should_do);
+
+/* Workaround for "kernel btf id 123456 is not a function" errors */
+__bpf_kfunc uint32_t bpf_crc32c_sse(const void *data, uint32_t data__sz,
+				    uint32_t init_val)
+{
+	return crc32c(data, data__sz, init_val);
+}
+EXPORT_SYMBOL_GPL(bpf_crc32c_sse);
 
 BTF_SET8_START(bpf_random_base_alg_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_geo_sampling_ctx_new, KF_ACQUIRE | KF_RET_NULL)
