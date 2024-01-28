@@ -26,7 +26,7 @@ char _license[] SEC("license") = "GPL";
 #define MEMBER_BUCKET_ENTRIES 8
 
 /* set to 1 enable design pattern test, it will replace the kfunc to constant operation */
-#define DESIGN_PATTERN_TEST 1
+#define DESIGN_PATTERN_TEST 0
 #define TEST_RANGE 20
 /* core malloc aera */
 typedef __u16 sig_t;
