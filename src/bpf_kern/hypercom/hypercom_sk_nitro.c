@@ -26,6 +26,8 @@
 #include "../bpf_hash_alg_simd.h"
 #include <bpf/bpf_helpers.h>
 
+#define SK_NITRO_EARLY_SKIP
+
 char _license[] SEC("license") = "GPL";
 
 const static __u32 seeds[] = {
@@ -93,6 +95,21 @@ int xdp_main(struct xdp_md *ctx)
 	void *data = (void *)(long)ctx->data;
 
 	uint32_t zero = 0;
+
+	struct geo_sampling_ctx_holder *geo_ctx_holder;
+	geo_ctx_holder = bpf_map_lookup_elem(&geo_sampling_ctx_map, &zero);
+	if (!geo_ctx_holder) {
+		bpf_printk("Invalid entry in the geo sampling context map");
+		goto DROP;
+	}
+
+#ifdef SK_NITRO_EARLY_SKIP
+	if (geo_ctx_holder->cnt_alt >= HASHFN_N) {
+		geo_ctx_holder->cnt_alt -= HASHFN_N;
+		log_debug("all rows are skipped");
+		goto SKIP;
+	}
+#endif
 
 	uint64_t nh_off = 0;
 	struct eth_hdr *eth = data;
@@ -167,13 +184,6 @@ int xdp_main(struct xdp_md *ctx)
 		goto DROP;
 	}
 
-	struct geo_sampling_ctx_holder *geo_ctx_holder;
-	geo_ctx_holder = bpf_map_lookup_elem(&geo_sampling_ctx_map, &zero);
-	if (!geo_ctx_holder) {
-		bpf_printk("Invalid entry in the geo sampling context map");
-		goto DROP;
-	}
-
 	struct geo_sampling_ctx *geo_ctx =
 		bpf_kptr_xchg(&geo_ctx_holder->ctx, NULL);
 	if (geo_ctx == NULL) {
@@ -186,11 +196,13 @@ int xdp_main(struct xdp_md *ctx)
 
 	u32 row_to_update_raw, row_to_update;
 	geo_cnt_t next_geo_value;
+#ifndef SK_NITRO_EARLY_SKIP
 	if (geo_ctx_holder->cnt_alt >= HASHFN_N) {
 		geo_ctx_holder->cnt_alt -= HASHFN_N;
 		log_debug("all rows are skipped");
 		goto SKIP;
 	}
+#endif
 	row_to_update_raw = geo_ctx_holder->cnt_alt;
 	row_to_update = row_to_update_raw & (HASHFN_N - 1);
 	asm_bound_check(row_to_update, HASHFN_N);
