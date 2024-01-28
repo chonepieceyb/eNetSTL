@@ -21,8 +21,10 @@
 #endif
 
 #include "common.h"
-
+char _license[] SEC("license") = "GPL";
 #define REASON_FLOODING 0x01
+
+#define USE_EBPF_MAP 1
 
 struct pkt_metadata {
   u16 cube_id;        //__attribute__((deprecated)) // use CUBE_ID instead
@@ -104,7 +106,16 @@ static __always_inline int handle_rx(struct CTXTYPE *ctx,
   //struct fwd_entry *entry = fwdtable.lookup(&src_key);
   /*Data structure2 */
   //struct fwd_entry *entry = fwdtable.lookup(&src_key);
+
+#if USE_EBPF_MAP == 1
   struct fwd_entry *entry = bpf_map_lookup_elem(&fwdtable, &src_key);
+#else
+  struct fwd_entry entry_without_search = {
+    .timestamp = 0x11112222,
+    .port = eth->src,
+  };
+  struct fwd_entry *entry = &entry_without_search;
+#endif
 
   if (!entry) {
     struct fwd_entry e;  // used to update the entry in the fdb
@@ -126,8 +137,18 @@ static __always_inline int handle_rx(struct CTXTYPE *ctx,
   // lookup in forwarding table fwdtable
   //entry = fwdtable.lookup(&dst_mac);
   /*Data structure4 */
+
+#if USE_EBPF_MAP == 1
   entry = bpf_map_lookup_elem(&fwdtable, &dst_mac);
+#else
+  struct fwd_entry entry_without_search = {
+    .timestamp = 0x11112222,
+    .port = eth->src,
+  };
+  entry = NULL;
+#endif
   if (!entry) {
+    log_debug("dst_mac not found in fwdtable.\n");
    // pcn_log(ctx, LOG_DEBUG, "Entry not found for dst-mac: %M", dst_mac);
     goto DO_FLOODING;
   }
@@ -138,10 +159,9 @@ static __always_inline int handle_rx(struct CTXTYPE *ctx,
   if ((now - timestamp) > FDB_TIMEOUT) {
     //pcn_log(ctx, LOG_TRACE, "Entry is too old. FLOODING");
     //fwdtable.delete(&dst_mac);
-    bpf_map_delete_elem(&fwdtable, &dst_mac);
+    // bpf_map_delete_elem(&fwdtable, &dst_mac);
     goto DO_FLOODING;
   }
-
   //pcn_log(ctx, LOG_TRACE, "Entry is valid. FORWARDING");
 
 FORWARD:;
@@ -169,12 +189,11 @@ DO_FLOODING:
   return XDP_DROP;
 }
 
-/*fix pkt_metadata*/
-struct pkt_metadata meta = {
-        .in_port = 0,
-};
-
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx) {
+        /*fix pkt_metadata*/
+        struct pkt_metadata meta = {
+                .in_port = 0,
+        };
         return handle_rx(ctx, &meta);
 }
