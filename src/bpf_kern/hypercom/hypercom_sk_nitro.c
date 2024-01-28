@@ -23,6 +23,7 @@
 #include "../fasthash.h"
 #include "../xxhash.h"
 #include "../bpf_random_base_alg.h"
+#include "../bpf_hash_alg_simd.h"
 #include <bpf/bpf_helpers.h>
 
 char _license[] SEC("license") = "GPL";
@@ -71,7 +72,9 @@ static void FORCE_INLINE nitrosketch_countmin_add(struct countmin *cm,
 						  uint32_t row_to_update)
 {
 	for (int i = 0; i < HASHFN_N; i++) {
-#if USE_XXHASH == 1
+#if USE_CRC == 1
+		__u32 hash = bpf_crc32c_sse(element, len, seeds[row_to_update]);
+#elif USE_XXHASH == 1
 		__u32 hash = xxh32(element, len, seeds[row_to_update]);
 #else
 		__u32 hash = fasthash32(element, len, seeds[row_to_update]);
