@@ -84,6 +84,18 @@ __bpf_kfunc bool bpf_geo_sampling_should_do(struct geo_sampling_ctx *ctx)
 }
 EXPORT_SYMBOL_GPL(bpf_geo_sampling_should_do);
 
+__bpf_kfunc geo_cnt_t bpf_geo_sampling_gen_geo_cnt(struct geo_sampling_ctx *ctx)
+{
+	u32 geo_value_idx;
+
+	ctx = this_cpu_ptr(ctx);
+
+	geo_value_idx = (ctx->geo_sampling_idx + 1) & GEO_SAMPLING_MASK;
+	ctx->geo_sampling_idx = geo_value_idx;
+	return (*ctx->pool)[geo_value_idx];
+}
+EXPORT_SYMBOL_GPL(bpf_geo_sampling_gen_geo_cnt);
+
 /* Workaround for "kernel btf id 123456 is not a function" errors */
 __bpf_kfunc uint32_t bpf_crc32c_sse(const void *data, uint32_t data__sz,
 				    uint32_t init_val)
@@ -96,6 +108,7 @@ BTF_SET8_START(bpf_random_base_alg_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_geo_sampling_ctx_new, KF_ACQUIRE | KF_RET_NULL)
 BTF_ID_FLAGS(func, bpf_geo_sampling_ctx_free, KF_RELEASE)
 BTF_ID_FLAGS(func, bpf_geo_sampling_should_do)
+BTF_ID_FLAGS(func, bpf_geo_sampling_gen_geo_cnt)
 BTF_ID_FLAGS(func, bpf_crc32c_sse)
 BTF_SET8_END(bpf_random_base_alg_kfunc_ids)
 

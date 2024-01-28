@@ -51,6 +51,7 @@ struct countmin {
 
 struct geo_sampling_ctx_holder {
 	struct geo_sampling_ctx __kptr *ctx;
+	geo_cnt_t cnt_alt;
 };
 
 struct {
@@ -183,13 +184,29 @@ int xdp_main(struct xdp_md *ctx)
 		goto SKIP;
 	}
 
+	u32 row_to_update_raw, row_to_update;
+	geo_cnt_t next_geo_value;
+	if (geo_ctx_holder->cnt_alt >= HASHFN_N) {
+		geo_ctx_holder->cnt_alt -= HASHFN_N;
+		log_debug("all rows are skipped");
+		goto SKIP;
+	}
+	row_to_update_raw = geo_ctx_holder->cnt_alt;
+	row_to_update = row_to_update_raw & (HASHFN_N - 1);
+	asm_bound_check(row_to_update, HASHFN_N);
 	for (int i = 0; i < HASHFN_N; i++) {
-		if (bpf_geo_sampling_should_do(geo_ctx)) {
-			nitrosketch_countmin_add(cm, &pkt, sizeof(pkt), i);
-			log_debug("updated row %d", i);
-		} else {
-			log_debug("skipped row %d", i);
-		}
+		nitrosketch_countmin_add(cm, &pkt, sizeof(pkt), row_to_update);
+		log_debug("updated row %d", row_to_update);
+		next_geo_value = bpf_geo_sampling_gen_geo_cnt(geo_ctx);
+		row_to_update_raw += next_geo_value;
+		if (row_to_update_raw >= HASHFN_N)
+			break;
+	}
+	if (unlikely(next_geo_value == 0)) {
+		log_error("gen_geo_cnt renturn zero, should not happen");
+		goto SKIP;
+	} else {
+		geo_ctx_holder->cnt_alt = next_geo_value - 1;
 	}
 #if PRINT_TIME
 	bpf_printk("nitro update : %llu\n", bpf_ktime_get_ns() - start);
