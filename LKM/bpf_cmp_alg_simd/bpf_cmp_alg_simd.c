@@ -154,6 +154,33 @@ __bpf_kfunc u32 bpf_crc32_hash(const void *key, u32 key__sz, u32 seed)
 }
 EXPORT_SYMBOL_GPL(bpf_crc32_hash);
 
+__bpf_kfunc uint32_t bpf_htss_sig_cmp(const void *sigs, size_t sigs__sz,
+				      __u16 tmp_sig)
+{
+	__u32 hitmask = _mm256_movemask_epi8((__m256i)_mm256_cmpeq_epi16(
+		_mm256_load_si256((__m256i const *)sigs),
+		_mm256_set1_epi16(tmp_sig)));
+	return hitmask;
+}
+EXPORT_SYMBOL_GPL(bpf_htss_sig_cmp);
+
+__bpf_kfunc uint32_t bpf_htss_bucket_search(__u16 *sigs, size_t sigs__sz,
+				      __u16 tmp_sig, __u16 *sets, size_t sets__sz)
+{
+	__u32 hitmask = _mm256_movemask_epi8((__m256i)_mm256_cmpeq_epi16(
+		_mm256_load_si256((__m256i const *)sigs),
+		_mm256_set1_epi16(tmp_sig)));
+	while (hitmask) {
+		__u32 hit_idx = __builtin_ctz(hitmask) >> 1;
+		if (sets[hit_idx] != 0) {
+			return sets[hit_idx];
+		}
+		hitmask &= ~(3U << ((hit_idx) << 1));
+	}
+	return 0;
+}
+EXPORT_SYMBOL_GPL(bpf_htss_bucket_search);
+
 BTF_SET8_START(bpf_cmp_alg_simd_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_find_u32_avx)
 BTF_ID_FLAGS(func, bpf_find_u16_avx)
@@ -168,6 +195,8 @@ BTF_ID_FLAGS(func, bpf_tzcnt_u32)
 BTF_ID_FLAGS(func, bpf_tzcnt_u16)
 BTF_ID_FLAGS(func, bpf_find_min_u16_sse)
 BTF_ID_FLAGS(func, bpf_crc32_hash)
+BTF_ID_FLAGS(func, bpf_htss_sig_cmp)
+BTF_ID_FLAGS(func, bpf_htss_bucket_search)
 BTF_SET8_END(bpf_cmp_alg_simd_kfunc_ids)
 
 static const struct btf_kfunc_id_set bpf_cmp_alg_simd_kfunc_set = {

@@ -133,6 +133,31 @@ extern u32 bpf_find_min_u16_sse(const u16 *arr) __ksym;
  */
 extern u32 bpf_crc32_hash(const void *key, u32 key__sz, u32 seed) __ksym;
 
+/**
+ * bpf_htss_sig_cmp() - get the htss bucket sigs compare hitmask .
+ *
+ * @sigs: Pointer to a signature array in htss bucket.
+ * @sigs__sz: length of the sigs in Bytes.
+ * @tmp_sig: key's signature.
+ *
+ * Return: haseh value of the key
+ */
+extern u32 bpf_htss_sig_cmp(const void *sigs, size_t sigs__sz,
+			    u16 tmp_sig) __ksym;
+/**
+ * bpf_htss_bucket_search() - search given htss bucket for the tmp_sig.
+ *
+ * @sigs: Pointer to a signature array in htss bucket.
+ * @sigs__sz: length of the sigs in Bytes.
+ * @tmp_sig: key's signature.
+ * @sets: Pointer to a sets array in htss bucket.
+ * @sets__sz: length of the sets in Bytes.
+ *
+ * Return: set_id if found, 0 if not found
+ */
+extern u32 bpf_htss_bucket_search(u16 *sigs, size_t sigs__sz,
+				      u16 tmp_sig, u16 *sets, size_t sets__sz) __ksym;
+
 #define for_each_bit_set(idx, mask, delta)                      \
 	(delta) = bpf_tzcnt_u32(mask);                          \
 	for ((idx) = (delta); (mask); (mask) >>= ((delta) + 1), \
