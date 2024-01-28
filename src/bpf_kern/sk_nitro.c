@@ -22,6 +22,7 @@
 #include "sk_config.h"
 #include "fasthash.h"
 #include "xxhash.h"
+#include "crc.h"
 
 #define SK_NITRO_UPDATE_PROB_PERCENT 10
 #define SK_NITRO_UPDATE_PROB ((double)SK_NITRO_UPDATE_PROB_PERCENT / 100)
@@ -63,7 +64,9 @@ static void FORCE_INLINE nitrosketch_countmin_add(struct countmin *cm,
 						  uint32_t row_to_update)
 {
 	for (int i = 0; i < HASHFN_N; i++) {
-#if USE_XXHASH == 1
+#if USE_CRC == 1
+		__u32 hash = crc32c(element, len, seeds[row_to_update]);
+#elif USE_XXHASH == 1
 		__u32 hash = xxh32(element, len, seeds[row_to_update]);
 #else
 		__u32 hash = fasthash32(element, len, seeds[row_to_update]);
