@@ -28,6 +28,7 @@
 #define SK_NITRO_UPDATE_PROB ((double)SK_NITRO_UPDATE_PROB_PERCENT / 100)
 
 // #define SK_NITRO_EMPTY_RANDOM
+// #define SK_NITRO_EMPTY_HASH
 
 char _license[] SEC("license") = "GPL";
 
@@ -64,7 +65,9 @@ static void FORCE_INLINE nitrosketch_countmin_add(struct countmin *cm,
 						  uint32_t row_to_update)
 {
 	for (int i = 0; i < HASHFN_N; i++) {
-#if USE_CRC == 1
+#ifdef SK_NITRO_EMPTY_HASH
+		__u32 hash = *(u32 *)(element + len - 4);
+#elif USE_CRC == 1
 		__u32 hash = crc32c(element, len, seeds[row_to_update]);
 #elif USE_XXHASH == 1
 		__u32 hash = xxh32(element, len, seeds[row_to_update]);
