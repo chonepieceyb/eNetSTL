@@ -40,8 +40,8 @@ int prefill(struct xdp_md *ctx)
 
 		cuckoo_log(
 			info,
-			"prefilled port = 0x%04x in primary bucket 0, key_idx %d",
-			pkt.pkt.dst_port, key_idx);
+			"prefilled port = 0x%04x in primary bucket 0, i = %d, key_idx = %d",
+			pkt.pkt.dst_port, i, key_idx);
 	}
 
 	cuckoo_log(info, "prefilling secondary bucket 1");
@@ -59,8 +59,8 @@ int prefill(struct xdp_md *ctx)
 
 		cuckoo_log(
 			info,
-			"prefilled port = 0x%04x in sec bucket 1, key_idx %d",
-			pkt.pkt.dst_port, key_idx);
+			"prefilled port = 0x%04x in sec bucket 1, i = %d, key_idx = %d",
+			pkt.pkt.dst_port, i, key_idx);
 	}
 
 	cuckoo_log(info, "prefilling primary bucket 2");
@@ -78,8 +78,8 @@ int prefill(struct xdp_md *ctx)
 
 		cuckoo_log(
 			info,
-			"prefilled port = 0x%04x in primary bucket 2, key_idx %d",
-			pkt.pkt.dst_port, key_idx);
+			"prefilled port = 0x%04x in primary bucket 2, i = %d, key_idx = %d",
+			pkt.pkt.dst_port, i, key_idx);
 	}
 
 	cuckoo_log(info, "prefilling secondary bucket 3");
@@ -97,8 +97,8 @@ int prefill(struct xdp_md *ctx)
 
 		cuckoo_log(
 			info,
-			"prefilled port = 0x%04x in sec bucket 3, key_idx %d",
-			pkt.pkt.dst_port, key_idx);
+			"prefilled port = 0x%04x in sec bucket 3, i = %d, key_idx = %d",
+			pkt.pkt.dst_port, i, key_idx);
 	}
 
 	/* FIXME: h->free_key_slots is in an invalid state */

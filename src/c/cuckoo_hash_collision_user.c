@@ -21,12 +21,13 @@ struct __cuckoo_hash_table {
 	uint32_t size;
 };
 
-struct pkt_5tuple {
+struct pkt_5tuple_with_pad {
 	uint32_t src_ip;
 	uint32_t dst_ip;
 	uint16_t src_port;
 	uint16_t dst_port;
 	uint8_t proto;
+	uint8_t pad[3];
 } __attribute__((packed));
 
 static uint32_t __cuckoo_hash_hash(const void *data, size_t len)
@@ -57,7 +58,7 @@ static uint32_t __cuckoo_hash_get_sec_bucket_index(const uint32_t hash)
 	return __cuckoo_hash_get_alt_bucket_index(prim_bkt_idx, short_sig);
 }
 
-void __compute_collisions(struct pkt_5tuple pkt, uint16_t port_start,
+void __compute_collisions(struct pkt_5tuple_with_pad pkt, uint16_t port_start,
 			  uint16_t port_end,
 			  uint32_t (*get_index)(const uint32_t hash),
 			  struct __cuckoo_hash_table *table)
@@ -66,7 +67,7 @@ void __compute_collisions(struct pkt_5tuple pkt, uint16_t port_start,
 	uint32_t hash, bkt_idx;
 
 	for (i = port_start; i < port_end; ++i) {
-		pkt.src_port = i;
+		pkt.dst_port = i;
 		hash = __cuckoo_hash_hash(&pkt, sizeof(pkt));
 		bkt_idx = get_index(hash);
 		if (table[bkt_idx].size >= CUCKOO_HASH_BUCKET_ENTRIES) {
@@ -97,7 +98,7 @@ void __print_ports(FILE *file, const char *name,
 void __print_prefill_header(FILE *file,
 			    const struct __cuckoo_hash_table *prim_table,
 			    const struct __cuckoo_hash_table *sec_table,
-			    const struct pkt_5tuple *pkt)
+			    const struct pkt_5tuple_with_pad *pkt)
 {
 	fprintf(file,
 		"#ifndef _CUCKOO_HASH_PREFILL_H\n"
@@ -126,7 +127,7 @@ void __print_prefill_header(FILE *file,
 	fprintf(file, "\n#endif\n");
 }
 
-int __write_traces(const struct pkt_5tuple *pkt, const char *dir_path,
+int __write_traces(const struct pkt_5tuple_with_pad *pkt, const char *dir_path,
 		   const struct __cuckoo_hash_table *prim_table,
 		   const struct __cuckoo_hash_table *sec_table)
 {
@@ -161,7 +162,7 @@ int __write_traces(const struct pkt_5tuple *pkt, const char *dir_path,
 	return 0;
 }
 
-int __write_header(const struct pkt_5tuple *pkt, const char *path,
+int __write_header(const struct pkt_5tuple_with_pad *pkt, const char *path,
 		   const struct __cuckoo_hash_table *prim_table,
 		   const struct __cuckoo_hash_table *sec_table)
 {
@@ -182,12 +183,13 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	struct pkt_5tuple pkt = {
+	struct pkt_5tuple_with_pad pkt = {
 		.src_ip = 0x01020201,
 		.dst_ip = 0x03040403,
 		.src_port = 0x0505,
 		.dst_port = 0,
 		.proto = 6,
+		.pad = { 0 },
 	};
 	struct __cuckoo_hash_table prim_table[CUCKOO_HASH_NUM_BUCKETS],
 		sec_table[CUCKOO_HASH_NUM_BUCKETS];
