@@ -37,6 +37,8 @@ char _license[] SEC("license") = "GPL";
 // #define TIMER_MAX_TIMEOUT (1 << (TVR_BITS + TVN_BITS * (NUM_TIME_WHEELS - 1)))
 #define TIMER_MAX_TIMEOUT 512
 
+#define CASCADE_MAX_LOOP ((u32)20000)
+
 #define time_after(a,b)		\
 	(typecheck(unsigned long, a) && \
 	 typecheck(unsigned long, b) && \
@@ -248,8 +250,9 @@ static int cascade(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt_map
 		.cpu = cpu,
 		.res = 0,
 	};
-	
-	res = bpf_loop(base->cnt, &__cascade_loop, &ctx, 0);
+
+	res = bpf_loop(min(base->cnt, CASCADE_MAX_LOOP), &__cascade_loop, &ctx,
+		       0);
 	if (res < 0 || ctx.res < 0) {
 		log_error(" failed to run bpf_loop, res: %d, ctx res: %d", res, ctx.res);
 		return res; 
