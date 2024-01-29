@@ -4,10 +4,20 @@
 #include "sk_common.h"
 #include "sk_config.h"
 #include "fasthash.h"
+#include "xxhash.h"
+#include "crc.h"
 #include "bpf_hash_alg_simd.h"
 #include "sk_cm.h"
 
 // #define USE_EMULATED_HASH
+
+#ifdef USE_CRC
+#undef USE_CRC
+#endif
+
+#if HASHFN_N <= 2
+#define USE_CRC
+#endif
 
 #define M 0x880355f21e6d1965ULL
 
@@ -174,19 +184,36 @@ static void __always_inline __countmin_hash_batch8(void *element, __u64 len,
 						   __u32 *dest)
 {
 #if USE_IMPL == EBPF_IMPL
-	_Static_assert((HASHFN_N & 1) == 0, "HASHFN_N must be even");
-	for (int i = 0; i < HASHFN_N; i += 2) {
-		fasthash32_alt(element, len, seeds + i, dest + i);
+	for (int i = 0; i < HASHFN_N; i++) {
+#ifdef USE_CRC
+		dest[i] = crc32c(element, len, seeds[i]);
+#elif USE_XXHASH
+		dest[i] = xxh32(element, len, seeds[i]);
+#else
+		dest[i] = fasthash32(element, len, seeds[i]);
+#endif /* USE_CRC */
 	}
 #elif USE_IMPL == EBPF_WITH_HYPERCOM_INTRINSIC_IMPL
+#ifdef USE_CRC
+	for (int i = 0; i < HASHFN_N; i++) {
+		dest[i] = bpf_crc32c_sse(element, len, seeds[i]);
+	}
+#elif USE_XXHASH
+#ifdef USE_EMULATED_HASH
+#error xxHash implementation with SIMD intrinsic kfuncs is not supported
+#else
+	bpf_xxh32_avx2_pkt5(element, seeds, dest);
+#endif /* USE_EMULATED_HASH */
+#else
 #ifdef USE_EMULATED_HASH
 	bpf_fasthash32_alt_avx2_pkt5_emulated(element, seeds, dest);
 #else
 	bpf_fasthash32_alt_avx2_pkt5(element, seeds, dest);
-#endif
+#endif /* USE_EMULATED_HASH */
+#endif /* USE_CRC */
 #else
 	log_error(" this should not happen");
-#endif
+#endif /* USE_IMPL */
 }
 
 static void __always_inline countmin_add(struct countmin *cm, void *element,
