@@ -208,7 +208,7 @@ struct __node_common {
 	struct list_head node;
 	DECLARE_FLEX_ARRAY(struct __node_common*, ptrs);
 };
-#define MAX_PTRS (256>>3)
+#define MAX_PTRS 42
 
 struct ptr_node_container*  ptr_create_node_container(u32 tmp_num) 
 {
@@ -268,9 +268,9 @@ EXPORT_SYMBOL_GPL(ptr_container_set_tmp);
 ptr_node* ptr_container_get_tmp(struct ptr_node_container* c, u32 idx) 
 {
 	//if (unlikely(idx > c->tmp_num))ptr_container_get_tmp
-	if (unlikely(idx >= MAX_TMP_NUM))
-		return NULL;
-	struct __node_common *n =  (struct __node_common *)(c->tmps[idx]);
+	// if (unlikely(idx >= MAX_TMP_NUM))
+	// 	return NULL;
+	struct __node_common *n =  (struct __node_common *)(c->tmps[idx & (MAX_TMP_NUM - 1)]);
 	if (likely(n != NULL)) {
 		n->refcnt++;
 		return (ptr_node*)n;
