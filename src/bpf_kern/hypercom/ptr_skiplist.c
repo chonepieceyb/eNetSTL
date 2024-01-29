@@ -4,10 +4,12 @@
 
 char _license[] SEC("license") = "GPL";
 
-struct ____node_256 {
-	char data[256];
+#define NODE_SIZE 512 
+
+struct ____node {
+	char data[NODE_SIZE];
 };
-typedef struct ____node_256 ptr_node; 
+typedef struct ____node ptr_node; 
 
 struct ptr_node_container {
 	struct list_head node_list;
@@ -26,13 +28,20 @@ void ptr_unset_owner(ptr_node *node) __ksym;
 void ptr_container_set_tmp(struct ptr_node_container* c, ptr_node *node, u32 idx) __ksym;
 ptr_node*  ptr_container_get_tmp(struct ptr_node_container* c, u32 idx) __ksym;
 
+
+#define MAX_SKIPLIST_HEIGHT 1
+
 struct value_type {
         struct ptr_node_container __kptr *container;   
         u32 cnt;
         int init;
 };
 
-typedef u64 sl_key_type;
+struct __sl_key_type {
+        char data[16];
+};
+
+typedef struct __sl_key_type sl_key_type;
 typedef u64 sl_value_type;
 
 struct skip_node {
@@ -44,14 +53,13 @@ struct skip_node {
 	unsigned long in_map;
 	unsigned long out_map;
 	struct list_head node;
-        void *outs[10];
-        void *ins[10];
+        void *outs[MAX_SKIPLIST_HEIGHT];
+        void *ins[MAX_SKIPLIST_HEIGHT];
         int height;
         sl_key_type key;
         sl_value_type val;
 };
 
-#define MAX_SKIPLIST_HEIGHT 1
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -100,7 +108,7 @@ struct __sl_lookup_ctx {
 	int current_level;
         struct ptr_node_container *ctx;
         int res; 
-        sl_key_type key;
+        sl_key_type *key;
 };
 
 #define NOT_FOUND 1;
@@ -129,23 +137,28 @@ static int __sl_lookup_loop_bdy(u32 index, void *ctx) {
                 return 0;
         }
         struct skip_node *__next = (struct skip_node *)next; 
-        if (__next->key == __ctx->key) {
+        int cmp = __builtin_memcmp(&__next->key, __ctx->key, sizeof(__next->key));
+        //if (__next->key == __ctx->key) {
+        if (cmp == 0) {
                 log_debug("loop, index %d, at level %d key found", index, current_level);
                 __ctx->res = 0;
                 ptr_container_set_tmp(__ctx->ctx, next, 1);  /*store the results*/
                 ptr_release_node(curr);
                 ptr_release_node(next);
                 return 1;
-        } else if (__next->key > __ctx->key) {
+        //} else if (__next->key > __ctx->key) {
+        } else if (cmp > 0) {   
                 /*down a level*/
-                log_debug("loop, index %d, at level %d down a level, __next_key %lu, ctx key %lu", index, current_level, __next->key, __ctx->key);
+                //log_debug("loop, index %d, at level %d down a level, __next_key %lu, ctx key %lu", index, current_level, __next->key, __ctx->key);
+                log_debug("loop, index %d, at level %d down a level", index, current_level);
                 __ctx->current_level -= 1;      
                 ptr_release_node(curr);
                 ptr_release_node(next);
                 return 0;
         } else {
-                log_debug("loop, index %d, at level %d  key search this level, __next_key %lu, ctx key %lu", index, current_level, __next->key, __ctx->key);
+                //log_debug("loop, index %d, at level %d  key search this level, __next_key %lu, ctx key %lu", index, current_level, __next->key, __ctx->key);
                 /*continue search*/
+                log_debug("loop, index %d, at level %d  key search this level", index, current_level);
                 ptr_container_set_tmp(__ctx->ctx, next, 1);  /*store the results*/
                 ptr_release_node(curr);
                 ptr_release_node(next);
@@ -178,31 +191,36 @@ static int __sl_lookup_enqueue_bdy(u32 index, void *ctx) {
                 return 0;
         }
         struct skip_node *__next = (struct skip_node *)next; 
-        if (__next->key == __ctx->key) {
+        int cmp = __builtin_memcmp(&__next->key, __ctx->key, sizeof(__next->key));
+        //if (__next->key == __ctx->key) {
+        if (cmp == 0) {
                 log_debug("loop, index %d, at level %d key found", index, current_level);
                 __ctx->res = 0;
                 ptr_container_set_tmp(__ctx->ctx, next, 1);  /*store the results*/
                 ptr_release_node(curr);
                 ptr_release_node(next);
                 return 1;
-        } else if (__next->key > __ctx->key) {
+        //} else if (__next->key > __ctx->key) {
+        } else if (cmp > 0) {   
                 /*down a level*/
-                log_debug("loop, index %d, at level %d down a level, __next_key %lu, ctx key %lu", index, current_level, __next->key, __ctx->key);
-                __ctx->current_level -= 1;
+                //log_debug("loop, index %d, at level %d down a level, __next_key %lu, ctx key %lu", index, current_level, __next->key, __ctx->key);
+                log_debug("loop, index %d, at level %d down a level", index, current_level);
+                __ctx->current_level -= 1;      
                 ptr_release_node(curr);
                 ptr_release_node(next);
                 return 0;
         } else {
-                log_debug("loop, index %d, at level %d  key search this level, __next_key %lu, ctx key %lu", index, current_level, __next->key, __ctx->key);
+                //log_debug("loop, index %d, at level %d  key search this level, __next_key %lu, ctx key %lu", index, current_level, __next->key, __ctx->key);
                 /*continue search*/
-                ptr_container_set_tmp(__ctx->ctx, next, 1); 
+                log_debug("loop, index %d, at level %d  key search this level", index, current_level);
+                ptr_container_set_tmp(__ctx->ctx, next, 1);  /*store the results*/
                 ptr_release_node(curr);
                 ptr_release_node(next);
                 return 0;
         }
 }
 
-static __always_inline int sl_get(struct ptr_node_container *sl, ptr_node* head, sl_key_type key, u32* cnt) 
+static __always_inline int sl_get(struct ptr_node_container *sl, ptr_node* head, sl_key_type* key, u32* cnt) 
 {
         int res; 
         struct skip_node *__head = (struct skip_node*)head;
@@ -234,29 +252,28 @@ next##idx:                                              \
                 curr##idx = curr##pidx;                                                                 \
                 goto next##nidx;                                        \
         }                                                                       \
-        if (((struct skip_node*)curr##idx)->key == (____key)) {                  \
+        int cmp##idx = __builtin_memcmp(&(((struct skip_node*)curr##idx)->key), ____key, sizeof(sl_key_type));                             \
+        if (cmp##idx == 0) {                                                 \
                 log_debug("loop, index %d, at level %d key found", (idx), (____level));                                                                 \
                 (____res) = 0;                                                                        \
                 (*(____valp)) = ((struct skip_node*)curr##idx)->val;                                      \
                 ptr_release_node(curr##pidx);                                                   \
                 ptr_release_node(curr##idx);                                                    \
                 goto sl_out;                                                                    \
-        } else if (((struct skip_node*)curr##idx)->key > (____key)) {                       \
-                log_debug("loop, index %d, at level %d down a level, __next_key %lu, ctx key %lu", (idx), (____level), ((struct skip_node*)curr##idx)->key, (____key));   \
+        } else if (cmp##idx > 0) {                       \
+                log_debug("loop, index %d, at level %d down a level", (idx), (____level));   \
                 (____level)-= 1;                                                                            \
                 ptr_release_node(curr##idx);                                                            \
                 curr##idx = curr##pidx;                                                                 \
                 goto next##nidx;                                                                        \
         } else {                                                                                        \
-                log_debug("loop, index %d, at level %d  key search this level, __next_key %lu, ctx key %lu", (idx), (____level), ((struct skip_node*)curr##idx)->key, (____key));  \
+                log_debug("loop, index %d, at level %d", (idx), (____level));                                   \
                 ptr_release_node(curr##pidx);                                                                   \
                 goto next##nidx;                                                                                \
         }                                                                                                       \
 
 
-
-#define MAX_LOOKUP_NUM 10
-static int sl_get_lite(struct ptr_node_container *sl, sl_key_type key, sl_value_type *val, u32* cnt) 
+static int sl_get_lite(struct ptr_node_container *sl, sl_key_type *key, sl_value_type *val, u32* cnt) 
 {
 
         // Find the position where the key is expected
@@ -272,8 +289,103 @@ static int sl_get_lite(struct ptr_node_container *sl, sl_key_type key, sl_value_
         SKIP_LOOK_BODY(2, 3, 4, level, key, val, res)
         SKIP_LOOK_BODY(3, 4, 5, level, key, val, res)
         SKIP_LOOK_BODY(4, 5, 6, level, key, val, res)
-next6:;
-        ptr_release_node(curr5);
+        SKIP_LOOK_BODY(5, 6, 7, level, key, val, res)
+        SKIP_LOOK_BODY(6, 7, 8, level, key, val, res)
+        SKIP_LOOK_BODY(7, 8, 9, level, key, val, res)
+        SKIP_LOOK_BODY(8, 9, 10, level, key, val, res)
+        SKIP_LOOK_BODY(9, 10, 11, level, key, val, res)
+        SKIP_LOOK_BODY(10, 11, 12, level, key, val, res)
+        SKIP_LOOK_BODY(11, 12, 13, level, key, val, res)
+        SKIP_LOOK_BODY(12, 13, 14, level, key, val, res)
+        SKIP_LOOK_BODY(13, 14, 15, level, key, val, res)
+        SKIP_LOOK_BODY(14, 15, 16, level, key, val, res)
+        SKIP_LOOK_BODY(15, 16, 17, level, key, val, res)
+        SKIP_LOOK_BODY(16, 17, 18, level, key, val, res)
+        SKIP_LOOK_BODY(17, 18, 19, level, key, val, res)
+        SKIP_LOOK_BODY(18, 19, 20, level, key, val, res)
+        SKIP_LOOK_BODY(19, 20, 21, level, key, val, res)
+        SKIP_LOOK_BODY(20, 21, 22, level, key, val, res)
+        SKIP_LOOK_BODY(21, 22, 23, level, key, val, res)
+        SKIP_LOOK_BODY(22, 23, 24, level, key, val, res)
+        SKIP_LOOK_BODY(23, 24, 25, level, key, val, res)
+        SKIP_LOOK_BODY(24, 25, 26, level, key, val, res)
+        SKIP_LOOK_BODY(25, 26, 27, level, key, val, res)
+        SKIP_LOOK_BODY(26, 27, 28, level, key, val, res)
+        SKIP_LOOK_BODY(27, 28, 29, level, key, val, res)
+        SKIP_LOOK_BODY(28, 29, 30, level, key, val, res)
+        SKIP_LOOK_BODY(29, 30, 31, level, key, val, res)
+        SKIP_LOOK_BODY(30, 31, 32, level, key, val, res)
+        SKIP_LOOK_BODY(31, 32, 33, level, key, val, res)
+        SKIP_LOOK_BODY(32, 33, 34, level, key, val, res)
+        SKIP_LOOK_BODY(33, 34, 35, level, key, val, res)
+        SKIP_LOOK_BODY(34, 35, 36, level, key, val, res)
+        SKIP_LOOK_BODY(35, 36, 37, level, key, val, res)
+        SKIP_LOOK_BODY(36, 37, 38, level, key, val, res)
+        SKIP_LOOK_BODY(37, 38, 39, level, key, val, res)
+        SKIP_LOOK_BODY(38, 39, 40, level, key, val, res)
+        SKIP_LOOK_BODY(39, 40, 41, level, key, val, res)
+        SKIP_LOOK_BODY(40, 41, 42, level, key, val, res)
+        SKIP_LOOK_BODY(41, 42, 43, level, key, val, res)
+        SKIP_LOOK_BODY(42, 43, 44, level, key, val, res)
+        SKIP_LOOK_BODY(43, 44, 45, level, key, val, res)
+        SKIP_LOOK_BODY(44, 45, 46, level, key, val, res)
+        SKIP_LOOK_BODY(45, 46, 47, level, key, val, res)
+        SKIP_LOOK_BODY(46, 47, 48, level, key, val, res)
+        SKIP_LOOK_BODY(47, 48, 49, level, key, val, res)
+        SKIP_LOOK_BODY(48, 49, 50, level, key, val, res)
+        SKIP_LOOK_BODY(49, 50, 51, level, key, val, res)
+        SKIP_LOOK_BODY(50, 51, 52, level, key, val, res)
+        SKIP_LOOK_BODY(51, 52, 53, level, key, val, res)
+        SKIP_LOOK_BODY(52, 53, 54, level, key, val, res)
+        SKIP_LOOK_BODY(53, 54, 55, level, key, val, res)
+        SKIP_LOOK_BODY(54, 55, 56, level, key, val, res)
+        SKIP_LOOK_BODY(55, 56, 57, level, key, val, res)
+        SKIP_LOOK_BODY(56, 57, 58, level, key, val, res)
+        SKIP_LOOK_BODY(57, 58, 59, level, key, val, res)
+        SKIP_LOOK_BODY(58, 59, 60, level, key, val, res)
+        SKIP_LOOK_BODY(59, 60, 61, level, key, val, res)
+        SKIP_LOOK_BODY(60, 61, 62, level, key, val, res)
+        SKIP_LOOK_BODY(61, 62, 63, level, key, val, res)
+        SKIP_LOOK_BODY(62, 63, 64, level, key, val, res)
+        SKIP_LOOK_BODY(63, 64, 65, level, key, val, res)
+        SKIP_LOOK_BODY(64, 65, 66, level, key, val, res)
+        SKIP_LOOK_BODY(65, 66, 67, level, key, val, res)
+        SKIP_LOOK_BODY(66, 67, 68, level, key, val, res)
+        SKIP_LOOK_BODY(67, 68, 69, level, key, val, res)
+        SKIP_LOOK_BODY(68, 69, 70, level, key, val, res)
+        SKIP_LOOK_BODY(69, 70, 71, level, key, val, res)
+        SKIP_LOOK_BODY(70, 71, 72, level, key, val, res)
+        SKIP_LOOK_BODY(71, 72, 73, level, key, val, res)
+        SKIP_LOOK_BODY(72, 73, 74, level, key, val, res)
+        SKIP_LOOK_BODY(73, 74, 75, level, key, val, res)
+        SKIP_LOOK_BODY(74, 75, 76, level, key, val, res)
+        SKIP_LOOK_BODY(75, 76, 77, level, key, val, res)
+        SKIP_LOOK_BODY(76, 77, 78, level, key, val, res)
+        SKIP_LOOK_BODY(77, 78, 79, level, key, val, res)
+        SKIP_LOOK_BODY(78, 79, 80, level, key, val, res)
+        SKIP_LOOK_BODY(79, 80, 81, level, key, val, res)
+        SKIP_LOOK_BODY(80, 81, 82, level, key, val, res)
+        SKIP_LOOK_BODY(81, 82, 83, level, key, val, res)
+        SKIP_LOOK_BODY(82, 83, 84, level, key, val, res)
+        SKIP_LOOK_BODY(83, 84, 85, level, key, val, res)
+        SKIP_LOOK_BODY(84, 85, 86, level, key, val, res)
+        SKIP_LOOK_BODY(85, 86, 87, level, key, val, res)
+        SKIP_LOOK_BODY(86, 87, 88, level, key, val, res)
+        SKIP_LOOK_BODY(87, 88, 89, level, key, val, res)
+        SKIP_LOOK_BODY(88, 89, 90, level, key, val, res)
+        SKIP_LOOK_BODY(89, 90, 91, level, key, val, res)
+        SKIP_LOOK_BODY(90, 91, 92, level, key, val, res)
+        SKIP_LOOK_BODY(91, 92, 93, level, key, val, res)
+        SKIP_LOOK_BODY(92, 93, 94, level, key, val, res)
+        SKIP_LOOK_BODY(93, 94, 95, level, key, val, res)
+        SKIP_LOOK_BODY(94, 95, 96, level, key, val, res)
+        SKIP_LOOK_BODY(95, 96, 97, level, key, val, res)
+        SKIP_LOOK_BODY(96, 97, 98, level, key, val, res)
+        SKIP_LOOK_BODY(97, 98, 99, level, key, val, res)
+        SKIP_LOOK_BODY(98, 99, 100, level, key, val, res)
+        SKIP_LOOK_BODY(99, 100, 101, level, key, val, res)
+next101:;
+        ptr_release_node(curr100);
 sl_out:;
         return res; 
 }
@@ -291,7 +403,7 @@ static __always_inline int grand (int max) {
         return result;
 }
 
-static int sl_enqueue(struct ptr_node_container *sl, ptr_node* head, sl_key_type key, sl_value_type val, u32 *cnt)
+static int sl_enqueue(struct ptr_node_container *sl, ptr_node* head, sl_key_type *key, sl_value_type val, u32 *cnt)
 {
         int res; 
         struct skip_node *__head = (struct skip_node*)head;
@@ -315,7 +427,7 @@ static int sl_enqueue(struct ptr_node_container *sl, ptr_node* head, sl_key_type
         }
         int height = grand(MAX_SKIPLIST_HEIGHT);
         ptr_write(newentry, offsetof(struct skip_node, height), &height, sizeof(height));
-        ptr_write(newentry, offsetof(struct skip_node, key), &key, sizeof(key));
+        ptr_write(newentry, offsetof(struct skip_node, key), key, sizeof(*key));
         ptr_write(newentry, offsetof(struct skip_node, val), &val, sizeof(val));
         /*set owner*/
         ptr_set_owner(sl, newentry);
@@ -390,10 +502,10 @@ int test_skip_list1(struct xdp_md *ctx)
         xdp_assert_neq(NULL, sl, "failed to get sl");
         ptr_node *head = head_get_or_init(sl);
         xdp_assert_neq_tag(NULL, head, "faild to get head", drop_sl);
-        sl_key_type k = 1;
+        sl_key_type k = {1};
         sl_value_type v = 2, test_v = 0;
         //enqueue
-        res = sl_enqueue(sl, head, k, v, &mval->cnt);
+        res = sl_enqueue(sl, head, &k, v, &mval->cnt);
         xdp_assert_eq_tag(0, res, "failed enqueue", drop_head);
         res = sl_dequeue(sl, head, &test_v, &mval->cnt);
         xdp_assert_eq_tag(0, res, "failed dequeue", drop_head);
@@ -431,16 +543,17 @@ int test_skip_list2(struct xdp_md *ctx)
         xdp_assert_neq_tag(NULL, head, "faild to get head", drop_sl);
 
         //enqueue
-        for (int i = 0; i <= 100; i++) {
+        for (int i = 0; i <= 10; i++) {
                 log_debug("try to enqueue %d", i);
-                sl_key_type k = i;
+                sl_key_type k = {i};
                 sl_value_type v = i;
-                res = sl_enqueue(sl, head, k, v, &mval->cnt);
+                res = sl_enqueue(sl, head, &k, v, &mval->cnt);
                 xdp_assert_eq_tag(0, res, "failed enqueue", drop_head);
         }
         //lookup
-        sl_key_type k_to_be_found = 10;
-        res = sl_get(sl, head, k_to_be_found, &mval->cnt);
+        sl_value_type v_to_be_bound = 5;
+        sl_key_type k_to_be_found = {v_to_be_bound};
+        res = sl_get(sl, head, &k_to_be_found, &mval->cnt);
         xdp_assert_eq_tag(0, res, "not found", drop_head); /*found*/
 
         ptr_node *found = ptr_container_get_tmp(sl, 1);
@@ -448,7 +561,7 @@ int test_skip_list2(struct xdp_md *ctx)
         struct skip_node *__found = (struct skip_node*)(found);
         sl_value_type v_found = __found->val;
         ptr_release_node(found);
-        xdp_assert_eq_tag(k_to_be_found, v_found, "found value is not correct", drop_head); /*found*/
+        xdp_assert_eq_tag(v_to_be_bound, v_found, "found value is not correct", drop_head); /*found*/
 
         ptr_release_node(head);
         struct ptr_node_container * oldsl = bpf_kptr_xchg(&mval->container, sl);
@@ -479,10 +592,10 @@ struct __sl_init_loop_ctx {
 
 static int __sl_init_loop_body(u32 index, void *ctx) {
         struct __sl_init_loop_ctx  *__ctx = (struct __sl_init_loop_ctx*)ctx;
-        sl_key_type k = index;
+        sl_key_type k = {index};
         sl_value_type v = index;
         int res;
-        res = sl_enqueue(__ctx->sl, __ctx->head, k, v, __ctx->cnt);
+        res = sl_enqueue(__ctx->sl, __ctx->head, &k, v, __ctx->cnt);
         if (res < 0) {
                 __ctx->res = res;
                 return 1;
@@ -526,10 +639,10 @@ int xdp_main_lookup(struct xdp_md *ctx) {
                 mval->init = true;
         }
         /*testing*/
-        sl_key_type k = KV;
+        sl_key_type k = {KV};
         sl_value_type v = KV;
         sl_value_type res_v;
-        res = sl_get(sl, head, k, &mval->cnt);
+        res = sl_get(sl, head, &k, &mval->cnt);
         xdp_assert_eq_tag(0, res, "not found", drop_head); /*found*/
 
         ptr_release_node(head);
@@ -590,10 +703,10 @@ int xdp_main_lookup_lite(struct xdp_md *ctx)
                 mval->init = true;
         }
         /*testing*/
-        sl_key_type k = KV;
+        sl_key_type k = {KV};
         sl_value_type v = KV;
         sl_value_type res_v;
-        res = sl_get_lite(sl, k, &res_v, &mval->cnt);
+        res = sl_get_lite(sl, &k, &res_v, &mval->cnt);
         xdp_assert_eq_tag(0, res, "not found", drop_sl); /*found*/
 
         struct ptr_node_container * oldsl = bpf_kptr_xchg(&mval->container, sl);

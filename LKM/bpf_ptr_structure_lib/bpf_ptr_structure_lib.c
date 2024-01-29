@@ -169,12 +169,14 @@ EXPORT_SYMBOL_GPL(node_2_16_write);
 
 
 
+#define NODE_SIZE 512
+
 /*pointer structure lib-new*/
-struct ____node_256 {
-	char data[256];
+struct ____node {
+	char data[NODE_SIZE];
 };
 
-typedef struct ____node_256 ptr_node; 
+typedef struct ____node ptr_node; 
 
 static struct bpf_mem_alloc percpu_container_ma;
 static struct bpf_mem_alloc percpu_ptr_ma;
@@ -480,7 +482,7 @@ BTF_ID(struct, node_2_16_data)
 BTF_ID(func, node_2_16_release)
 BTF_ID(struct, ptr_node_container)
 BTF_ID(func, ptr_destory_node_container)
-BTF_ID(struct, ____node_256)
+BTF_ID(struct, ____node)
 BTF_ID(func, ptr_release_node)
 
 static const struct btf_kfunc_id_set bpf_ptr_structure_kfunc_set = {
