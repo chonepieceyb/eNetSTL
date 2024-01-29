@@ -7,7 +7,7 @@
 #ifndef _CRC_H
 #define _CRC_H
 
-/* vmlinux.h should be included first */
+/* stdint.h should be included first */
 
 /* Lookup tables for software implementation of CRC32C */
 static const uint32_t crc32c_tables[8][256] = {
