@@ -390,8 +390,8 @@ int __cuckoo_hash_prefill(struct cuckoo_hash *h)
 
 		cuckoo_log(
 			info,
-			"prefilled port = 0x%04x in primary bucket 0, key_idx %d",
-			pkt.dst_port, key_idx);
+			"prefilled port = 0x%04x in primary bucket 0, i = %d, key_idx = %d",
+			pkt.dst_port, i, key_idx);
 	}
 
 	cuckoo_log(info, "prefilling secondary bucket 1");
@@ -410,8 +410,8 @@ int __cuckoo_hash_prefill(struct cuckoo_hash *h)
 
 		cuckoo_log(
 			info,
-			"prefilled port = 0x%04x in sec bucket 1, key_idx %d",
-			pkt.dst_port, key_idx);
+			"prefilled port = 0x%04x in sec bucket 1, i = %d, key_idx = %d",
+			pkt.dst_port, i, key_idx);
 	}
 
 	cuckoo_log(info, "prefilling primary bucket 2");
@@ -430,8 +430,8 @@ int __cuckoo_hash_prefill(struct cuckoo_hash *h)
 
 		cuckoo_log(
 			info,
-			"prefilled port = 0x%04x in primary bucket 2, key_idx %d",
-			pkt.dst_port, key_idx);
+			"prefilled port = 0x%04x in primary bucket 2, i = %d, key_idx = %d",
+			pkt.dst_port, i, key_idx);
 	}
 
 	cuckoo_log(info, "prefilling secondary bucket 3");
@@ -450,11 +450,14 @@ int __cuckoo_hash_prefill(struct cuckoo_hash *h)
 
 		cuckoo_log(
 			info,
-			"prefilled port = 0x%04x in sec bucket 3, key_idx %d",
-			pkt.dst_port, key_idx);
+			"prefilled port = 0x%04x in sec bucket 3, i = %d, key_idx = %d",
+			pkt.dst_port, i, key_idx);
 	}
 
-	/* FIXME: h->free_key_slots is in an invalid state */
+	/*
+	 * After the prefill, h->free_slot_list is in an invalid state, and
+	 * inserting new keys will result in unexpected behavior.
+	 */
 
 	return 0;
 }

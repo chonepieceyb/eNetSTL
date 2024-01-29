@@ -101,7 +101,10 @@ int prefill(struct xdp_md *ctx)
 			pkt.pkt.dst_port, i, key_idx);
 	}
 
-	/* FIXME: h->free_key_slots is in an invalid state */
+	/*
+	 * After the prefill, h->free_slot_list is in an invalid state, and
+	 * inserting new keys will result in unexpected behavior.
+	 */
 
 	return 0;
 }

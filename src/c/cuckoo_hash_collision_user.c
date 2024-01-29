@@ -146,8 +146,8 @@ int __write_traces(const struct pkt_5tuple_with_pad *pkt, const char *dir_path,
 			 * Byte order is not converted when parsing packet 5-tuples in the
 			 * test code, so we need to convert it here.
 			 */
-			uint16_t dst_port1 = htons(prim_table[0].ports[i]);
-			uint16_t dst_port2 = htons(prim_table[2].ports[i]);
+			uint16_t dst_port1 = ntohs(prim_table[0].ports[i]);
+			uint16_t dst_port2 = ntohs(prim_table[2].ports[i]);
 			fprintf(trace_file,
 				"%u\t%u\t%u\t%u\t%u\t512\t1\n%u\t%u\t%u\t%u\t%u\t512\t1\n",
 				pkt->src_ip, pkt->dst_ip, pkt->src_port,
@@ -171,9 +171,12 @@ int __write_header(const struct pkt_5tuple_with_pad *pkt, const char *path,
 		log("failed to open prefill header file %s\n", path);
 		return 1;
 	}
+
 	__print_prefill_header(prefill_header_file, prim_table, sec_table, pkt);
 	fclose(prefill_header_file);
 	log("prefill header file %s written\n", path);
+
+	return 0;
 }
 
 int main(int argc, char **argv)
