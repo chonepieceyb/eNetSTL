@@ -12,7 +12,7 @@ extern void bpf_unregister_static_cmap(struct module *onwer);
 extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
-#define NUM_TIME_WHEELS 5
+#define NUM_TIME_WHEELS 2
 #if NUM_TIME_WHEELS < 2 || NUM_TIME_WHEELS > 5
 #error NUM_TIME_WHEELS must be between 2 and 5
 #endif
