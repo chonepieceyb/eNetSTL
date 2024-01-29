@@ -369,7 +369,7 @@ EXPORT_SYMBOL_GPL(ptr_unset_owner);
 ptr_node* ptr_get_out(ptr_node *parent, u32 idx)
 {
 	struct __node_common *__node = (struct __node_common *)parent;
-	if (unlikely(idx) >= __node->out_num) {
+	if (unlikely(idx >= __node->out_num)) {
 		return NULL;
 	}
 	struct __node_common *__node_get = *(__node->ptrs + idx);
@@ -386,11 +386,11 @@ void ptr_release_node(ptr_node *ptr)
 	
 	struct __node_common *__node = (struct __node_common *)ptr;
 	pr_debug("ptr_release_node %p refcnt %d", ptr, __node->refcnt);
-	preempt_disable();
-	if ((--__node->refcnt) == 0) {
+	if (unlikely((--__node->refcnt) == 0)) {
+		preempt_disable();
 		bpf_mem_cache_free(&percpu_ptr_ma, __node);
+		preempt_enable();
 	}
-	preempt_enable();
 }
 EXPORT_SYMBOL_GPL(ptr_release_node);
 

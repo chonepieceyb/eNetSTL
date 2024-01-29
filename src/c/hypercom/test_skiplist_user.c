@@ -13,7 +13,7 @@ void test() {
 		.repeat = 1,							
 	);												
 	struct ptr_skiplist * skel = NULL;				
-	struct bpf_program *prog1, *prog2, *prog3;						
+	struct bpf_program *prog1, *prog2, *prog3, *prog4;						
 	int res = 0, prog_fd;						
 	skel = ptr_skiplist__open();						
 	if (skel == NULL) {								
@@ -22,7 +22,8 @@ void test() {
 	}											
 	prog1 = skel->progs.test_skip_list1;	
         prog2 = skel->progs.test_skip_list2;		
-        prog3 = skel->progs.xdp_main_lookup;						
+        prog3 = skel->progs.xdp_main_lookup;
+	prog4 = skel->progs.xdp_main_lookup_lite;						
 	set_prog_flags_test(prog1);
         set_prog_flags_test(prog2);	
         set_prog_flags_test(prog3);								
@@ -37,7 +38,10 @@ void test() {
 	ASSERT_OK(res, "bpf_prog_test_run_opts res");						
 	ASSERT_EQ(topts.retval, XDP_PASS, "test2");	
         res = bpf_prog_test_run_opts(bpf_program__fd(prog3), &topts);				
-	ASSERT_OK(res, "bpf_prog_test_run_opts res");						
+	ASSERT_OK(res, "bpf_prog_test_run_opts res");
+	ASSERT_EQ(topts.retval, XDP_PASS, "test_lookup");	
+	res = bpf_prog_test_run_opts(bpf_program__fd(prog4), &topts);				
+	ASSERT_OK(res, "bpf_prog_test_run_opts res");					
 	ASSERT_EQ(topts.retval, XDP_PASS, "test_lookup");			
 clean:;												
 	ptr_skiplist__destroy(skel);								\

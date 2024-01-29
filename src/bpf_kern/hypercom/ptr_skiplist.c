@@ -51,7 +51,7 @@ struct skip_node {
         sl_value_type val;
 };
 
-#define MAX_SKIPLIST_HEIGHT 10
+#define MAX_SKIPLIST_HEIGHT 1
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -120,6 +120,54 @@ static int __sl_lookup_loop_bdy(u32 index, void *ctx) {
                 return 1;
         }
         /*tmp[0] for curr*/
+        ptr_node *next = ptr_get_out(curr, current_level);
+        if (next == NULL) {
+                /*stop search in this level*/
+                log_debug("loop, index %d, stop seach in level %d continue next level", index, current_level);
+                __ctx->current_level -= 1;
+                ptr_release_node(curr);
+                return 0;
+        }
+        struct skip_node *__next = (struct skip_node *)next; 
+        if (__next->key == __ctx->key) {
+                log_debug("loop, index %d, at level %d key found", index, current_level);
+                __ctx->res = 0;
+                ptr_container_set_tmp(__ctx->ctx, next, 1);  /*store the results*/
+                ptr_release_node(curr);
+                ptr_release_node(next);
+                return 1;
+        } else if (__next->key > __ctx->key) {
+                /*down a level*/
+                log_debug("loop, index %d, at level %d down a level, __next_key %lu, ctx key %lu", index, current_level, __next->key, __ctx->key);
+                __ctx->current_level -= 1;      
+                ptr_release_node(curr);
+                ptr_release_node(next);
+                return 0;
+        } else {
+                log_debug("loop, index %d, at level %d  key search this level, __next_key %lu, ctx key %lu", index, current_level, __next->key, __ctx->key);
+                /*continue search*/
+                ptr_container_set_tmp(__ctx->ctx, next, 1);  /*store the results*/
+                ptr_release_node(curr);
+                ptr_release_node(next);
+                return 0;
+        }
+}
+
+static int __sl_lookup_enqueue_bdy(u32 index, void *ctx) {
+        struct __sl_lookup_ctx *__ctx = (struct __sl_lookup_ctx*)ctx;
+        int current_level = __ctx->current_level;
+        if (current_level < 0) {
+                log_debug("loop, index %d, level < 0 notfound");
+                __ctx->res = NOT_FOUND; /*not found and ctx is the node.key < __ctx -> key*/
+                return 1;
+        }
+        ptr_node *curr = ptr_container_get_tmp(__ctx->ctx, 1);
+        if (curr == NULL) {
+                log_error("loop, index %d, current_level %d, curr is NULL", index, current_level);
+                __ctx->res = -1;  /*error*/
+                return 1;
+        }
+        /*tmp[0] for curr*/
         ptr_container_set_tmp(__ctx->ctx, curr, current_level + 2);
         ptr_node *next = ptr_get_out(curr, current_level);
         if (next == NULL) {
@@ -172,6 +220,64 @@ static __always_inline int sl_get(struct ptr_node_container *sl, ptr_node* head,
         return loop_ctx.res; 
 }
 
+/*curr hold the reference, curr_pidx 是一定有效的，其他的都被释放了*/
+#define SKIP_LOOK_BODY(pidx, idx, nidx, ____level, ____key, ____valp, ____res)             \
+next##idx:                                              \
+        if (unlikely(____level < 0))  {                      \
+                ptr_release_node(curr##pidx);            \
+                goto sl_out;                             \
+        }                                                \
+        ptr_node *curr##idx = ptr_get_out(curr##pidx, ____level);  \
+        if (curr##idx == NULL)  {                        \
+                log_debug("loop, index %d, stop seach in level %d continue next level", (idx), (____level));      \
+                (____level) -= 1;                                                                           \
+                curr##idx = curr##pidx;                                                                 \
+                goto next##nidx;                                        \
+        }                                                                       \
+        if (((struct skip_node*)curr##idx)->key == (____key)) {                  \
+                log_debug("loop, index %d, at level %d key found", (idx), (____level));                                                                 \
+                (____res) = 0;                                                                        \
+                (*(____valp)) = ((struct skip_node*)curr##idx)->val;                                      \
+                ptr_release_node(curr##pidx);                                                   \
+                ptr_release_node(curr##idx);                                                    \
+                goto sl_out;                                                                    \
+        } else if (((struct skip_node*)curr##idx)->key > (____key)) {                       \
+                log_debug("loop, index %d, at level %d down a level, __next_key %lu, ctx key %lu", (idx), (____level), ((struct skip_node*)curr##idx)->key, (____key));   \
+                (____level)-= 1;                                                                            \
+                ptr_release_node(curr##idx);                                                            \
+                curr##idx = curr##pidx;                                                                 \
+                goto next##nidx;                                                                        \
+        } else {                                                                                        \
+                log_debug("loop, index %d, at level %d  key search this level, __next_key %lu, ctx key %lu", (idx), (____level), ((struct skip_node*)curr##idx)->key, (____key));  \
+                ptr_release_node(curr##pidx);                                                                   \
+                goto next##nidx;                                                                                \
+        }                                                                                                       \
+
+
+
+#define MAX_LOOKUP_NUM 10
+static int sl_get_lite(struct ptr_node_container *sl, sl_key_type key, sl_value_type *val, u32* cnt) 
+{
+
+        // Find the position where the key is expected
+        int res = NOT_FOUND;
+        ptr_node *curr0 = head_get_or_init(sl);
+        if (curr0 == NULL) {
+                log_error("failed to get or init head");
+                return -1;
+        }
+        int level =((struct skip_node*)curr0)->height -1;
+        SKIP_LOOK_BODY(0, 1, 2, level, key, val, res)
+        SKIP_LOOK_BODY(1, 2, 3, level, key, val, res)
+        SKIP_LOOK_BODY(2, 3, 4, level, key, val, res)
+        SKIP_LOOK_BODY(3, 4, 5, level, key, val, res)
+        SKIP_LOOK_BODY(4, 5, 6, level, key, val, res)
+next6:;
+        ptr_release_node(curr5);
+sl_out:;
+        return res; 
+}
+
 #define RAND_THS (1U << 31)
 
 static __always_inline int grand (int max) {
@@ -196,7 +302,7 @@ static int sl_enqueue(struct ptr_node_container *sl, ptr_node* head, sl_key_type
                 .key = key,
         };
         ptr_container_set_tmp(sl, head, 1);
-        res = bpf_loop(*cnt + 2 * MAX_SKIPLIST_HEIGHT, &__sl_lookup_loop_bdy, &loop_ctx, 0);
+        res = bpf_loop(*cnt + 2 * MAX_SKIPLIST_HEIGHT, &__sl_lookup_enqueue_bdy, &loop_ctx, 0);
         if (res < 0) {
                 log_error("bpf_loop fail");
                 return -1;
@@ -359,8 +465,8 @@ xdp_error:
         return XDP_DROP;
 }
 
-#define ELEM_NUM 1024
-#define KV 512
+#define ELEM_NUM 5
+#define KV 0
 
 struct __sl_init_loop_ctx {
         struct ptr_node_container *sl;
@@ -385,8 +491,6 @@ static int __sl_init_loop_body(u32 index, void *ctx) {
                 return 0;
         }
 }
-
-
 
 static __always_inline int init_skiplist( struct ptr_node_container *sl, ptr_node *head, u32 *cnt) {
         struct __sl_init_loop_ctx __ctx = {
@@ -433,9 +537,75 @@ int xdp_main_lookup(struct xdp_md *ctx) {
         if (unlikely(oldsl != NULL)) {
               ptr_destory_node_container(oldsl);  
         }
+#if LOG_LEVEL >= LOG_LEVEL_DEBUG
         return XDP_PASS;
+#else
+        return XDP_DROP;
+#endif 
 drop_head:
         ptr_release_node(head);
+drop_sl:
+        ptr_destory_node_container(sl);
+xdp_error:
+        return XDP_DROP;
+}
+
+
+static __always_inline int init_skiplist_lite( struct ptr_node_container *sl, u32 *cnt) {
+        ptr_node *head = head_get_or_init(sl);
+        xdp_assert_neq_tag(NULL, head, "faild to get head in init", xdp_error);
+        struct __sl_init_loop_ctx __ctx = {
+                .sl = sl,
+                .head = head,
+                .cnt = cnt,
+                .res = 0
+        };
+        int res;
+        res = bpf_loop(ELEM_NUM, &__sl_init_loop_body, &__ctx, 0);
+        if (res < 0) goto free_head;
+        xdp_assert_eq_tag(0, __ctx.res, "sl init failed", free_head);
+        ptr_release_node(head);
+        return 0;
+free_head:
+        ptr_release_node(head);
+        return -1;
+xdp_error:;
+        return -1;
+}
+
+SEC("xdp")
+int xdp_main_lookup_lite(struct xdp_md *ctx) 
+{
+        int key = 0; 
+        int res;
+        struct value_type *mval;
+        mval = bpf_map_lookup_elem(&mymap, &key);
+        xdp_assert_neq(NULL, mval, "map lookup failed");
+        struct ptr_node_container *sl = container_get_or_create(mval);
+        xdp_assert_neq(NULL, sl, "failed to get sl");
+        
+        if (unlikely(!mval->init)) {
+                res = init_skiplist_lite(sl, &mval->cnt);
+                xdp_assert_eq_tag(0, res, "init skiplist failed", drop_sl); /*found*/
+                mval->init = true;
+        }
+        /*testing*/
+        sl_key_type k = KV;
+        sl_value_type v = KV;
+        sl_value_type res_v;
+        res = sl_get_lite(sl, k, &res_v, &mval->cnt);
+        xdp_assert_eq_tag(0, res, "not found", drop_sl); /*found*/
+
+        struct ptr_node_container * oldsl = bpf_kptr_xchg(&mval->container, sl);
+        if (unlikely(oldsl != NULL)) {
+              ptr_destory_node_container(oldsl);  
+        }
+#if LOG_LEVEL >= LOG_LEVEL_DEBUG
+        return XDP_PASS;
+#else
+        return XDP_DROP;
+#endif 
+
 drop_sl:
         ptr_destory_node_container(sl);
 xdp_error:
