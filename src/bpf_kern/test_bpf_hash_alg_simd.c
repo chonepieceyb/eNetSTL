@@ -1,6 +1,7 @@
 #include "common.h"
 #include "vmlinux.h"
 #include "bpf_hash_alg_simd.h"
+#include "crc.h"
 
 #define PACKET_ATTRS                                                    \
 	.src_ip = 0x01020304, .dst_ip = 0x05060708, .src_port = 0x090a, \
@@ -270,6 +271,26 @@ static inline void test_bpf_simd_low_level_ops(void)
 	log_info("bpf SIMD low level ops test passed\n");
 }
 
+static inline void test_bpf_crc32c(void)
+{
+	log_info("bpf_crc32c() test started\n");
+
+	struct pkt_5tuple pkt = { PACKET_ATTRS };
+	u32 crc_bpf = 0, crc_kernel = 0;
+
+	crc_bpf = crc32c(&pkt, sizeof(pkt), 0xdeadbeef);
+	crc_kernel = bpf_crc32c_sse(&pkt, sizeof(pkt), 0xdeadbeef);
+
+	xdp_assert_eq(crc_bpf, crc_kernel,
+		      "crc_bpf should be equal to crc_kernel");
+
+	log_info("bpf_crc32c() test passed\n");
+	return;
+
+xdp_error:
+	log_info("bpf_crc32c() test failed\n");
+}
+
 SEC("xdp") int xdp_main(struct xdp_md *ctx)
 {
 	test_bpf_xxh32_avx2_pkt5();
@@ -279,6 +300,7 @@ SEC("xdp") int xdp_main(struct xdp_md *ctx)
 	test_bpf_fasthash32_alt_avx2_pkt5();
 	test_bpf_fasthash32_alt_avx2_pkt5_in_bpf();
 	test_bpf_simd_low_level_ops();
+	test_bpf_crc32c();
 
 	return XDP_PASS;
 }
