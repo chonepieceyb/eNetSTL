@@ -37,8 +37,6 @@ char _license[] SEC("license") = "GPL";
 // #define TIMER_MAX_TIMEOUT (1 << (TVR_BITS + TVN_BITS * (NUM_TIME_WHEELS - 1)))
 #define TIMER_MAX_TIMEOUT 512
 
-#define TIMER_LIST_MAX_LOOP_CNT ((u32)20000)
-
 #define time_after(a,b)		\
 	(typecheck(unsigned long, a) && \
 	 typecheck(unsigned long, b) && \
@@ -304,12 +302,11 @@ static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt
                 ctx.head = &tl->head;
 		ctx.lock = &tl->lock;
 		ctx.twq = base;
-		u32 loop_cnt = min(base->cnt, TIMER_LIST_MAX_LOOP_CNT);
-		res = bpf_loop(loop_cnt, &__run_timerlist_loop, &ctx, 0);
-		if (res < 0) {
-			log_error(" failed to run bpf_loop");
-			return res;
-		}
+                res = bpf_loop(base->cnt, &__run_timerlist_loop, &ctx, 0);
+                if (res < 0) {
+                        log_error(" failed to run bpf_loop");
+                        return res; 
+                }
 		base->clk += 1;
                 log_debug("__run_timer plus 1 tick: bpf_loop clk index %d run %d times", index, res);
         }
