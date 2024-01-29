@@ -29,10 +29,12 @@ char _license[] SEC("license") = "GPL";
 #define TIMER_MAX_LOOKS 128
 #define CPU_NUM 40
 
-#define NUM_TIME_WHEELS 5
+#define NUM_TIME_WHEELS 2
 #if NUM_TIME_WHEELS < 2 || NUM_TIME_WHEELS > 5
 #error NUM_TIME_WHEELS must be between 2 and 5
 #endif
+
+#define TIMER_MAX_TIMEOUT (1 << (TVR_BITS + TVN_BITS * (NUM_TIME_WHEELS - 1)))
 
 #define time_after(a,b)		\
 	(typecheck(unsigned long, a) && \
@@ -327,6 +329,13 @@ struct {
 	__uint(max_entries, CPU_NUM * BKT_NUM_PER_CPU);
 } time_wheel_bkt_map SEC(".maps");
 
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, int);
+	__type(value, u64);
+	__uint(max_entries, 1);
+} num_runs_map SEC(".maps");
+
 SEC("tc")
 int test_timewheel(void *ctx)
 {
@@ -427,8 +436,21 @@ int xdp_main(void *ctx)
 	elem = bpf_obj_new(typeof(*elem));
 	xdp_assert_neq(NULL, elem, "elem = bpf_obj_new() failed ");
 
-	elem->expires = ct + 1;
-	
+	u64 num_runs, *num_runs_ptr = bpf_map_lookup_elem(&num_runs_map, &key);
+	if (num_runs_ptr != NULL) {
+		num_runs = *num_runs_ptr + 1;
+		*num_runs_ptr = num_runs;
+	} else {
+		log_error("failed to lookup num_runs_map");
+		bpf_obj_drop(elem);
+		goto xdp_error;
+	}
+
+	log_debug("num_runs %llu, timeout %u", num_runs,
+		  num_runs & (TIMER_MAX_TIMEOUT - 1));
+
+	elem->expires = ct + (num_runs & (TIMER_MAX_TIMEOUT - 1));
+
 	res = add_timer_on(cpu, tq, &time_wheel_bkt_map, elem);
 	if (res != 0 && res != -22) {
 		bpf_obj_drop(elem);
