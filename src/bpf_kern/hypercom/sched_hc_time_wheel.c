@@ -27,10 +27,12 @@ char _license[] SEC("license") = "GPL";
 #define TVR_MASK (TVR_SIZE - 1)
 #define TIMER_MAX_LOOKS 128
 
-#define NUM_TIME_WHEELS 5
+#define NUM_TIME_WHEELS 2
 #if NUM_TIME_WHEELS < 2 || NUM_TIME_WHEELS > 5
 #error NUM_TIME_WHEELS must be between 2 and 5
 #endif
+
+#define TIMER_MAX_TIMEOUT (1 << (TVR_BITS + TVN_BITS * (NUM_TIME_WHEELS - 1)))
 
 #define time_after(a,b)		\
 	(typecheck(unsigned long, a) && \
@@ -314,6 +316,13 @@ struct {
 	__uint(max_entries, 1);
 } time_wheel_map SEC(".maps");
 
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, int);
+	__type(value, u64);
+	__uint(max_entries, 1);
+} num_runs_map SEC(".maps");
+
 SEC("tc")
 int test_timewheel(void *ctx)
 {
@@ -353,6 +362,8 @@ int xdp_main(void *ctx)
 	int key = 0, res;
 	unsigned long ct = get_current_time();
 	struct time_wheel_queue *twq;
+	u64 num_runs, *num_runs_ptr;
+
 	twq = bpf_map_lookup_elem(&time_wheel_map, &key);
 	xdp_assert_neq(NULL, twq, "failed to lookup time_wheel_map");
 
@@ -363,9 +374,17 @@ int xdp_main(void *ctx)
                 twq->init = 1;
         }
 
-        unsigned long expires = ct + 1;
-        struct bpf_time_list *timer = __add_timer_on(twq, &timer_bkt, expires);
-        xdp_assert_neq(NULL, timer, "__add_timer_on failed");
+	num_runs_ptr = bpf_map_lookup_elem(&num_runs_map, &key);
+	xdp_assert_neq(NULL, num_runs_ptr, "failed to lookup num_runs_map");
+	num_runs = *num_runs_ptr + 1;
+	*num_runs_ptr = num_runs;
+
+	log_debug("num runs %llu, timeout %u", num_runs,
+		  num_runs & (TIMER_MAX_TIMEOUT - 1));
+
+	unsigned long expires = ct + (num_runs & (TIMER_MAX_TIMEOUT - 1));
+	struct bpf_time_list *timer = __add_timer_on(twq, &timer_bkt, expires);
+	xdp_assert_neq(NULL, timer, "__add_timer_on failed");
         timer->expires = expires;
         twq->cnt += 1;
         
