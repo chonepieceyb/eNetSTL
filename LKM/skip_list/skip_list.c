@@ -13,7 +13,7 @@
 
 #define MAX_ENTRY 100000
 #define RAND_MAX 2147483647
-#define MAX_SKIPLIST_HEIGHT 8
+#define MAX_SKIPLIST_HEIGHT 1
 
 #define TEST_RANGE 20
 // #define USE_DEBUG
@@ -131,19 +131,23 @@ static void *skip_list_lookup_elem(struct bpf_map *map, void* key_ptr)
 	int level = head->height - 1;
 
 	__u64 key = *(__u64 *)key_ptr;
-
+	// pr_info("--start search key: %llu--", key);
 	// Find the position where the key is expected
 	while (curr != NULL && level >= 0) {
 		if (curr->next[level] == NULL) {
 			--level;
+			// pr_info("1. go to next level: %d", level);
 		} else {
 
 			if (curr->next[level]->key == key) { // Found a match
+				// pr_info("--found key: %llu at level: %d--", key, level);
 				return &(curr->next[level]->value);
 			} else if (curr->next[level]->key > key) { // Drop down a level
 				--level;
+				// pr_info("2. go to next level: %d", level);
 			} else { // Keep going at this level
 				curr = curr->next[level];
+				// pr_info("3. keep going at level: %d", level);
 			}
 		}
 	}
@@ -327,14 +331,14 @@ static ssize_t testing_operation(struct file *flip, char __user *ubuf,
 		}
 	}
 
-	for (int i = 0; i < TEST_RANGE; i += 2) {
-		preempt_disable();
-		int ret = skip_list_delete_elem(map, (void *)&i);
-		preempt_enable();
-		if (ret == 0) {
-			delete_res[i] = 1;
-		}
-	}
+	// for (int i = 0; i < TEST_RANGE; i += 2) {
+	// 	preempt_disable();
+	// 	int ret = skip_list_delete_elem(map, (void *)&i);
+	// 	preempt_enable();
+	// 	if (ret == 0) {
+	// 		delete_res[i] = 1;
+	// 	}
+	// }
 
 	for (int i = 0; i < TEST_RANGE; i++) {
 		preempt_disable();
@@ -345,9 +349,14 @@ static ssize_t testing_operation(struct file *flip, char __user *ubuf,
 		}
 	}
 
-	for (int i = 0; i < TEST_RANGE; i++) {
-		pr_info("add_res[%d]: %d, delete_res[%d]: %d, lookup_res[%d]: %d\n", i, add_res[i], i, delete_res[i], i, lookup_res[i]);
-	}
+	int i = 64;
+	preempt_disable();
+	__u32 *res = skip_list_lookup_elem(map, (void *)&i);
+	preempt_enable();
+
+	// for (int i = 0; i < TEST_RANGE; i++) {
+	// 	pr_info("add_res[%d]: %d, delete_res[%d]: %d, lookup_res[%d]: %d\n", i, add_res[i], i, delete_res[i], i, lookup_res[i]);
+	// }
 
 	pr_info("----testing skip_list success----\n");
 

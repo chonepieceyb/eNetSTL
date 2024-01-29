@@ -9,7 +9,8 @@ char _license[] SEC("license") = "GPL";
 #define MAX_ENTRY 1024
 
 #define HASH_SEED 0xdeadbeef
-
+#define KEY_RANGE 100
+#define LOOKUP_KEY 50
 struct {
 	__uint(type, BPF_MAP_TYPE_STATIC_CUSTOM_MAP);
 	__type(key, __u64);
@@ -17,6 +18,15 @@ struct {
 	__uint(max_entries, MAX_ENTRY);
 	__uint(pinning, 1);
 } skip_list SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, int);
+	__type(value, int);
+	__uint(max_entries, 1);
+} init_map SEC(".maps");
+
+static int init = 0;
 
 /* exp setup program */
 SEC("xdp")
@@ -116,6 +126,38 @@ int xdp_main(struct xdp_md *ctx)
 	struct __u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &key);
 	log_debug("dst port: %d, lookup_res: %d\n", pkt.dst_port,
 		  lookup_res == NULL ? 0 : 1);
+finish:
+	return XDP_DROP;
+}
+
+/* lookup program */
+SEC("xdp")
+int xdp_test(struct xdp_md *ctx)
+{
+
+	__u64 keys[5] = {1, 2, 3, 4, 5};
+	int zero = 0;
+	int *res = bpf_map_lookup_elem(&init_map, &zero);
+	if (res == NULL) {
+		goto finish;
+	}
+	if (*res == 0) {
+		for (int i = 0; KEY_RANGE > i; i++) {
+			__u64 key = (__u64)i;
+			bpf_map_update_elem(&skip_list, &key, &key, BPF_ANY);
+		}
+		*res = 1;
+	}
+
+	__u64 key = KEY_RANGE;
+	__u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &key);
+	if (lookup_res == NULL) {
+		goto finish;
+	}
+	
+	if (*lookup_res == 999) {
+		return XDP_TX;
+	}
 finish:
 	return XDP_DROP;
 }
