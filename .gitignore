@@ -65,3 +65,4 @@ src/c/bpf_skel/
 *compile_commands.json
 testing
 traces/
+pcap/
