@@ -286,8 +286,7 @@ static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt
 #endif
 #endif
 #endif
-			log_error("this should not happen (at line %d)",
-				  __LINE__);
+			log_debug("cascade max level returned non-zero");
 		}
 
 		int key = cpu * BKT_NUM_PER_CPU + index; 

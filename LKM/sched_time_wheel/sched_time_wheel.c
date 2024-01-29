@@ -343,8 +343,7 @@ static void __run_timers(struct time_wheel_map *tmap, struct cascade_time_wheel 
 #endif
 #endif
 #endif
-			pr_err("this should not happen (at line %d)\n",
-			       __LINE__);
+			pr_debug("cascade max level returned non-zero\n");
 		}
 
 		++tw->clk;

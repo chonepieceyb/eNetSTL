@@ -276,8 +276,7 @@ static int __run_timer(struct time_wheel_queue *base, void *timer_bkt_map) {
 #endif
 #endif
 #endif
-			log_error("this should not happen (at line %d)",
-				  __LINE__);
+			log_debug("cascade max level returned non-zero");
 		}
 
                 struct __run_timerlist_ctx ctx = {
