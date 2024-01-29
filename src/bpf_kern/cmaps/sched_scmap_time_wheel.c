@@ -22,7 +22,8 @@ char _license[] SEC("license") = "GPL";
 /* NUM_TIME_WHEELS must be consistent with the LKM side */
 #define NUM_TIME_WHEELS 2
 
-#define TIMER_MAX_TIMEOUT (1 << (TVR_BITS + TVN_BITS * (NUM_TIME_WHEELS - 1)))
+// #define TIMER_MAX_TIMEOUT (1 << (TVR_BITS + TVN_BITS * (NUM_TIME_WHEELS - 1)))
+#define TIMER_MAX_TIMEOUT 512
 
 extern __u64 bpf_get_current_time(void) __ksym;
 

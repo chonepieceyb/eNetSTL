@@ -32,7 +32,8 @@ char _license[] SEC("license") = "GPL";
 #error NUM_TIME_WHEELS must be between 2 and 5
 #endif
 
-#define TIMER_MAX_TIMEOUT (1 << (TVR_BITS + TVN_BITS * (NUM_TIME_WHEELS - 1)))
+// #define TIMER_MAX_TIMEOUT (1 << (TVR_BITS + TVN_BITS * (NUM_TIME_WHEELS - 1)))
+#define TIMER_MAX_TIMEOUT 512
 
 #define TIMER_LIST_MAX_LOOP_CNT ((u32)20000)
 
@@ -50,7 +51,6 @@ char _license[] SEC("license") = "GPL";
 
 #define BKT_NUM_PER_CPU (TVR_SIZE + TVN_SIZE * (NUM_TIME_WHEELS - 1))
 /*elem of the time list*/
-
 
 #define FRONT_TAIL_BIT_POS 0     //bit pos, set means front 
 #define INS_LOOK_BIT_POS 1     //bit pos, set means insert
