@@ -3,9 +3,9 @@
 
 #include "crc.h"
 
-#define efd_log(level, fmt, ...)                                            \
-	log_##level("efd: " fmt " (%s @ line %d)", ##__VA_ARGS__, __func__, \
-		    __LINE__)
+#define efd_log(level, fmt, ...)                                         \
+	log_##level("efd (ebpf): " fmt " (%s @ line %d)", ##__VA_ARGS__, \
+		    __func__, __LINE__)
 
 #define EFD_CHUNK_NUM_GROUPS 64
 #define EFD_CHUNK_NUM_BINS 256
