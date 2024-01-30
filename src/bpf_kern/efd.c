@@ -3,6 +3,9 @@
 
 #include "crc.h"
 
+// #define EFD_EMPTY_HASH
+// #define EFD_EMPTY_LOOKUP_INTERNAL
+
 #define efd_log(level, fmt, ...)                                         \
 	log_##level("efd (ebpf): " fmt " (%s @ line %d)", ##__VA_ARGS__, \
 		    __func__, __LINE__)
@@ -16,11 +19,17 @@
 
 #define EFD_KEY_SIZE (sizeof(struct pkt_5tuple_with_pad))
 
-#define EFD_HASH(key, table) (uint32_t)(crc32c(key, EFD_KEY_SIZE, 0xbc9f1d34))
+#ifdef EFD_EMPTY_HASH
+#define EFD_HASH_FUNC efd_hash_empty
+#else
+#define EFD_HASH_FUNC crc32c
+#endif
+#define EFD_HASH(key, table) \
+	(uint32_t)(EFD_HASH_FUNC(key, EFD_KEY_SIZE, 0xbc9f1d34))
 #define EFD_HASHFUNCA(key, table) \
-	(uint32_t)(crc32c(key, EFD_KEY_SIZE, 0xbc9f1d35))
+	(uint32_t)(EFD_HASH_FUNC(key, EFD_KEY_SIZE, 0xbc9f1d35))
 #define EFD_HASHFUNCB(key, table) \
-	(uint32_t)(crc32c(key, EFD_KEY_SIZE, 0xbc9f1d36))
+	(uint32_t)(EFD_HASH_FUNC(key, EFD_KEY_SIZE, 0xbc9f1d36))
 
 #if (EFD_VALUE_NUM_BITS == 8 || EFD_VALUE_NUM_BITS == 16 || \
      EFD_VALUE_NUM_BITS == 24 || EFD_VALUE_NUM_BITS == 32)
@@ -153,6 +162,12 @@ static const uint32_t
 		  52 },
 	};
 
+static inline uint32_t efd_hash_empty(const void *key, const uint32_t len,
+				      const uint32_t seed)
+{
+	return *(uint32_t *)key ^ seed;
+}
+
 static inline uint32_t efd_get_chunk_id(const struct efd_table *const table,
 					const uint32_t hashed_key)
 {
@@ -228,11 +243,24 @@ efd_lookup_internal_scalar(const efd_hashfunc_t *group_hash_idx,
 }
 
 static inline efd_value_t
+efd_lookup_internal_empty(const efd_hashfunc_t *group_hash_idx,
+			  const efd_lookuptbl_t *group_lookup_table,
+			  const uint32_t hash_val_a, const uint32_t hash_val_b)
+{
+	return (efd_value_t)hash_val_a;
+}
+
+static inline efd_value_t
 efd_lookup_internal(const struct efd_online_group_entry *const group,
 		    const uint32_t hash_val_a, const uint32_t hash_val_b)
 {
+#ifdef EFD_EMPTY_LOOKUP_INTERNAL
+	return efd_lookup_internal_empty(group->hash_idx, group->lookup_table,
+					 hash_val_a, hash_val_b);
+#else
 	return efd_lookup_internal_scalar(group->hash_idx, group->lookup_table,
 					  hash_val_a, hash_val_b);
+#endif
 }
 
 static inline efd_value_t efd_lookup_elem(const struct efd_table *table,
