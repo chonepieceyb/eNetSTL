@@ -315,6 +315,23 @@ efd_lookup_internal_avx2(const efd_hashfunc_t *group_hash_idx,
 
 	return value;
 }
+
+__bpf_kfunc efd_value_t bpf_efd_lookup_internal_avx2(
+	const efd_hashfunc_t *group_hash_idx,
+	const efd_lookuptbl_t *group_lookup_table, const uint32_t hash_val_a,
+	const uint32_t hash_val_b)
+{
+	return efd_lookup_internal_avx2(group_hash_idx, group_lookup_table,
+					hash_val_a, hash_val_b);
+}
+EXPORT_SYMBOL_GPL(bpf_efd_lookup_internal_avx2);
+
+__bpf_kfunc uint32_t bpf_crc32c_sse(const void *data, uint32_t data__sz,
+				    uint32_t init_val)
+{
+	return crc32c(data, data__sz, init_val);
+}
+EXPORT_SYMBOL_GPL(bpf_crc32c_sse);
 #endif
 
 static inline efd_value_t
@@ -399,9 +416,37 @@ static struct bpf_map_ops efd_ops = {
 	.map_mem_usage = efd_mem_usage,
 };
 
+BTF_SET8_START(efd_kfunc_ids)
+#ifdef EFD_SIMD
+BTF_ID_FLAGS(func, bpf_efd_lookup_internal_avx2)
+BTF_ID_FLAGS(func, bpf_crc32c_sse)
+#endif
+BTF_SET8_END(efd_kfunc_ids)
+
+static const struct btf_kfunc_id_set efd_kfunc_set = {
+	.owner = THIS_MODULE,
+	.set = &efd_kfunc_ids,
+};
+
+static int register_kfuncs(void)
+{
+	int ret;
+	if ((ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_XDP,
+					     &efd_kfunc_set)) != 0) {
+		return ret;
+	}
+
+	return 0;
+}
+
 static int efd_initialize(void)
 {
-	return 0;
+	int ret;
+
+	ret = register_kfuncs();
+	efd_log(info, "registration of kfuncs returns %d\n", ret);
+
+	return ret;
 }
 
 #ifdef EFD_DEBUG
