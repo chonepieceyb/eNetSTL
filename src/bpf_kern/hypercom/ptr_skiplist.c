@@ -7,12 +7,28 @@ char _license[] SEC("license") = "GPL";
 #define ELEM_NUM 1024
 #define KV 456
 #define MAX_SKIPLIST_HEIGHT 16
-#define NODE_SIZE 512 
+#define KEY_SIZE 16
+#define VALUE_SIZE 128
 
-struct ____node {
-	char data[NODE_SIZE];
+#define PTR_SIZE 16
+#define IN_NUM PTR_SIZE
+#define OUT_NUM PTR_SIZE
+#define DATA_SIZE1 52
+#define DATA_SIZE2 160
+
+struct __node_common {
+	struct ptr_node_container *owner;
+	int refcnt;
+	char data1[DATA_SIZE1];
+	struct __node_common *outs[PTR_SIZE];
+	struct __node_common *ins[PTR_SIZE];
+	unsigned long in_map;
+	unsigned long out_map;
+	struct list_head node;
+	char data2[DATA_SIZE2];
 };
-typedef struct ____node ptr_node; 
+
+typedef struct __node_common ptr_node; 
 
 struct ptr_node_container {
 	struct list_head node_list;
@@ -20,12 +36,13 @@ struct ptr_node_container {
 
 struct ptr_node_container*  ptr_create_node_container(u32 tmp_num) __ksym;
 void ptr_destory_node_container(struct ptr_node_container *c)__ksym;
-ptr_node* ptr_alloc_node(u32 in_num, u32 out_num)__ksym;
+ptr_node* ptr_alloc_node(void)__ksym;
 void ptr_release_node(ptr_node *node) __ksym;
 ptr_node* ptr_get_out(ptr_node *parent, u32 idx) __ksym;
 int ptr_connect(ptr_node *p1, u32 idx1, ptr_node *p2, u32 idx2)  __ksym;
 int ptr_unconnect(ptr_node *p1, u32 idx1, ptr_node *p2, u32 idx2) __ksym;
-int ptr_write(ptr_node *node, size_t off, void *data__buf, size_t size__sz)__ksym;
+int ptr_write_data1(ptr_node *node, size_t off, void *data__buf, size_t size__sz)__ksym;
+int ptr_write_data2(ptr_node *node, size_t off, void *data__buf, size_t size__sz)__ksym;
 void ptr_set_owner(struct ptr_node_container *c, ptr_node *node) __ksym;
 void ptr_unset_owner(ptr_node *node) __ksym;
 void ptr_container_set_tmp(struct ptr_node_container* c, ptr_node *node, u32 idx) __ksym;
@@ -39,26 +56,29 @@ struct value_type {
 };
 
 struct __sl_key_type {
-        char data[32];
+        char data[KEY_SIZE];
+};
+
+struct __sl_value_type {
+        char data[VALUE_SIZE];
 };
 
 typedef struct __sl_key_type sl_key_type;
-typedef u64 sl_value_type;
+typedef struct __sl_value_type sl_value_type;
 
 struct skip_node {
-	u32 in_num; 
-	u32 out_num;
+	struct ptr_node_container *owner;
 	int refcnt;
-	u32 data_off;
-	struct ptr_node_container *owner; 
+        int height;
+        sl_key_type key;
+        char pdd1[DATA_SIZE1 - sizeof(int) - sizeof(sl_key_type)];
+	struct __node_common *outs[PTR_SIZE];
+	struct __node_common *ins[PTR_SIZE];
 	unsigned long in_map;
 	unsigned long out_map;
 	struct list_head node;
-        void *outs[MAX_SKIPLIST_HEIGHT];
-        void *ins[MAX_SKIPLIST_HEIGHT];
-        int height;
-        sl_key_type key;
         sl_value_type val;
+	char pdd2[DATA_SIZE2 - sizeof(sl_value_type)];
 };
 
 struct {
@@ -86,14 +106,14 @@ static __always_inline ptr_node* head_get_or_init(struct ptr_node_container *sl)
                 log_debug("sl_head_get_or_init get head");
                 return head; 
         }
-        head = ptr_alloc_node(MAX_SKIPLIST_HEIGHT, MAX_SKIPLIST_HEIGHT);
+        head = ptr_alloc_node();
         if (unlikely(head == NULL)) {
                 log_error("failed to alloc head");
                 return NULL;
         }
         /*init head*/
         int max_height = MAX_SKIPLIST_HEIGHT;
-        int res = ptr_write(head, offsetof(struct skip_node, height), &max_height, sizeof(max_height));
+        int res = ptr_write_data1(head, offsetof(struct skip_node, height), &max_height, sizeof(max_height));
         if (unlikely(res < 0)) {
                 log_error("init failed to write max_height");
                 ptr_release_node(head);
@@ -255,8 +275,8 @@ next##idx:                                              \
         int cmp##idx = __builtin_memcmp(&(((struct skip_node*)curr##idx)->key), ____key, sizeof(sl_key_type));                             \
         if (cmp##idx == 0) {                                                 \
                 log_debug("loop, index %d, at level %d key found", (idx), (____level));                                                                 \
-                (____res) = 0;                                                                        \
-                (*(____valp)) = ((struct skip_node*)curr##idx)->val;                                      \
+                (____res) = 0;                                                                            \
+                __builtin_memcpy(____valp, &((struct skip_node*)curr##idx)->val, sizeof(sl_value_type));   \
                 ptr_release_node(curr##pidx);                                                   \
                 ptr_release_node(curr##idx);                                                    \
                 goto sl_out;                                                                    \
@@ -515,7 +535,6 @@ static int sl_get_lite(struct ptr_node_container *sl, sl_key_type *key, sl_value
 } 
 
 
-
 #define RAND_THS (1U << 31)
 
 static __always_inline int grand (int max) {
@@ -529,7 +548,7 @@ static __always_inline int grand (int max) {
         return result;
 }
 
-static int sl_enqueue(struct ptr_node_container *sl, ptr_node* head, sl_key_type *key, sl_value_type val, u32 *cnt)
+static int sl_enqueue(struct ptr_node_container *sl, ptr_node* head, sl_key_type *key, sl_value_type *val, u32 *cnt)
 {
         int res; 
         struct skip_node *__head = (struct skip_node*)head;
@@ -546,15 +565,15 @@ static int sl_enqueue(struct ptr_node_container *sl, ptr_node* head, sl_key_type
                 return -1;
         }
         /*find the first one <= node*/
-        ptr_node *newentry = ptr_alloc_node(MAX_SKIPLIST_HEIGHT, MAX_SKIPLIST_HEIGHT);
+        ptr_node *newentry = ptr_alloc_node();
         if (newentry == NULL) {
                 log_error("enqueue failed to alloc new node");
                 return -1;
         }
         int height = grand(MAX_SKIPLIST_HEIGHT);
-        ptr_write(newentry, offsetof(struct skip_node, height), &height, sizeof(height));
-        ptr_write(newentry, offsetof(struct skip_node, key), key, sizeof(*key));
-        ptr_write(newentry, offsetof(struct skip_node, val), &val, sizeof(val));
+        ptr_write_data1(newentry, offsetof(struct skip_node, height), &height, sizeof(height));
+        ptr_write_data1(newentry, offsetof(struct skip_node, key), key, sizeof(*key));
+        ptr_write_data2(newentry, offsetof(struct skip_node, val), val, sizeof(*val));
         /*set owner*/
         ptr_set_owner(sl, newentry);
         int i; 
@@ -629,13 +648,13 @@ int test_skip_list1(struct xdp_md *ctx)
         ptr_node *head = head_get_or_init(sl);
         xdp_assert_neq_tag(NULL, head, "faild to get head", drop_sl);
         sl_key_type k = {1};
-        sl_value_type v = 2, test_v = 0;
+        sl_value_type v = {2}, test_v = {0};
         //enqueue
-        res = sl_enqueue(sl, head, &k, v, &mval->cnt);
+        res = sl_enqueue(sl, head, &k, &v, &mval->cnt);
         xdp_assert_eq_tag(0, res, "failed enqueue", drop_head);
         res = sl_dequeue(sl, head, &test_v, &mval->cnt);
         xdp_assert_eq_tag(0, res, "failed dequeue", drop_head);
-        xdp_assert_eq_tag(v, test_v, "dequeue result incorrect", drop_head);
+        xdp_assert_eq_tag(v.data[0], test_v.data[0], "dequeue result incorrect", drop_head);
 
         log_info("test success");
         ptr_release_node(head);
@@ -672,22 +691,23 @@ int test_skip_list2(struct xdp_md *ctx)
         for (int i = 0; i <= 10; i++) {
                 log_debug("try to enqueue %d", i);
                 sl_key_type k = {i};
-                sl_value_type v = i;
-                res = sl_enqueue(sl, head, &k, v, &mval->cnt);
+                sl_value_type v = {i};
+                res = sl_enqueue(sl, head, &k, &v, &mval->cnt);
                 xdp_assert_eq_tag(0, res, "failed enqueue", drop_head);
         }
         //lookup
-        sl_value_type v_to_be_bound = 5;
-        sl_key_type k_to_be_found = {v_to_be_bound};
+        int __v_to_be_fuond = 5;
+        sl_value_type v_to_be_bound = {__v_to_be_fuond};
+        sl_key_type k_to_be_found = {__v_to_be_fuond};
         res = sl_get(sl, head, &k_to_be_found, &mval->cnt);
         xdp_assert_eq_tag(0, res, "not found", drop_head); /*found*/
 
         ptr_node *found = ptr_container_get_tmp(sl, 1);
         xdp_assert_neq_tag(NULL, found, "found should not be NULL", drop_head);
         struct skip_node *__found = (struct skip_node*)(found);
-        sl_value_type v_found = __found->val;
+        sl_value_type v_found = (__found->val);
         ptr_release_node(found);
-        xdp_assert_eq_tag(v_to_be_bound, v_found, "found value is not correct", drop_head); /*found*/
+        xdp_assert_eq_tag(v_to_be_bound.data[0], v_found.data[0], "found value is not correct", drop_head); /*found*/
 
         ptr_release_node(head);
         struct ptr_node_container * oldsl = bpf_kptr_xchg(&mval->container, sl);
@@ -716,9 +736,10 @@ static int __sl_init_loop_body(u32 index, void *ctx) {
         struct __sl_init_loop_ctx  *__ctx = (struct __sl_init_loop_ctx*)ctx;
         sl_key_type k = {0};
         *(u64*)(&k) = index;
-        sl_value_type v = index;
+        sl_value_type v = {0};
+        *(u64*)(&v) = index;
         int res;
-        res = sl_enqueue(__ctx->sl, __ctx->head, &k, v, __ctx->cnt);
+        res = sl_enqueue(__ctx->sl, __ctx->head, &k, &v, __ctx->cnt);
         if (res != 0) {
                 log_error("__sl_init_loop_body sl enqueue failed, res", res);
                 __ctx->res = res;
@@ -766,7 +787,9 @@ int xdp_main_lookup(struct xdp_md *ctx) {
         /*testing*/
         sl_key_type k = {0};
         *(u64*)(&k) = KV;
-        sl_value_type v = KV;
+        sl_value_type v = {0};
+        *(u64*)(&v) = KV;
+
         sl_value_type res_v;
         res = sl_get(sl, head, &k, &mval->cnt);
         xdp_assert_eq_tag(0, res, "not found", drop_head); /*found*/
@@ -831,12 +854,25 @@ int xdp_main_lookup_lite(struct xdp_md *ctx)
         log_debug("init success");
         /*testing*/
         sl_key_type k = {0};
-        *(u64*)(&k) = KV;
-        sl_value_type v = KV;
-        sl_value_type res_v;
+        u64 vv = bpf_get_prandom_u32() & (ELEM_NUM - 1);
+        *(u64*)(&k) = vv;
+
+        /*grow the packet*/
+        u64 packet_size = 0;
+        res = bpf_xdp_adjust_tail(ctx, VALUE_SIZE);
+        xdp_assert_eq_tag(0, res, "failed to grow packet", drop_sl); /*found*/
+        void *data = (void *)(__u64)ctx->data;
+        void *data_end = (void *)(__u64)ctx->data_end;
+        sl_value_type *look_res = (sl_value_type *)(data + packet_size);
+        if ((void*)(look_res + 1) > data_end) {
+                log_error("packet too small should not happen");
+                goto drop_sl;
+        }
+
         //res = sl_get_lite(sl, &k, &res_v, &mval->cnt);
-        res = sl_get_lite(sl, &k, &res_v, &mval->cnt);
+        res = sl_get_lite(sl, &k, look_res, &mval->cnt);
         xdp_assert_eq_tag(0, res, "not found", drop_sl); /*found*/
+
 
         struct ptr_node_container * oldsl = bpf_kptr_xchg(&mval->container, sl);
         if (unlikely(oldsl != NULL)) {

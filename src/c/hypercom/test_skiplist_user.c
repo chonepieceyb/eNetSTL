@@ -32,12 +32,12 @@ void test() {
 	if (CHECK_FAIL(res)) {									
 		goto clean;									
 	}											
-	// res = bpf_prog_test_run_opts(bpf_program__fd(prog1), &topts);				
-	// ASSERT_OK(res, "bpf_prog_test_run_opts res");						
-	// ASSERT_EQ(topts.retval, XDP_PASS, "test1");
-        // res = bpf_prog_test_run_opts(bpf_program__fd(prog2), &topts);				
-	// ASSERT_OK(res, "bpf_prog_test_run_opts res");						
-	// ASSERT_EQ(topts.retval, XDP_PASS, "test2");	
+	res = bpf_prog_test_run_opts(bpf_program__fd(prog1), &topts);				
+	ASSERT_OK(res, "bpf_prog_test_run_opts res");						
+	ASSERT_EQ(topts.retval, XDP_PASS, "test1");
+        res = bpf_prog_test_run_opts(bpf_program__fd(prog2), &topts);				
+	ASSERT_OK(res, "bpf_prog_test_run_opts res");						
+	ASSERT_EQ(topts.retval, XDP_PASS, "test2");	
         // res = bpf_prog_test_run_opts(bpf_program__fd(prog3), &topts);				
 	// ASSERT_OK(res, "bpf_prog_test_run_opts res");
 	// ASSERT_EQ(topts.retval, XDP_PASS, "test_lookup");	

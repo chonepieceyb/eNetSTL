@@ -1,3 +1,4 @@
+#include "linux/cache.h"
 #include "linux/compiler.h"
 #include "linux/list.h"
 #include "linux/preempt.h"
@@ -167,21 +168,54 @@ __bpf_kfunc int node_2_16_write(struct node_2_16_data *parent, size_t off, void 
 EXPORT_SYMBOL_GPL(node_2_16_write);
 
 
-
-
 #define NODE_SIZE 512
 
 /*pointer structure lib-new*/
-struct ____node {
-	char data[NODE_SIZE];
-};
-
-typedef struct ____node ptr_node; 
 
 static struct bpf_mem_alloc percpu_container_ma;
 static struct bpf_mem_alloc percpu_ptr_ma;
 
 #define MAX_TMP_NUM 32
+
+
+
+#define PTR_SIZE 16
+#define IN_NUM PTR_SIZE
+#define OUT_NUM PTR_SIZE
+#define DATA_SIZE1 52
+#define DATA_SIZE2 160
+// struct __node_common {
+// /* u32 size;
+// *  int ref_cnt;
+// *  out[child_num];
+// *  in[parent_num];
+// *  
+// * 
+// */
+// 	u32 in_num; 
+// 	u32 out_num;
+// 	int refcnt;
+// 	u32 data_off;
+// 	struct ptr_node_container *owner; 
+// 	unsigned long in_map;
+// 	unsigned long out_map;
+// 	struct list_head node;
+// 	DECLARE_FLEX_ARRAY(struct __node_common*, ptrs);
+// };
+
+struct __node_common {
+	struct ptr_node_container *owner;
+	int refcnt;
+	char data1[DATA_SIZE1];
+	struct __node_common *outs[PTR_SIZE];
+	struct __node_common *ins[PTR_SIZE];
+	unsigned long in_map;
+	unsigned long out_map;
+	struct list_head node;
+	char data2[DATA_SIZE2];
+}____cacheline_aligned_in_smp;
+
+typedef struct __node_common ptr_node; 
 
 struct ptr_node_container {
 	struct list_head node_list;
@@ -190,24 +224,6 @@ struct ptr_node_container {
 	//DECLARE_FLEX_ARRAY(ptr_node*, tmps);
 };
 
-struct __node_common {
-/* u32 size;
-*  int ref_cnt;
-*  out[child_num];
-*  in[parent_num];
-*  
-* 
-*/
-	u32 in_num; 
-	u32 out_num;
-	int refcnt;
-	u32 data_off;
-	struct ptr_node_container *owner; 
-	unsigned long in_map;
-	unsigned long out_map;
-	struct list_head node;
-	DECLARE_FLEX_ARRAY(struct __node_common*, ptrs);
-};
 #define MAX_PTRS 42
 
 struct ptr_node_container*  ptr_create_node_container(u32 tmp_num) 
@@ -280,30 +296,21 @@ ptr_node* ptr_container_get_tmp(struct ptr_node_container* c, u32 idx)
 }
 EXPORT_SYMBOL_GPL(ptr_container_get_tmp);
 
-ptr_node* ptr_alloc_node(u32 in_num, u32 out_num) 
+ptr_node* ptr_alloc_node(void) 
 {
-	u32 data_off;
-	if (unlikely(in_num + out_num >= MAX_PTRS)) {
-		return NULL;   //too much ptrsptr_alloc_node
-	}
 	preempt_disable();
 	struct __node_common *__node = (struct __node_common *)bpf_mem_cache_alloc(&percpu_ptr_ma);
 	preempt_enable();
 	if (unlikely(__node == NULL)) {
 		return NULL; 
 	}
-	data_off = sizeof(*__node) + ((in_num + out_num) * sizeof(void*)); 
-	pr_debug("node alloc data_off %u", data_off);
+	pr_debug("node alloc size %lu", sizeof(ptr_node));
 	memset(__node, 0, sizeof(ptr_node));
-	__node->in_num = in_num;
-	__node->out_num = out_num;
 	__node->refcnt = 1;  /*set ref_cnt*/
-	__node->data_off = data_off;
 	__node->owner = NULL;
 	/* add to node list*/
 	//list_add( &__node->node, &c->node_list);  /*delete in release*/
 	return (ptr_node*)__node;
-	
 }
 EXPORT_SYMBOL_GPL(ptr_alloc_node);
 
@@ -322,22 +329,22 @@ void ptr_unset_owner(ptr_node *node) {
 	struct __node_common *__node  = (struct __node_common *)(node);
 	struct __node_common *__pre_node, *__next_node;
 	int i, j;
-	u32 in_num = __node->in_num, out_num = __node->out_num;
+	u32 in_num = IN_NUM, out_num = OUT_NUM;
 	if (unlikely(__node->owner == NULL))
 		return; 
 	/* invalid all referenced ptrs*/
 	if (unlikely(__node->out_map != 0)) {
 		/* invalid all ptr2 in equals ptr1 ,it is likely that use have done this through unconnect*/
 		for (i = 0; i < out_num; i++) {
-			__next_node = *(__node->ptrs + i);
+			__next_node = __node->outs[i];
 			pr_debug("try invald out node %p, out %d", __next_node, i);
 			if (__next_node == NULL) 
 				continue; 
-			for (j = 0; j < __next_node->in_num; j++) {
+			for (j = 0; j < IN_NUM; j++) {
 				pr_debug("try in ptr %d", j);
-				if (*(__next_node->ptrs + __next_node->out_num + j) == __node) {
-					*(__next_node->ptrs + __next_node->out_num + j) = NULL;
-					pr_debug("invald in ptr %p %d", __next_node->ptrs + __next_node->out_num + j, j);
+				if (__next_node->ins[j] == __node) {
+					pr_debug("invald in ptr %p %d", __next_node->ins[j], j);
+					__next_node->ins[j] = NULL;
 				}
 			}
 		}
@@ -345,15 +352,15 @@ void ptr_unset_owner(ptr_node *node) {
 	if (unlikely(__node->in_map != 0)) {
 		/* invalid all ptr1, it is likely that use have done this through unconnect*/
 		for (i = 0; i < in_num; i++) {
-			__pre_node = *(__node->ptrs + out_num + i);
+			__pre_node = __node->ins[i];
 			pr_debug("try invald in node %p, in %d", __pre_node, i);
 			if (__pre_node == NULL) 
 				continue;
-			for (j = 0; j < __pre_node->out_num; j++) {
+			for (j = 0; j < OUT_NUM; j++) {
 				pr_debug("try invalid out ptr %d", j);
-				if (*(__pre_node->ptrs + j) == __node) {
-					*(__pre_node->ptrs + j) = NULL;
-					pr_debug("invald out ptr %p %d", __pre_node->ptrs + j, j);
+				if (__pre_node->outs[j] == __node) {
+					pr_debug("invald out ptr %p %d", __pre_node->outs[j], j);
+					__pre_node->outs[j] = NULL;
 				}
 			}
 		}
@@ -371,10 +378,10 @@ EXPORT_SYMBOL_GPL(ptr_unset_owner);
 ptr_node* ptr_get_out(ptr_node *parent, u32 idx)
 {
 	struct __node_common *__node = (struct __node_common *)parent;
-	if (unlikely(idx >= __node->out_num)) {
-		return NULL;
-	}
-	struct __node_common *__node_get = *(__node->ptrs + idx);
+	// if (unlikely(idx >= OUT_NUM)) {
+	// 	return NULL;
+	// }
+	struct __node_common *__node_get = __node->outs[idx & (OUT_NUM - 1)];
 	if (__node_get == NULL) 
 		return NULL;
 	__node_get->refcnt++;
@@ -385,7 +392,6 @@ EXPORT_SYMBOL_GPL(ptr_get_out);
 
 void ptr_release_node(ptr_node *ptr)
 {
-	
 	struct __node_common *__node = (struct __node_common *)ptr;
 	pr_debug("ptr_release_node %p refcnt %d", ptr, __node->refcnt);
 	if (unlikely((--__node->refcnt) == 0)) {
@@ -405,11 +411,11 @@ int ptr_connect(ptr_node *p1, u32 idx1, ptr_node *p2, u32 idx2)
 	struct __node_common *__p2 = (struct __node_common*)(p2);
 	if (unlikely(__p1->owner != __p2->owner  || __p1->owner  == NULL))
 		return -EINVAL;
-	if (unlikely(idx1 >= __p1->out_num || idx2 >= __p2->in_num)) {
+	if (unlikely(idx1 >= OUT_NUM || idx2 >= IN_NUM)) {
 		return -EINVAL;
 	}
-	struct __node_common **__pp1_out = __p1->ptrs + idx1;
-	struct __node_common **__pp2_in = __p2->ptrs + __p2->in_num + idx2;
+	struct __node_common **__pp1_out =  &(__p1->outs[idx1]);  
+	struct __node_common **__pp2_in = &(__p2->ins[idx2]); 
 	if (unlikely(*__pp1_out != NULL || *__pp2_in != NULL)) {
 		return -1;
 	}
@@ -427,11 +433,11 @@ int ptr_unconnect(ptr_node *p1, u32 idx1, ptr_node *p2, u32 idx2)
 	struct __node_common *__p2 = (struct __node_common*)(p2);
 	if (unlikely(__p1->owner != __p2->owner || __p1->owner  == NULL))
 		return -EINVAL;
-	if (unlikely(idx1 >= __p1->out_num || idx2 >= __p2->in_num)) {
+	if (unlikely(idx1 >= OUT_NUM || idx2 >= IN_NUM)) {
 		return -EINVAL;
 	}
-	struct __node_common **__pp1_out = __p1->ptrs + idx1;
-	struct __node_common **__pp2_in = __p2->ptrs + __p2->in_num + idx2;
+	struct __node_common **__pp1_out =  &__p1->outs[idx1];  
+	struct __node_common **__pp2_in =  &__p2->ins[idx2];
 	if (unlikely(*__pp1_out !=  __p2 || *__pp2_in != __p1)) {
 		return -1;
 	}
@@ -443,16 +449,27 @@ int ptr_unconnect(ptr_node *p1, u32 idx1, ptr_node *p2, u32 idx2)
 }
 EXPORT_SYMBOL_GPL(ptr_unconnect);
 
-__bpf_kfunc int ptr_write(ptr_node *node, size_t off, void *data__buf, size_t size__sz)
+__bpf_kfunc int ptr_write_data1(ptr_node *node, size_t off, void *data__buf, size_t size__sz)
 {	
 	pr_debug("ptr_write node %p, off %lu, size %lu", node, off, size__sz);
 	struct __node_common *__node = (struct __node_common *)node;
-	if (unlikely(off < __node->data_off || off + size__sz >= sizeof(*node)))
+	if (unlikely(off < offsetof(ptr_node, data1) || off + size__sz > (offsetof(ptr_node, data1) + DATA_SIZE1)))
 		return -1;
 	memcpy((void*)__node + off, data__buf, size__sz);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(ptr_write);
+EXPORT_SYMBOL_GPL(ptr_write_data1);
+
+__bpf_kfunc int ptr_write_data2(ptr_node *node, size_t off, void *data__buf, size_t size__sz)
+{	
+	pr_debug("ptr_write node %p, off %lu, size %lu", node, off, size__sz);
+	struct __node_common *__node = (struct __node_common *)node;
+	if (unlikely(off < offsetof(ptr_node, data2) || off + size__sz > (offsetof(ptr_node, data2) + DATA_SIZE2)))
+		return -1;
+	memcpy((void*)__node + off, data__buf, size__sz);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(ptr_write_data2);
 
 
 BTF_SET8_START(bpf_ptr_structure_kfunc_ids)
@@ -474,7 +491,8 @@ BTF_ID_FLAGS(func, ptr_container_get_tmp, KF_ACQUIRE | KF_RET_NULL)
 BTF_ID_FLAGS(func, ptr_connect)
 BTF_ID_FLAGS(func, ptr_unconnect)
 BTF_ID_FLAGS(func, ptr_get_out, KF_ACQUIRE | KF_RET_NULL)
-BTF_ID_FLAGS(func, ptr_write)
+BTF_ID_FLAGS(func, ptr_write_data1)
+BTF_ID_FLAGS(func, ptr_write_data2)
 BTF_SET8_END(bpf_ptr_structure_kfunc_ids)
 
 BTF_ID_LIST(ptr_structure_dtor_ids)
@@ -482,7 +500,7 @@ BTF_ID(struct, node_2_16_data)
 BTF_ID(func, node_2_16_release)
 BTF_ID(struct, ptr_node_container)
 BTF_ID(func, ptr_destory_node_container)
-BTF_ID(struct, ____node)
+BTF_ID(struct, __node_common)
 BTF_ID(func, ptr_release_node)
 
 static const struct btf_kfunc_id_set bpf_ptr_structure_kfunc_set = {
