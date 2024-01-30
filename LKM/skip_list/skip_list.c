@@ -13,7 +13,7 @@
 
 #define MAX_ENTRY 100000
 #define RAND_MAX 2147483647
-#define MAX_SKIPLIST_HEIGHT 1
+#define MAX_SKIPLIST_HEIGHT 8
 
 #define TEST_RANGE 20
 // #define USE_DEBUG
@@ -24,9 +24,39 @@ extern void bpf_unregister_static_cmap(struct module *onwer);
 extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
+// #define MEM_CMP_FUNC __builtin_memcpy
+#define MEM_CMP_FUNC memcmp_byte
+static int memcmp_byte(void *a, void *b, __u64 size) {
+	__u8 *a_ptr = (__u8 *)a;
+	__u8 *b_ptr = (__u8 *)b;
+	for (int i = 0; i < size; i++) {
+		if (a_ptr[i] != b_ptr[i]) {
+			return a_ptr[i] - b_ptr[i];
+		}
+	}
+	return 0;
+}
+struct pkt_5tuple {
+	__be32 src_ip;
+	__be32 dst_ip;
+	__be16 src_port;
+	__be16 dst_port;
+	uint8_t proto;
+} __attribute__((packed));
+
+struct pkt_5tuple_with_pad {
+	__u8 pad[46];
+	__u16 key;
+} __attribute__((packed));
+
+struct value_with_pad {
+	__u8 pad[120];
+	__u64 data;
+} __attribute__((packed));
+
 typedef struct sl_entry {
-	__u64 key;
-	__u64 value;
+	struct pkt_5tuple_with_pad key;
+	struct value_with_pad value;
 	int height;
 	struct sl_entry *next[MAX_SKIPLIST_HEIGHT];
 } sl_entry;
@@ -130,19 +160,20 @@ static void *skip_list_lookup_elem(struct bpf_map *map, void* key_ptr)
 	sl_entry *curr = head;
 	int level = head->height - 1;
 
-	__u64 key = *(__u64 *)key_ptr;
-	// pr_info("--start search key: %llu--", key);
+	struct pkt_5tuple_with_pad key = *(struct pkt_5tuple_with_pad *)key_ptr;
+	// pr_info("--start search key: %llu--", key.key);
 	// Find the position where the key is expected
 	while (curr != NULL && level >= 0) {
 		if (curr->next[level] == NULL) {
 			--level;
 			// pr_info("1. go to next level: %d", level);
 		} else {
-
-			if (curr->next[level]->key == key) { // Found a match
-				// pr_info("--found key: %llu at level: %d--", key, level);
+			int cmp = MEM_CMP_FUNC(&curr->next[level]->key, &key, sizeof(struct pkt_5tuple_with_pad));
+			// pr_info("cmp: %d", cmp);
+			if (cmp == 0) { // Found a match
+				// pr_info("--found key: %u at level: %d--", key.pkt.dst_port, level);
 				return &(curr->next[level]->value);
-			} else if (curr->next[level]->key > key) { // Drop down a level
+			} else if (cmp > 0) { // Drop down a level
 				--level;
 				// pr_info("2. go to next level: %d", level);
 			} else { // Keep going at this level
@@ -166,8 +197,8 @@ static long skip_list_update_elem(struct bpf_map *map, void* key_ptr, void* valu
 	sl_entry *curr = head;
 	int level = head->height - 1;
 
-	__u64 key = *(__u64 *)key_ptr;
-	__u64 value = *(__u64 *)value_ptr;
+	struct pkt_5tuple_with_pad key = *(struct pkt_5tuple_with_pad *)key_ptr;
+	struct value_with_pad value = *(struct value_with_pad *)value_ptr;
 
 	// Find the position where the key is expected
 	while (curr != NULL && level >= 0) {
@@ -175,11 +206,12 @@ static long skip_list_update_elem(struct bpf_map *map, void* key_ptr, void* valu
 		if (curr->next[level] == NULL) {
 			--level;
 		} else {
-			if (curr->next[level]->key == key) { // Found a match, replace the old value
+			int cmp = MEM_CMP_FUNC(&curr->next[level]->key, &key, sizeof(struct pkt_5tuple_with_pad));
+			if (cmp == 0) { // Found a match, replace the old value
 				curr->next[level]->value = value;
 				skip_list_map->entry_count++;
 				return 0;
-			} else if (curr->next[level]->key > key) { // Drop down a level
+			} else if (cmp > 0) { // Drop down a level
 				--level;
 			} else { // Keep going at this level
 				curr = curr->next[level];
@@ -216,7 +248,7 @@ static long skip_list_delete_elem(struct bpf_map *map, void *key_ptr)
 	sl_entry *curr = head;
 	int level = head->height - 1;
 
-	__u64 key = *(__u64 *)key_ptr;
+	struct pkt_5tuple_with_pad key = *(struct pkt_5tuple_with_pad *)key_ptr;
 
 	// Find the list node just before the condemned node at every
 	// level of the chain
@@ -226,7 +258,7 @@ static long skip_list_delete_elem(struct bpf_map *map, void *key_ptr)
 		if (curr->next[level] == NULL) {
 			--level;
 		} else {
-			cmp = curr->next[level]->key - key;
+			cmp = MEM_CMP_FUNC(&curr->next[level]->key, &key, sizeof(struct pkt_5tuple_with_pad));
 			if (cmp >= 0) { // Drop down a level
 				--level;
 			} else { // Keep going at this level
@@ -251,6 +283,106 @@ static long skip_list_delete_elem(struct bpf_map *map, void *key_ptr)
 	return -ENOENT;
 }
 
+/**
+ * @brief add given value to the skip_list and pop first element
+ * 
+ * @param map 
+ * @param value 
+ * @param flags 
+ * @return long 
+ */
+static long skip_list_push_pop_elem(struct bpf_map *map, void *value_ptr, u64 flags) {
+	struct static_sl_map *skip_list_map =
+		container_of(map, struct static_sl_map, map);
+	sl_entry *head = skip_list_map->skiplist;
+
+	sl_entry *prev[MAX_SKIPLIST_HEIGHT];
+	sl_entry *curr = head;
+	int level = head->height - 1;
+	__u64 poped_elem = 0;
+
+	if (head->next[0] == NULL) {
+		pr_info("goto insert");
+		goto insert;
+	}
+	struct pkt_5tuple_with_pad key = head->next[0]->key;
+
+	// Find the list node just before the condemned node at every
+	// level of the chain
+	int cmp = 1;
+	while (curr != NULL && level >= 0) {
+		prev[level] = curr;
+		if (curr->next[level] == NULL) {
+			--level;
+		} else {
+			cmp = MEM_CMP_FUNC(&curr->next[level]->key, &key, sizeof(struct pkt_5tuple_with_pad));
+			if (cmp >= 0) { // Drop down a level
+				--level;
+			} else { // Keep going at this level
+				curr = curr->next[level];
+			}
+		}
+	}
+
+	// We found the match we want, and it's in the next pointer
+	if (curr && !cmp) {
+		sl_entry *condemned = curr->next[0];
+		poped_elem = condemned->key.key;
+		// Remove the condemned node from the chain
+		int i;
+		for (i = condemned->height - 1; i >= 0; --i) {
+			prev[i]->next[i] = condemned->next[i];
+		}
+		// Free it
+		bpf_mem_cache_free(&skip_list_map->ma, condemned);
+		condemned = NULL;
+	}
+
+insert:;
+	sl_entry *prev_2[MAX_SKIPLIST_HEIGHT];
+	sl_entry *curr_2 = head;
+
+	struct pkt_5tuple_with_pad key_2 = *(struct pkt_5tuple_with_pad *)value_ptr;
+	struct value_with_pad value = *(struct value_with_pad *)value_ptr;
+
+	// Find the position where the key is expected
+	while (curr_2 != NULL && level >= 0) {
+		prev_2[level] = curr_2;
+		if (curr_2->next[level] == NULL) {
+			--level;
+		} else {
+			cmp = MEM_CMP_FUNC(&curr->next[level]->key, &key_2, sizeof(struct pkt_5tuple_with_pad));
+			if (cmp == 0) { // Found a match, replace the old value
+				curr_2->next[level]->value = value;
+				skip_list_map->entry_count++;
+				return poped_elem;
+			} else if (cmp > 0) { // Drop down a level
+				--level;
+			} else { // Keep going at this level
+				curr_2 = curr_2->next[level];
+			}
+		}
+	}
+
+	// Didn't find it, we need to insert a new entry
+	sl_entry *new_entry = bpf_mem_cache_alloc(&skip_list_map->ma);
+	new_entry->height = grand(head->height);
+	new_entry->key = key;
+	new_entry->value = value;
+	int i;
+	// Null out pointers above height
+	for (i = MAX_SKIPLIST_HEIGHT - 1; i > new_entry->height; --i) {
+		new_entry->next[i] = NULL;
+	}
+	// Tie in other pointers
+	for (i = new_entry->height - 1; i >= 0; --i) {
+		new_entry->next[i] = prev_2[i]->next[i];
+		prev_2[i]->next[i] = new_entry;
+	}
+	skip_list_map->entry_count++;
+	return poped_elem;
+}
+
 static u64 skip_list_mem_usage(const struct bpf_map *map)
 {
 	struct static_sl_map *skip_list_map =
@@ -264,6 +396,7 @@ static struct bpf_map_ops cmap_ops = { .map_alloc_check = skip_list_alloc_check,
 				       .map_lookup_elem = skip_list_lookup_elem,
 				       .map_update_elem = skip_list_update_elem,
 				       .map_delete_elem = skip_list_delete_elem,
+							 .map_push_elem = skip_list_push_pop_elem,
 				       .map_mem_usage = skip_list_mem_usage };
 
 #ifdef USE_DEBUG

@@ -8,15 +8,27 @@ char _license[] SEC("license") = "GPL";
 
 #define MAX_ENTRY 1024
 
-#define HASH_SEED 0xdeadbeef
-#define KEY_RANGE 100
-#define LOOKUP_KEY 50
+#define KEY_RANGE 1024
+
+struct pkt_5tuple_with_pad {
+	__u8 pad[46];
+	// struct pkt_5tuple pkt;
+	__u16 key;
+} __attribute__((packed));
+
+
+
+struct value_with_pad {
+	__u8 pad[120];
+	__u64 data;
+} __attribute__((packed));
+
 struct {
 	__uint(type, BPF_MAP_TYPE_STATIC_CUSTOM_MAP);
-	__type(key, __u64);
-	__type(value, __u64);
+	__type(key, struct pkt_5tuple_with_pad);
+	__type(value, struct value_with_pad);
 	__uint(max_entries, MAX_ENTRY);
-	__uint(pinning, 1);
+	// __uint(pinning, 1);
 } skip_list SEC(".maps");
 
 struct {
@@ -28,136 +40,210 @@ struct {
 
 static int init = 0;
 
-/* exp setup program */
-SEC("xdp")
-int add_data(struct xdp_md *ctx)
-{
-	struct pkt_5tuple pkt = { 0 };
-	void *data, *data_end;
-	struct hdr_cursor nh;
-	int ret;
+// /* exp setup program */
+// SEC("xdp")
+// int add_data(struct xdp_md *ctx)
+// {
+// 	struct pkt_5tuple pkt = { 0 };
+// 	void *data, *data_end;
+// 	struct hdr_cursor nh;
+// 	int ret;
 
-	data = (void *)(long)ctx->data;
-	data_end = (void *)(long)ctx->data_end;
-	nh.pos = data;
-	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
-		log_error("cannot parse packet: %d", ret);
-		goto finish;
-	} else {
-		log_debug(
-			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
-			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
-			pkt.proto);
-	}
+// 	data = (void *)(long)ctx->data;
+// 	data_end = (void *)(long)ctx->data_end;
+// 	nh.pos = data;
+// 	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
+// 		log_error("cannot parse packet: %d", ret);
+// 		goto finish;
+// 	} else {
+// 		log_debug(
+// 			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
+// 			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
+// 			pkt.proto);
+// 	}
 
-	__u64 key = (__u64)pkt.dst_port;
+// 	__u64 key = (__u64)pkt.dst_port;
 
-	int add_res = bpf_map_update_elem(&skip_list, &key, &key, BPF_ANY);
-	log_debug("dst port: %d, add_res: %d\n", pkt.dst_port, add_res);
-	if (add_res != 0) {
-		log_error("add failed\n");
-	}
+// 	int add_res = bpf_map_update_elem(&skip_list, &key, &key, BPF_ANY);
+// 	log_debug("dst port: %d, add_res: %d\n", pkt.dst_port, add_res);
+// 	if (add_res != 0) {
+// 		log_error("add failed\n");
+// 	}
 
-finish:
-	return XDP_DROP;
-}
+// finish:
+// 	return XDP_DROP;
+// }
 
-/* exp program */
-SEC("xdp")
-int delete_data(struct xdp_md *ctx)
-{
-	struct pkt_5tuple pkt = { 0 };
-	void *data, *data_end;
-	struct hdr_cursor nh;
-	int ret;
+// /* exp program */
+// SEC("xdp")
+// int delete_data(struct xdp_md *ctx)
+// {
+// 	struct pkt_5tuple pkt = { 0 };
+// 	void *data, *data_end;
+// 	struct hdr_cursor nh;
+// 	int ret;
 
-	data = (void *)(long)ctx->data;
-	data_end = (void *)(long)ctx->data_end;
-	nh.pos = data;
-	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
-		log_error("cannot parse packet: %d", ret);
-		goto finish;
-	} else {
-		log_debug(
-			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
-			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
-			pkt.proto);
-	}
+// 	data = (void *)(long)ctx->data;
+// 	data_end = (void *)(long)ctx->data_end;
+// 	nh.pos = data;
+// 	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
+// 		log_error("cannot parse packet: %d", ret);
+// 		goto finish;
+// 	} else {
+// 		log_debug(
+// 			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
+// 			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
+// 			pkt.proto);
+// 	}
 
-	__u64 key = (__u64)pkt.dst_port;
+// 	__u64 key = (__u64)pkt.dst_port;
 
-	if (pkt.dst_port % 2 == 0) {
-		long delete_res = bpf_map_delete_elem(&skip_list, &key);
-		log_debug("dst port: %d, delete_res: %d\n", pkt.dst_port,
-			  delete_res == NULL ? 0 : 1);
-		if (delete_res != 0) {
-			log_error("delete failed\n");
-		}
-	}
+// 	if (pkt.dst_port % 2 == 0) {
+// 		long delete_res = bpf_map_delete_elem(&skip_list, &key);
+// 		log_debug("dst port: %d, delete_res: %d\n", pkt.dst_port,
+// 			  delete_res == NULL ? 0 : 1);
+// 		if (delete_res != 0) {
+// 			log_error("delete failed\n");
+// 		}
+// 	}
 
-finish:
-	return XDP_DROP;
-}
+// finish:
+// 	return XDP_DROP;
+// }
 
-/* lookup program */
-SEC("xdp")
-int xdp_main(struct xdp_md *ctx)
-{
-	struct pkt_5tuple pkt = { 0 };
-	void *data, *data_end;
-	struct hdr_cursor nh;
-	int ret;
+// /* lookup program */
+// SEC("xdp")
+// int xdp_main(struct xdp_md *ctx)
+// {
+// 	struct pkt_5tuple pkt = { 0 };
+// 	void *data, *data_end;
+// 	struct hdr_cursor nh;
+// 	int ret;
 
-	data = (void *)(long)ctx->data;
-	data_end = (void *)(long)ctx->data_end;
-	nh.pos = data;
-	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
-		log_error("cannot parse packet: %d", ret);
-		goto finish;
-	} else {
-		log_debug(
-			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
-			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
-			pkt.proto);
-	}
+// 	data = (void *)(long)ctx->data;
+// 	data_end = (void *)(long)ctx->data_end;
+// 	nh.pos = data;
+// 	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
+// 		log_error("cannot parse packet: %d", ret);
+// 		goto finish;
+// 	} else {
+// 		log_debug(
+// 			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
+// 			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
+// 			pkt.proto);
+// 	}
 
-	__u64 key = (__u64)pkt.dst_port;
+// 	__u64 key = (__u64)pkt.dst_port;
 
-	struct __u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &key);
-	log_debug("dst port: %d, lookup_res: %d\n", pkt.dst_port,
-		  lookup_res == NULL ? 0 : 1);
-finish:
-	return XDP_DROP;
-}
+// 	struct __u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &key);
+// 	log_debug("dst port: %d, lookup_res: %d\n", pkt.dst_port,
+// 		  lookup_res == NULL ? 0 : 1);
+// finish:
+// 	return XDP_DROP;
+// }
 
 /* lookup program */
 SEC("xdp")
 int xdp_test(struct xdp_md *ctx)
 {
+	struct pkt_5tuple_with_pad pkt_with_pad = {};
+	struct value_with_pad value_with_pad = {};
 
-	__u64 keys[5] = {1, 2, 3, 4, 5};
 	int zero = 0;
 	int *res = bpf_map_lookup_elem(&init_map, &zero);
 	if (res == NULL) {
 		goto finish;
 	}
 	if (*res == 0) {
-		for (int i = 0; KEY_RANGE > i; i++) {
-			__u64 key = (__u64)i;
-			bpf_map_update_elem(&skip_list, &key, &key, BPF_ANY);
+		for (int i = 0; i < KEY_RANGE; i ++) {
+			pkt_with_pad.key = i;
+			value_with_pad.data = i;
+			bpf_map_update_elem(&skip_list, &pkt_with_pad, &value_with_pad, BPF_ANY);
 		}
 		*res = 1;
 	}
 
-	__u64 key = KEY_RANGE;
-	__u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &key);
+	// pkt_with_pad.key = bpf_get_prandom_u32() % KEY_RANGE;
+	pkt_with_pad.key = 1;
+
+	struct value_with_pad *lookup_res = bpf_map_lookup_elem(&skip_list, &pkt_with_pad);
 	if (lookup_res == NULL) {
+		log_error("lookup_key: %d, lookup failed", pkt_with_pad.key);
 		goto finish;
 	}
-	
-	if (*lookup_res == 999) {
+
+	int adjust_res = bpf_xdp_adjust_tail(ctx, 128);
+	if (adjust_res != 0) {
+		goto finish;
+	}
+	void *pkt_start = (void*)(long)ctx->data;
+	if (pkt_start + sizeof(struct value_with_pad) > ctx->data_end) {
+		goto finish;
+	}
+	__builtin_memcpy(pkt_start, lookup_res, sizeof(struct value_with_pad));
+
+	// __builtin_memcpy(((void *)(long)ctx->data_end - sizeof(struct value_with_pad)), &value_with_pad, sizeof(struct value_with_pad));
+
+	// log_error("lookup_key: %d, lookup_res: %d", pkt_with_pad.pkt.dst_port, *lookup_res);
+	// log_error("pkt_start: %d, lookup_res: %d", ((struct value_with_pad *)pkt_start)->data, lookup_res->data);
+	if (*(__u64 *)pkt_start == 99999) {
 		return XDP_TX;
 	}
+
 finish:
 	return XDP_DROP;
 }
+
+// static void init_helper(u32 index, void *ctx) {
+// 	struct pkt_5tuple_with_pad pkt_with_pad = {};
+// 	pkt_with_pad.pkt.src_ip = 0x12345678;
+// 	pkt_with_pad.pkt.dst_ip = 0x12345678;
+// 	pkt_with_pad.pkt.src_port = 0x1234;
+// 	pkt_with_pad.pkt.proto = 0x12;
+// 	pkt_with_pad.pkt.dst_port = (__u64)index;
+// 	bpf_map_update_elem(&skip_list, &pkt_with_pad, &index, BPF_ANY);
+// }
+
+// SEC("xdp")
+// int add_test(struct xdp_md *ctx)
+// {
+// 	struct pkt_5tuple_with_pad pkt_with_pad = {};
+// 	pkt_with_pad.pkt.src_ip = 0x12345678;
+// 	pkt_with_pad.pkt.dst_ip = 0x12345678;
+// 	pkt_with_pad.pkt.src_port = 0x1234;
+// 	pkt_with_pad.pkt.dst_port = 0x1234;
+// 	pkt_with_pad.pkt.proto = 0x12;
+
+// 	int zero = 0;
+// 	int *res = bpf_map_lookup_elem(&init_map, &zero);
+// 	if (res == NULL) {
+// 		goto finish;
+// 	}
+// 	if (*res == 0) {
+// 		// for (int i = 0; i < KEY_RANGE; i ++) {
+// 		// 	__u64 key = (__u64)i;
+// 		// 	pkt_with_pad.pkt.dst_port = i;
+// 		// 	bpf_map_update_elem(&skip_list, &pkt_with_pad, &key, BPF_ANY);
+// 		// }
+// 		// bpf_loop(KEY_RANGE, &init_helper, ctx, 0);
+// 		*res = 1;
+// 	}
+
+// 	pkt_with_pad.pkt.dst_port = 512;
+// 	// __u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &pkt_with_pad);
+// 	// if (lookup_res == NULL) {
+// 	// 	log_error("lookup_key: %d, lookup failed", pkt_with_pad.pkt.dst_port);
+// 	// 	goto finish;
+// 	// }
+// 	// // log_error("lookup_key: %d, lookup_res: %d", pkt_with_pad.pkt.dst_port, *lookup_res);
+// 	// if (*lookup_res == 999) {
+// 	// 	return XDP_TX;
+// 	// }
+
+// 	long pop_res = bpf_map_push_elem(&skip_list, &pkt_with_pad, zero);
+// 	log_error("pop_res: %d\n", pop_res);
+// 	__u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &pkt_with_pad);
+// 	log_error("lookup_res: %d\n", lookup_res == NULL ? 0 : 1);
+// finish:
+// 	return XDP_DROP;
+// }
