@@ -8,7 +8,7 @@ char _license[] SEC("license") = "GPL";
 
 #define MAX_ENTRY 1024
 
-#define KEY_RANGE 1024
+#define KEY_RANGE 65536
 
 struct pkt_5tuple_with_pad {
 	__u8 pad[46];
@@ -163,8 +163,8 @@ int xdp_test(struct xdp_md *ctx)
 		*res = 1;
 	}
 
-	// pkt_with_pad.key = bpf_get_prandom_u32() % KEY_RANGE;
-	pkt_with_pad.key = 1;
+	pkt_with_pad.key = bpf_get_prandom_u32() % KEY_RANGE;
+	// pkt_with_pad.key = 1;
 
 	struct value_with_pad *lookup_res = bpf_map_lookup_elem(&skip_list, &pkt_with_pad);
 	if (lookup_res == NULL) {

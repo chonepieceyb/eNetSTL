@@ -13,7 +13,7 @@
 
 #define MAX_ENTRY 100000
 #define RAND_MAX 2147483647
-#define MAX_SKIPLIST_HEIGHT 8
+#define MAX_SKIPLIST_HEIGHT 16
 
 #define TEST_RANGE 20
 // #define USE_DEBUG
@@ -57,8 +57,10 @@ struct value_with_pad {
 typedef struct sl_entry {
 	struct pkt_5tuple_with_pad key;
 	struct value_with_pad value;
+	int ref_cnt;
 	int height;
 	struct sl_entry *next[MAX_SKIPLIST_HEIGHT];
+	int hit_cnt;
 } sl_entry;
 
 struct static_sl_map {
@@ -151,6 +153,33 @@ static void skip_list_free(struct bpf_map *map)
 	return;
 }
 
+noinline sl_entry* ptr_get_next(sl_entry *parent, u32 idx)
+{
+	if (idx >= MAX_SKIPLIST_HEIGHT) {
+		return NULL;
+	}
+	
+	sl_entry *next_node = parent->next[idx & (MAX_SKIPLIST_HEIGHT - 1)];
+	if (next_node == NULL) 
+		return NULL;
+	next_node->ref_cnt++;
+
+	return next_node;
+}
+
+noinline void ptr_release_node(sl_entry *node)
+{
+	if (node == NULL) {
+		return;
+	}
+
+	if (unlikely((--node->ref_cnt) == 0)) {
+		preempt_disable();
+		node->hit_cnt ++;
+		preempt_enable();
+	}
+}
+
 static void *skip_list_lookup_elem(struct bpf_map *map, void* key_ptr)
 {
 	struct static_sl_map *skip_list_map =
@@ -164,20 +193,33 @@ static void *skip_list_lookup_elem(struct bpf_map *map, void* key_ptr)
 	// pr_info("--start search key: %llu--", key.key);
 	// Find the position where the key is expected
 	while (curr != NULL && level >= 0) {
-		if (curr->next[level] == NULL) {
+		if (ptr_get_next(curr, level) == NULL) {
 			--level;
 			// pr_info("1. go to next level: %d", level);
 		} else {
-			int cmp = MEM_CMP_FUNC(&curr->next[level]->key, &key, sizeof(struct pkt_5tuple_with_pad));
+			sl_entry *next = ptr_get_next(curr, level);
+			if (next == NULL) {
+				pr_err("error at line %d", __LINE__);
+			}
+			struct pkt_5tuple_with_pad next_key = next->key;
+			int cmp = MEM_CMP_FUNC(&next_key, &key, sizeof(struct pkt_5tuple_with_pad));
 			// pr_info("cmp: %d", cmp);
 			if (cmp == 0) { // Found a match
 				// pr_info("--found key: %u at level: %d--", key.pkt.dst_port, level);
+				ptr_release_node(curr);
+				ptr_release_node(next);
 				return &(curr->next[level]->value);
 			} else if (cmp > 0) { // Drop down a level
+				ptr_release_node(next);
 				--level;
 				// pr_info("2. go to next level: %d", level);
 			} else { // Keep going at this level
-				curr = curr->next[level];
+				sl_entry *next = ptr_get_next(curr, level);
+				if (next == NULL) {
+					pr_err("error at line %d", __LINE__);
+				}
+				ptr_release_node(curr);
+				curr = next;
 				// pr_info("3. keep going at level: %d", level);
 			}
 		}
