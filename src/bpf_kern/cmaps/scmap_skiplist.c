@@ -8,7 +8,7 @@ char _license[] SEC("license") = "GPL";
 
 #define MAX_ENTRY 1024
 
-#define KEY_RANGE 65536
+#define KEY_RANGE 2048
 
 struct pkt_5tuple_with_pad {
 	__u8 pad[46];
@@ -194,56 +194,40 @@ finish:
 	return XDP_DROP;
 }
 
-// static void init_helper(u32 index, void *ctx) {
-// 	struct pkt_5tuple_with_pad pkt_with_pad = {};
-// 	pkt_with_pad.pkt.src_ip = 0x12345678;
-// 	pkt_with_pad.pkt.dst_ip = 0x12345678;
-// 	pkt_with_pad.pkt.src_port = 0x1234;
-// 	pkt_with_pad.pkt.proto = 0x12;
-// 	pkt_with_pad.pkt.dst_port = (__u64)index;
-// 	bpf_map_update_elem(&skip_list, &pkt_with_pad, &index, BPF_ANY);
-// }
+SEC("xdp")
+int add_test(struct xdp_md *ctx)
+{
+	struct pkt_5tuple_with_pad pkt_with_pad = {0};
+	struct value_with_pad value_with_pad = {0};
 
-// SEC("xdp")
-// int add_test(struct xdp_md *ctx)
-// {
-// 	struct pkt_5tuple_with_pad pkt_with_pad = {};
-// 	pkt_with_pad.pkt.src_ip = 0x12345678;
-// 	pkt_with_pad.pkt.dst_ip = 0x12345678;
-// 	pkt_with_pad.pkt.src_port = 0x1234;
-// 	pkt_with_pad.pkt.dst_port = 0x1234;
-// 	pkt_with_pad.pkt.proto = 0x12;
+	int zero = 0;
+	int *res = bpf_map_lookup_elem(&init_map, &zero);
+	if (res == NULL) {
+		goto finish;
+	}
+	if (*res == 0) {
+		for (int i = 0; i < KEY_RANGE; i ++) {
+			pkt_with_pad.key = i;
+			value_with_pad.data = i;
+			bpf_map_update_elem(&skip_list, &pkt_with_pad, &value_with_pad, BPF_ANY);
+		}
+		*res = 1;
+	}
 
-// 	int zero = 0;
-// 	int *res = bpf_map_lookup_elem(&init_map, &zero);
-// 	if (res == NULL) {
-// 		goto finish;
-// 	}
-// 	if (*res == 0) {
-// 		// for (int i = 0; i < KEY_RANGE; i ++) {
-// 		// 	__u64 key = (__u64)i;
-// 		// 	pkt_with_pad.pkt.dst_port = i;
-// 		// 	bpf_map_update_elem(&skip_list, &pkt_with_pad, &key, BPF_ANY);
-// 		// }
-// 		// bpf_loop(KEY_RANGE, &init_helper, ctx, 0);
-// 		*res = 1;
-// 	}
+	zero = 0;
+	struct pkt_5tuple_with_pad pkt_push = {0};
+	pkt_push.key = bpf_get_prandom_u32() % KEY_RANGE;
 
-// 	pkt_with_pad.pkt.dst_port = 512;
-// 	// __u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &pkt_with_pad);
-// 	// if (lookup_res == NULL) {
-// 	// 	log_error("lookup_key: %d, lookup failed", pkt_with_pad.pkt.dst_port);
-// 	// 	goto finish;
-// 	// }
-// 	// // log_error("lookup_key: %d, lookup_res: %d", pkt_with_pad.pkt.dst_port, *lookup_res);
-// 	// if (*lookup_res == 999) {
-// 	// 	return XDP_TX;
-// 	// }
+	long pop_res = -2;
+	pop_res = bpf_map_push_elem(&skip_list, &pkt_push, zero);
+	if (pop_res == NULL) {
+		goto finish;
+	}
+	log_debug("pop_res: %d\n", pop_res);
 
-// 	long pop_res = bpf_map_push_elem(&skip_list, &pkt_with_pad, zero);
-// 	log_error("pop_res: %d\n", pop_res);
-// 	__u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &pkt_with_pad);
-// 	log_error("lookup_res: %d\n", lookup_res == NULL ? 0 : 1);
-// finish:
-// 	return XDP_DROP;
-// }
+	__u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &pkt_push);
+	log_debug("lookup_res: %d\n", lookup_res == NULL ? 0 : 1);
+
+finish:;
+	return XDP_DROP;
+}
