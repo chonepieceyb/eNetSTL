@@ -8,5 +8,5 @@ void test() {
 int main() {
 //        test();
 //        return 0;
-       BPF_XDP_SKEL_LOADER(scmap_skiplist, "ens4np0", add_test, XDP_FLAGS_DRV_MODE)
+       BPF_XDP_SKEL_LOADER(scmap_skiplist, "ens4np0", pop_test, XDP_FLAGS_DRV_MODE)
 }

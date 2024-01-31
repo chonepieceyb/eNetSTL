@@ -40,39 +40,44 @@ struct {
 
 static int init = 0;
 
-// /* exp setup program */
-// SEC("xdp")
-// int add_data(struct xdp_md *ctx)
-// {
-// 	struct pkt_5tuple pkt = { 0 };
-// 	void *data, *data_end;
-// 	struct hdr_cursor nh;
-// 	int ret;
+/* exp setup program */
+SEC("xdp")
+int add_data(struct xdp_md *ctx)
+{
+	struct pkt_5tuple_with_pad pkt_with_pad = {0};
+	struct value_with_pad value_with_pad = {0};
 
-// 	data = (void *)(long)ctx->data;
-// 	data_end = (void *)(long)ctx->data_end;
-// 	nh.pos = data;
-// 	if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
-// 		log_error("cannot parse packet: %d", ret);
-// 		goto finish;
-// 	} else {
-// 		log_debug(
-// 			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
-// 			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
-// 			pkt.proto);
-// 	}
+	// int zero = 0;
+	// void *data, *data_end;
+	// struct hdr_cursor nh;
+	// int ret;
 
-// 	__u64 key = (__u64)pkt.dst_port;
+	// data = (void *)(long)ctx->data;
+	// data_end = (void *)(long)ctx->data_end;
+	// nh.pos = data;
+	// if (unlikely((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0)) {
+	// 	log_error("cannot parse packet: %d", ret);
+	// 	goto finish;
+	// } else {
+	// 	log_debug(
+	// 		"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
+	// 		pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
+	// 		pkt.proto);
+	// }
 
-// 	int add_res = bpf_map_update_elem(&skip_list, &key, &key, BPF_ANY);
-// 	log_debug("dst port: %d, add_res: %d\n", pkt.dst_port, add_res);
-// 	if (add_res != 0) {
-// 		log_error("add failed\n");
-// 	}
+	// __u64 key = (__u64)pkt.dst_port;
+	pkt_with_pad.key = bpf_get_prandom_u32() % KEY_RANGE;
+	value_with_pad.data = pkt_with_pad.key;
 
-// finish:
-// 	return XDP_DROP;
-// }
+	int add_res = bpf_map_update_elem(&skip_list, &pkt_with_pad, &value_with_pad, BPF_ANY);
+	// log_debug("dst port: %d, add_res: %d\n", pkt.dst_port, add_res);
+	if (add_res != 0) {
+		log_error("add failed\n");
+	}
+
+finish:
+	return XDP_DROP;
+}
 
 // /* exp program */
 // SEC("xdp")
@@ -172,7 +177,7 @@ int xdp_test(struct xdp_md *ctx)
 		goto finish;
 	}
 
-	int adjust_res = bpf_xdp_adjust_tail(ctx, 128);
+	int adjust_res = bpf_xdp_adjust_tail(ctx, sizeof(struct value_with_pad));
 	if (adjust_res != 0) {
 		goto finish;
 	}
@@ -203,6 +208,7 @@ int add_test(struct xdp_md *ctx)
 	int zero = 0;
 	int *res = bpf_map_lookup_elem(&init_map, &zero);
 	if (res == NULL) {
+		log_error("error at line %d\n", __LINE__);
 		goto finish;
 	}
 	if (*res == 0) {
@@ -220,14 +226,96 @@ int add_test(struct xdp_md *ctx)
 
 	long pop_res = -2;
 	pop_res = bpf_map_push_elem(&skip_list, &pkt_push, zero);
-	if (pop_res == NULL) {
+	if (pop_res < 0) {
+		log_error("error at line %d\n", __LINE__);
 		goto finish;
 	}
 	log_debug("pop_res: %d\n", pop_res);
 
-	__u64 *lookup_res = bpf_map_lookup_elem(&skip_list, &pkt_push);
-	log_debug("lookup_res: %d\n", lookup_res == NULL ? 0 : 1);
+	// zero = 0;
+	// struct pkt_5tuple_with_pad pkt_lookup = {0};
+	// pkt_lookup.key = bpf_get_prandom_u32() % KEY_RANGE;
 
-finish:;
+	// struct value_with_pad *lookup_res = bpf_map_lookup_elem(&skip_list, &pkt_lookup);
+	// log_debug("lookup_res: %d\n", lookup_res == NULL ? 0 : 1);
+
+	int adjust_res = bpf_xdp_adjust_tail(ctx, sizeof(long));
+	if (adjust_res != 0) {
+		log_error("error at line %d\n", __LINE__);
+		goto finish;
+	}
+	void *pkt_start = (void*)(long)ctx->data;
+	if (pkt_start + sizeof(long) > ctx->data_end) {
+		log_error("error at line %d\n", __LINE__);
+		goto finish;
+	}
+	__builtin_memcpy(pkt_start, &pop_res, sizeof(long));
+	
+	if (*(__u64 *)pkt_start == 99999) {
+		return XDP_TX;
+	}
+
+finish:
+	return XDP_DROP;
+}
+
+SEC("xdp")
+int pop_test(struct xdp_md *ctx)
+{
+	struct pkt_5tuple_with_pad pkt_with_pad = {0};
+	struct value_with_pad value_with_pad = {0};
+
+	int zero = 0;
+	int *res = bpf_map_lookup_elem(&init_map, &zero);
+	if (res == NULL) {
+		log_error("error at line %d\n", __LINE__);
+		goto finish;
+	}
+	if (*res == 0) {
+		for (int i = 0; i < KEY_RANGE; i ++) {
+			pkt_with_pad.key = i;
+			value_with_pad.data = i;
+			bpf_map_update_elem(&skip_list, &pkt_with_pad, &value_with_pad, BPF_ANY);
+		}
+		*res = 1;
+	}
+
+	zero = 0;
+	struct pkt_5tuple_with_pad pkt_pop = {0};
+
+	long pop_res = -2;
+	pop_res = bpf_map_pop_elem(&skip_list, &pkt_pop);
+	if (pop_res < 0) {
+		log_error("error at line %d\n", __LINE__);
+		goto finish;
+	}
+	log_debug("pop_res: %d\n", pkt_pop.key);
+
+	bpf_map_delete_elem(&skip_list, &pkt_pop);
+
+	zero = 0;
+	struct pkt_5tuple_with_pad pkt_insert = {0};
+	struct value_with_pad value_insert = {0};
+	pkt_insert.key = bpf_get_prandom_u32() % KEY_RANGE;
+	value_insert.data = pkt_insert.key;
+	bpf_map_update_elem(&skip_list, &pkt_insert, &value_insert, BPF_ANY);
+
+	// int adjust_res = bpf_xdp_adjust_tail(ctx, sizeof(long));
+	// if (adjust_res != 0) {
+	// 	log_error("error at line %d\n", __LINE__);
+	// 	goto finish;
+	// }
+	// void *pkt_start = (void*)(long)ctx->data;
+	// if (pkt_start + sizeof(long) > ctx->data_end) {
+	// 	log_error("error at line %d\n", __LINE__);
+	// 	goto finish;
+	// }
+	// __builtin_memcpy(pkt_start, &pop_res, sizeof(long));
+	
+	// if (*(__u64 *)pkt_start == 99999) {
+	// 	return XDP_TX;
+	// }
+
+finish:
 	return XDP_DROP;
 }

@@ -17,7 +17,7 @@
 
 #define TEST_RANGE 20
 // #define USE_DEBUG
-#define USE_KMALLOC 1
+#define USE_KMALLOC 0
 
 extern int bpf_register_static_cmap(struct bpf_map_ops *map,
 				    struct module *onwer);
@@ -415,6 +415,22 @@ insert:;
 	return poped_elem;
 }
 
+long skip_list_pop_elem(struct bpf_map *map, void *value) {
+	struct static_sl_map *skip_list_map =
+	container_of(map, struct static_sl_map, map);
+	sl_entry *head = skip_list_map->skiplist;
+	__u64 poped_elem = -ENOENT;
+
+	if (head->next[0] == NULL) {
+		goto finish;
+	}
+	struct pkt_5tuple_with_pad pkt = head->next[0]->key;
+	((struct pkt_5tuple_with_pad*)value)->key = pkt.key;
+	poped_elem = pkt.key;
+finish:
+	return poped_elem;
+}
+
 static u64 skip_list_mem_usage(const struct bpf_map *map)
 {
 	struct static_sl_map *skip_list_map =
@@ -429,6 +445,7 @@ static struct bpf_map_ops cmap_ops = { .map_alloc_check = skip_list_alloc_check,
 				       .map_update_elem = skip_list_update_elem,
 				       .map_delete_elem = skip_list_delete_elem,
 							 .map_push_elem = skip_list_push_pop_elem,
+							 .map_pop_elem = skip_list_pop_elem,
 				       .map_mem_usage = skip_list_mem_usage };
 
 #ifdef USE_DEBUG
