@@ -7,11 +7,19 @@
 	log_##level(" hash_pipe (ebpf): " fmt " (%s @ line %d)", \
 		    ##__VA_ARGS__, __func__, __LINE__)
 
+#define hp_swap(a, b)                  \
+	({                             \
+		typeof(a) __tmp = (a); \
+		(a) = (b);             \
+		(b) = __tmp;           \
+	})
+
 // #define HP_EMPTY_HASH
 
 #define D 8
 #define M (128 * 1024 / 128 / 8)
-#define SEED 0xdeadbeef
+
+#define SEED_BASE 0xdeadbeef
 
 #define inline inline __attribute__((always_inline))
 
@@ -39,6 +47,26 @@ static inline int hash_pipe_cmp(void *key1, void *key2, size_t len)
 static inline void hash_pipe_work(struct hash_pipe_table *table,
 				  hash_pipe_key_t *key, uint32_t val)
 {
+	uint32_t i, l;
+
+	for (i = 0; i < D; i++) {
+		l = hash_pipe_hash(key, sizeof(*key), SEED_BASE + i) % M;
+
+		if (hash_pipe_cmp(key, &table->key[i][l], sizeof(*key)) == 0) {
+			l ^= 0x01; /* to avoid hash_pipe_cmp from being optimized out */
+		}
+
+		if (!table->val[i][l]) {
+			l ^= 0x01; /* to avoid this block from being optimized out */
+		}
+
+		if (table->val[i][l] < val) {
+			l ^= 0x01; /* to avoid this block from being optimized out */
+		}
+
+		hp_swap(table->key[i][l], *key);
+		hp_swap(table->val[i][l], val);
+	}
 }
 
 static inline void hash_pipe_insert(struct hash_pipe_table *table,
@@ -46,7 +74,7 @@ static inline void hash_pipe_insert(struct hash_pipe_table *table,
 {
 	uint32_t hash, l;
 
-	hash = hash_pipe_hash(key, sizeof(*key), SEED);
+	hash = hash_pipe_hash(key, sizeof(*key), SEED_BASE);
 	l = hash % M;
 
 	if (hash_pipe_cmp(key, &table->key[0][l], sizeof(*key)) == 0) {
