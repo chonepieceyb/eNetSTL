@@ -153,7 +153,7 @@ static void skip_list_free(struct bpf_map *map)
 #if USE_KMALLOC == 1
 		kfree(current_entry);
 #else
-		// bpf_mem_cache_free(&skip_list_map->ma, current_entry);
+		bpf_mem_cache_free(&skip_list_map->ma, current_entry);
 #endif
 		preempt_enable();
 		current_entry = NULL;
@@ -165,6 +165,7 @@ static void skip_list_free(struct bpf_map *map)
 	return;
 }
 
+// wrappers for pointer operations, add ref_cnt and hit_cnt to simulate the eBPF pointer wrapper
 noinline sl_entry* ptr_get_next(sl_entry *parent, u32 idx)
 {
 	if (idx >= MAX_SKIPLIST_HEIGHT) {
@@ -202,30 +203,24 @@ static void *skip_list_lookup_elem(struct bpf_map *map, void* key_ptr)
 	int level = head->height - 1;
 
 	struct pkt_5tuple_with_pad key = *(struct pkt_5tuple_with_pad *)key_ptr;
-	// pr_info("--start search key: %llu--", key.key);
 	// Find the position where the key is expected
 	while (curr != NULL && level >= 0) {
 		if (ptr_get_next(curr, level) == NULL) {
 			--level;
-			// pr_info("1. go to next level: %d", level);
 		} else {
 			sl_entry *next = ptr_get_next(curr, level);
 			if (next == NULL) {
-				pr_err("skip_list error at line %d", __LINE__);
 				return NULL;
 			}
 			struct pkt_5tuple_with_pad next_key = next->key;
 			int cmp = MEM_CMP_FUNC(&next_key, &key, sizeof(struct pkt_5tuple_with_pad));
-			// pr_info("cmp: %d", cmp);
 			if (cmp == 0) { // Found a match
-				// pr_info("--found key: %u at level: %d--", key.pkt.dst_port, level);
 				ptr_release_node(curr);
 				ptr_release_node(next);
 				return &(curr->next[level]->value);
 			} else if (cmp > 0) { // Drop down a level
 				ptr_release_node(next);
 				--level;
-				// pr_info("2. go to next level: %d", level);
 			} else { // Keep going at this level
 				sl_entry *next = ptr_get_next(curr, level);
 				if (next == NULL) {
@@ -234,7 +229,6 @@ static void *skip_list_lookup_elem(struct bpf_map *map, void* key_ptr)
 				}
 				ptr_release_node(curr);
 				curr = next;
-				// pr_info("3. keep going at level: %d", level);
 			}
 		}
 	}
@@ -415,22 +409,6 @@ insert:;
 	return poped_elem;
 }
 
-long skip_list_pop_elem(struct bpf_map *map, void *value) {
-	struct static_sl_map *skip_list_map =
-	container_of(map, struct static_sl_map, map);
-	sl_entry *head = skip_list_map->skiplist;
-	__u64 poped_elem = -ENOENT;
-
-	if (head->next[0] == NULL) {
-		goto finish;
-	}
-	struct pkt_5tuple_with_pad pkt = head->next[0]->key;
-	((struct pkt_5tuple_with_pad*)value)->key = pkt.key;
-	poped_elem = pkt.key;
-finish:
-	return poped_elem;
-}
-
 static u64 skip_list_mem_usage(const struct bpf_map *map)
 {
 	struct static_sl_map *skip_list_map =
@@ -445,7 +423,6 @@ static struct bpf_map_ops cmap_ops = { .map_alloc_check = skip_list_alloc_check,
 				       .map_update_elem = skip_list_update_elem,
 				       .map_delete_elem = skip_list_delete_elem,
 							 .map_push_elem = skip_list_push_pop_elem,
-							 .map_pop_elem = skip_list_pop_elem,
 				       .map_mem_usage = skip_list_mem_usage };
 
 #ifdef USE_DEBUG
