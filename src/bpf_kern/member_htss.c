@@ -265,7 +265,6 @@ search_bucket_single(__u32 bucket_id, sig_t tmp_sig,
 	__u32 iter;
 #if DESIGN_PATTERN_TEST == 0
 	for (iter = 0; iter < MEMBER_BUCKET_ENTRIES; iter++) {
-		log_debug("tmp_sig: %x, curr_sig:%x, curr_set:%d", tmp_sig, curr_sig, curr_set);
 		if (tmp_sig == buckets[bucket_id].sigs[iter] && buckets[bucket_id].sets[iter] != MEMBER_NO_MATCH) {
 			*set_id = buckets[bucket_id].sets[iter];
 			return 1;
