@@ -12,6 +12,11 @@ extern void bpf_unregister_static_cmap(struct module *onwer);
 extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
+#define NUM_TIME_WHEELS 2
+#if NUM_TIME_WHEELS < 2 || NUM_TIME_WHEELS > 5
+#error NUM_TIME_WHEELS must be between 2 and 5
+#endif
+
 #define TIME_SHIFT 13
 
 #ifndef USE_DEBUG
@@ -39,7 +44,16 @@ typedef struct __tvec_root_s {
 struct cascade_time_wheel {
         unsigned long clk;
         __tvec_root_t tv1;  /*vec of list should be freed in map free */
-	__tvec_t tv2;   /*vec of list should be freed in map free */
+	__tvec_t tv2; /*vec of list should be freed in map free */
+#if NUM_TIME_WHEELS >= 3
+	__tvec_t tv3;
+#if NUM_TIME_WHEELS >= 4
+	__tvec_t tv4;
+#if NUM_TIME_WHEELS >= 5
+	__tvec_t tv5;
+#endif
+#endif
+#endif
 } ____cacheline_aligned_in_smp;
 
 struct time_wheel_map {
@@ -111,7 +125,16 @@ static __always_inline void __init_timer_list(struct cascade_time_wheel *tw)
         }     
         for (i = 0; i < TVN_SIZE; i++) {
                 INIT_LIST_HEAD(tw->tv2.vec + i);
-        }        
+#if NUM_TIME_WHEELS >= 3
+		INIT_LIST_HEAD(tw->tv3.vec + i);
+#if NUM_TIME_WHEELS >= 4
+		INIT_LIST_HEAD(tw->tv4.vec + i);
+#if NUM_TIME_WHEELS >= 5
+		INIT_LIST_HEAD(tw->tv5.vec + i);
+#endif
+#endif
+#endif
+	}
 }
 
 static __always_inline void __free_timer_list(struct time_wheel_map *tmap, struct cascade_time_wheel *tw) 
@@ -203,18 +226,46 @@ static void internal_add_timer(struct cascade_time_wheel *tw, struct __timer_lis
 	} else if (idx < 1 << (TVR_BITS + TVN_BITS)) {
 		int i = (expires >> TVR_BITS) & TVN_MASK;
 		vec = tw->tv2.vec + i;
-	} else if ((signed long) idx < 0) {
+#if NUM_TIME_WHEELS >= 3
+	} else if (idx < 1 << (TVR_BITS + 2 * TVN_BITS)) {
+		int i = (expires >> (TVR_BITS + TVN_BITS)) & TVN_MASK;
+		vec = tw->tv3.vec + i;
+#if NUM_TIME_WHEELS >= 4
+	} else if (idx < 1 << (TVR_BITS + 3 * TVN_BITS)) {
+		int i = (expires >> (TVR_BITS + 2 * TVN_BITS)) & TVN_MASK;
+		vec = tw->tv4.vec + i;
+#endif
+#endif
+	} else if ((signed long)idx < 0) {
 		/*
-		 * Can happen if you add a timer with expires == jiffies,
-		 * or you set a timer to go off in the past
-		 */
+                 * Can happen if you add a timer with expires == jiffies,
+                 * or you set a timer to go off in the past
+                 */
 		vec = tw->tv1.vec + (tw->clk & TVR_MASK);
-                pr_debug("idx < 0 add timer to current clk");
+		pr_debug("idx < 0 add timer to current clk");
 	} else {
-                expires = tw->clk + (1 << (TVR_BITS + TVN_BITS)) - 1;
-                int i = ((expires >> TVR_BITS) & TVN_MASK);
+#if NUM_TIME_WHEELS == 2
+		expires = tw->clk + (1 << (TVR_BITS + TVN_BITS)) - 1;
+		int i = ((expires >> TVR_BITS) & TVN_MASK);
 		vec = tw->tv2.vec + i;
-                pr_debug("add timer to lv2(max) index %d", i);
+		pr_debug("add timer to lv2(max) index %d", i);
+#elif NUM_TIME_WHEELS == 3
+		expires = tw->clk + (1 << (TVR_BITS + 2 * TVN_BITS)) - 1;
+		int i = ((expires >> (TVR_BITS + TVN_BITS)) & TVN_MASK);
+		vec = tw->tv3.vec + i;
+		pr_debug("add timer to lv3(max) index %d", i);
+#else /* NUM_TIME_WHEELS >= 4 */
+		expires = tw->clk + (1 << (TVR_BITS + 3 * TVN_BITS)) - 1;
+#if NUM_TIME_WHEELS == 4
+		int i = ((expires >> (TVR_BITS + 2 * TVN_BITS)) & TVN_MASK);
+		vec = tw->tv4.vec + i;
+		pr_debug("add timer to lv4(max) index %d", i);
+#else /* NUM_TIME_WHEELS == 5 */
+		int i = ((expires >> (TVR_BITS + 3 * TVN_BITS)) & TVN_MASK);
+		vec = tw->tv5.vec + i;
+		pr_debug("add timer to lv5(max) index %d", i);
+#endif
+#endif
 	}
 	/*
 	 * Timers are FIFO:
@@ -277,21 +328,25 @@ static void __run_timers(struct time_wheel_map *tmap, struct cascade_time_wheel 
 		struct list_head work_list = LIST_HEAD_INIT(work_list);
 		struct list_head *head = &work_list;
  		int index = tw->clk & TVR_MASK;
- 
+
 		/*
 		 * Cascade timers:
-		 */
-                /* if (!index &&
-		 * 	(!cascade(base, &base->tv2, INDEX(0))) &&
-		 *		(!cascade(base, &base->tv3, INDEX(1))) &&
-	         * 			!cascade(base, &base->tv4, INDEX(2)))
-		 *	cascade(base, &base->tv5, INDEX(3));
                  */
-                if (!index) {
-			__cascade(tw, &tw->tv2, INDEX(0));
-		}	
-		
-		++tw->clk; 
+		if (index) {
+		} else if (__cascade(tw, &tw->tv2, INDEX(0))) {
+#if NUM_TIME_WHEELS >= 3
+		} else if (__cascade(tw, &tw->tv3, INDEX(1))) {
+#if NUM_TIME_WHEELS >= 4
+		} else if (__cascade(tw, &tw->tv4, INDEX(2))) {
+#if NUM_TIME_WHEELS >= 5
+		} else if (__cascade(tw, &tw->tv5, INDEX(3))) {
+#endif
+#endif
+#endif
+			pr_debug("cascade max level returned non-zero\n");
+		}
+
+		++tw->clk;
 		list_splice_init(tw->tv1.vec + index, &work_list);
 repeat:
 		if (!list_empty(head)) {

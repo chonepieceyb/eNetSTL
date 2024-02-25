@@ -52,6 +52,11 @@
 #define log_error(fmt, ...) ({})
 #endif
 
+#define ANY_IMPL 0
+#define EBPF_IMPL 1
+#define EBPF_WITH_HYPERCOM_INTRINSIC_IMPL 2
+#define HYPERCOM_IMPL 3
+
 #ifndef likely
 #define likely(X) __builtin_expect(!!(X), 1)
 #endif

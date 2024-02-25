@@ -140,6 +140,8 @@ struct __cuckoo_hash_key {
  */
 #define CUCKOO_HASH_PTR_ADD(ptr, x) ((void *)((uintptr_t)(ptr) + (x)))
 
+#include "cuckoo_hash_prefill.h"
+
 /** Bucket structure */
 struct __cuckoo_hash_bucket {
 	uint16_t sig_current[CUCKOO_HASH_BUCKET_ENTRIES];
@@ -177,6 +179,16 @@ struct cuckoo_hash_bpf_map {
 	struct bpf_map map;
 	struct cuckoo_hash __percpu *cuckoo_hash;
 };
+
+struct pkt_5tuple {
+	__be32 src_ip;
+	__be32 dst_ip;
+	__be16 src_port;
+	__be16 dst_port;
+	uint8_t proto;
+	/* make this structure 16 bytes to use __cuckoo_hash_k16_cmp_eq */
+	uint8_t pad[3];
+} __attribute__((packed));
 
 /* Macro to enable/disable run-time checking of function parameters */
 #if defined(CUCKOO_HASH_DEBUG)
@@ -327,6 +339,129 @@ out:
 	return ret;
 }
 
+/*
+ * We use higher 16 bits of hash as the signature value stored in table.
+ * We use the lower bits for the primary bucket
+ * location. Then we XOR primary bucket location and the signature
+ * to get the secondary bucket location. This is same as
+ * proposed in Bin Fan, et al's paper
+ * "MemC3: Compact and Concurrent MemCache with Dumber Caching and
+ * Smarter Hashing". The benefit to use
+ * XOR is that one could derive the alternative bucket location
+ * by only using the current bucket location and the signature.
+ */
+static inline uint16_t __cuckoo_hash_get_short_sig(const cuckoo_hash_sig_t hash)
+{
+	return hash >> 16;
+}
+
+cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h, const void *key)
+{
+	/* calc hash result by key */
+	return __cuckoo_hash_hash_default(key, CUCKOO_HASH_KEY_SIZE,
+					  CUCKOO_HASH_SEED);
+}
+
+int __cuckoo_hash_prefill(struct cuckoo_hash *h)
+{
+	struct pkt_5tuple pkt = { 0 };
+	uint32_t i, one = 1;
+	uint16_t key_idx;
+	struct __cuckoo_hash_key *k;
+
+	pkt.src_ip = CUCKOO_HASH_SRC_IP;
+	pkt.src_port = CUCKOO_HASH_SRC_PORT;
+	pkt.dst_ip = CUCKOO_HASH_DST_IP;
+	pkt.proto = CUCKOO_HASH_PROTO;
+
+	cuckoo_log(info, "prefilling primary bucket 0");
+	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; ++i) {
+		pkt.dst_port = __cuckoo_hash_prim_bucket_ports[0][i];
+		key_idx = i + 1;
+
+		h->buckets[0].sig_current[i] = __cuckoo_hash_get_short_sig(
+			__cuckoo_hash_hash(h, &pkt));
+		h->buckets[0].key_idx[i] = key_idx;
+
+		k = CUCKOO_HASH_PTR_ADD(h->key_store,
+					key_idx * CUCKOO_HASH_KEY_ENTRY_SIZE);
+		__builtin_memcpy(&k->key, &pkt, CUCKOO_HASH_KEY_SIZE);
+		__builtin_memcpy(&k->value, &one, CUCKOO_HASH_VALUE_SIZE);
+
+		cuckoo_log(
+			info,
+			"prefilled port = 0x%04x in primary bucket 0, i = %d, key_idx = %d",
+			pkt.dst_port, i, key_idx);
+	}
+
+	cuckoo_log(info, "prefilling secondary bucket 1");
+	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; ++i) {
+		pkt.dst_port = __cuckoo_hash_sec_bucket_ports[1][i];
+		key_idx = i + CUCKOO_HASH_BUCKET_ENTRIES + 1;
+
+		h->buckets[1].sig_current[i] = __cuckoo_hash_get_short_sig(
+			__cuckoo_hash_hash(h, &pkt));
+		h->buckets[1].key_idx[i] = key_idx;
+
+		k = CUCKOO_HASH_PTR_ADD(h->key_store,
+					key_idx * CUCKOO_HASH_KEY_ENTRY_SIZE);
+		__builtin_memcpy(&k->key, &pkt, CUCKOO_HASH_KEY_SIZE);
+		__builtin_memcpy(&k->value, &one, CUCKOO_HASH_VALUE_SIZE);
+
+		cuckoo_log(
+			info,
+			"prefilled port = 0x%04x in sec bucket 1, i = %d, key_idx = %d",
+			pkt.dst_port, i, key_idx);
+	}
+
+	cuckoo_log(info, "prefilling primary bucket 2");
+	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; ++i) {
+		pkt.dst_port = __cuckoo_hash_prim_bucket_ports[2][i];
+		key_idx = i + CUCKOO_HASH_BUCKET_ENTRIES * 2 + 1;
+
+		h->buckets[2].sig_current[i] = __cuckoo_hash_get_short_sig(
+			__cuckoo_hash_hash(h, &pkt));
+		h->buckets[2].key_idx[i] = key_idx;
+
+		k = CUCKOO_HASH_PTR_ADD(h->key_store,
+					key_idx * CUCKOO_HASH_KEY_ENTRY_SIZE);
+		__builtin_memcpy(&k->key, &pkt, CUCKOO_HASH_KEY_SIZE);
+		__builtin_memcpy(&k->value, &one, CUCKOO_HASH_VALUE_SIZE);
+
+		cuckoo_log(
+			info,
+			"prefilled port = 0x%04x in primary bucket 2, i = %d, key_idx = %d",
+			pkt.dst_port, i, key_idx);
+	}
+
+	cuckoo_log(info, "prefilling secondary bucket 3");
+	for (i = 0; i < CUCKOO_HASH_BUCKET_ENTRIES; ++i) {
+		pkt.dst_port = __cuckoo_hash_sec_bucket_ports[3][i];
+		key_idx = i + CUCKOO_HASH_BUCKET_ENTRIES * 3 + 1;
+
+		h->buckets[3].sig_current[i] = __cuckoo_hash_get_short_sig(
+			__cuckoo_hash_hash(h, &pkt));
+		h->buckets[3].key_idx[i] = key_idx;
+
+		k = CUCKOO_HASH_PTR_ADD(h->key_store,
+					key_idx * CUCKOO_HASH_KEY_ENTRY_SIZE);
+		__builtin_memcpy(&k->key, &pkt, CUCKOO_HASH_KEY_SIZE);
+		__builtin_memcpy(&k->value, &one, CUCKOO_HASH_VALUE_SIZE);
+
+		cuckoo_log(
+			info,
+			"prefilled port = 0x%04x in sec bucket 3, i = %d, key_idx = %d",
+			pkt.dst_port, i, key_idx);
+	}
+
+	/*
+	 * After the prefill, h->free_slot_list is in an invalid state, and
+	 * inserting new keys will result in unexpected behavior.
+	 */
+
+	return 0;
+}
+
 int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 				struct cuckoo_hash_parameters *params)
 {
@@ -362,6 +497,14 @@ int __cuckoo_hash_create_fields(struct cuckoo_hash *h,
 		// cuckoo_log(debug, "adding slot %d at %x\n", slot->slot_id, slot);
 		list_add_tail(&slot->list, &h->free_slot_list);
 	}
+
+#ifdef CUCKOO_HASH_PREFILL
+	/* Prefill data */
+	if ((ret = __cuckoo_hash_prefill(h)) != 0) {
+		cuckoo_log(err, "prefill failed with code %d\n", ret);
+		goto out_free_keys;
+	}
+#endif
 
 	goto out;
 
@@ -452,22 +595,6 @@ static void cuckoo_hash_free(struct bpf_map *map)
 	kvfree(cuckoo_hash_map);
 }
 
-/*
- * We use higher 16 bits of hash as the signature value stored in table.
- * We use the lower bits for the primary bucket
- * location. Then we XOR primary bucket location and the signature
- * to get the secondary bucket location. This is same as
- * proposed in Bin Fan, et al's paper
- * "MemC3: Compact and Concurrent MemCache with Dumber Caching and
- * Smarter Hashing". The benefit to use
- * XOR is that one could derive the alternative bucket location
- * by only using the current bucket location and the signature.
- */
-static inline uint16_t __cuckoo_hash_get_short_sig(const cuckoo_hash_sig_t hash)
-{
-	return hash >> 16;
-}
-
 static inline uint32_t
 __cuckoo_hash_get_prim_bucket_index(struct cuckoo_hash *h,
 				    const cuckoo_hash_sig_t hash)
@@ -506,26 +633,26 @@ __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h, const void *key,
 		if (bkt->sig_current[i] == sig &&
 		    bkt->key_idx[i] != CUCKOO_HASH_EMPTY_SLOT) {
 #endif
-			k = (struct __cuckoo_hash_key
-				     *)((char *)keys +
-					bkt->key_idx[i] *
+		k = (struct __cuckoo_hash_key
+			     *)((char *)keys +
+				bkt->key_idx[i] *
 						CUCKOO_HASH_KEY_ENTRY_SIZE);
-			cuckoo_log(debug, "checking key i = %d, key_idx = %d\n",
+		cuckoo_log(debug, "checking key i = %d, key_idx = %d\n",
 				   i, bkt->key_idx[i]);
 
-			if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
-				cuckoo_log(debug, "key matches\n");
+		if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
+			cuckoo_log(debug, "key matches\n");
 
-				if (data != NULL)
-					*data = &k->value;
-				/*
+			if (data != NULL)
+				*data = &k->value;
+			/*
 				 * Return index where key is stored,
 				 * subtracting the first dummy index
 				 */
-				return bkt->key_idx[i] - 1;
-			} else {
-				cuckoo_log(debug, "key does not match\n");
-			}
+			return bkt->key_idx[i] - 1;
+		} else {
+			cuckoo_log(debug, "key does not match\n");
+		}
 #if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
 	}
 #else
@@ -580,13 +707,6 @@ static inline int32_t __cuckoo_hash_lookup_with_hash(struct cuckoo_hash *h,
 	}
 
 	return -ENOENT;
-}
-
-cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h, const void *key)
-{
-	/* calc hash result by key */
-	return __cuckoo_hash_hash_default(key, CUCKOO_HASH_KEY_SIZE,
-					  CUCKOO_HASH_SEED);
 }
 
 int __cuckoo_hash_lookup_data(struct cuckoo_hash *h, const void *key,
@@ -749,11 +869,11 @@ static inline int32_t __cuckoo_hash_cuckoo_insert_mw(
 		}
 	}
 
-		if (i != CUCKOO_HASH_BUCKET_ENTRIES)
-			return 0;
+	if (i != CUCKOO_HASH_BUCKET_ENTRIES)
+		return 0;
 
-		/* no empty entry */
-		return -1;
+	/* no empty entry */
+	return -1;
 #endif
 }
 
@@ -889,7 +1009,7 @@ static inline int32_t __cuckoo_hash_cuckoo_make_space_mw(
 			cuckoo_log(debug, "%d: done move insert ret = %d\n", i,
 				   ret);
 			if (likely(ret != -1))
-					goto out_free_queue;
+				goto out_free_queue;
 			} else {
 			cuckoo_log(debug, "%d: skipped move insert\n", i);
 			}
@@ -1089,16 +1209,6 @@ static int cuckoo_hash_initialize(void)
 
 #ifdef CUCKOO_HASH_DEBUG
 static struct proc_dir_entry *ent;
-
-struct pkt_5tuple {
-	__be32 src_ip;
-	__be32 dst_ip;
-	__be16 src_port;
-	__be16 dst_port;
-	uint8_t proto;
-	/* make this structure 16 bytes to use __cuckoo_hash_k16_cmp_eq */
-	uint8_t pad[3];
-} __attribute__((packed));
 
 static int __testing_alloc(struct inode *inode, struct file *filp)
 {

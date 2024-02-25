@@ -77,3 +77,9 @@ static __attribute__((always_inline)) inline __u32 fasthash32(const void *buf, _
     __u64 h = fasthash64(buf, len, seed);
 	return h - (h >> 32);
 }
+
+static __attribute__((always_inline)) inline void
+fasthash32_alt(const void *buf, __u64 len, const __u32 *seeds, __u32 *dest)
+{
+	*(__u64 *)dest = fasthash64(buf, len, *(u64 *)seeds);
+}

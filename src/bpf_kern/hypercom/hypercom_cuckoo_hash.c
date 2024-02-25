@@ -643,7 +643,7 @@ int xdp_main(struct xdp_md *ctx)
 {
 	struct cuckoo_hash_parameters params = {};
 	struct cuckoo_hash *h;
-	struct pkt_5tuple_with_pad pkt;
+	struct pkt_5tuple_with_pad pkt = { 0 };
 	uint32_t *curr_count, count;
 	void *data, *data_end;
 	struct hdr_cursor nh;

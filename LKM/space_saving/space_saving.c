@@ -25,8 +25,8 @@
 typedef u16 ss_count_t;
 
 #define SS_NUM_COUNTERS 8
-#if SS_NUM_COUNTERS != 8
-#error currently SS_NUM_COUNTERS must be 8 for SIMD implementation to work
+#if SS_NUM_COUNTERS % 8 != 0
+#error currently SS_NUM_COUNTERS must be a multiple of 8 for SIMD implementation to work
 #endif
 
 #define SS_KEY_SIZE 16
@@ -36,6 +36,9 @@ typedef u16 ss_count_t;
 
 #define SS_COUNT_SIZE sizeof(ss_count_t)
 /* Currently SS_COUNT_SIZE must be 2 for SIMD implementation to work */
+
+extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
+				     const struct btf_kfunc_id_set *kset);
 
 struct ss_table {
 	u8 keys[SS_KEY_SIZE * SS_NUM_COUNTERS];
@@ -55,7 +58,7 @@ extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 #ifdef SS_SIMD
-static inline u32 __find_mask_u32_avx2(const u32 *arr, u32 val)
+static inline u32 __find_mask_u32_avx(const u32 *arr, u32 val)
 {
 	__m256i arr_vec = _mm256_loadu_si256_optional(arr),
 		val_vec = _mm256_set1_epi32(val);
@@ -64,11 +67,24 @@ static inline u32 __find_mask_u32_avx2(const u32 *arr, u32 val)
 	return mask;
 }
 
-static inline u32 find_min_u16_sse(const u16 *arr)
+static inline u32 __find_min_u16_sse(const u16 *arr, size_t len, u16 *min_val)
 {
-	__m128i arr_vec = _mm_loadu_si128((__m128i_u *)arr);
-	__m128i res = _mm_minpos_epu16(arr_vec);
-	return _mm_extract_epi16(res, 1);
+	u16 value, min_value = arr[0];
+	u32 i, min_index = 0;
+	__m128i arr_vec, res;
+
+	for (i = 0; i < len; i += 8) {
+		arr_vec = _mm_loadu_si128((__m128i_u *)(arr + i));
+		res = _mm_minpos_epu16(arr_vec);
+		value = _mm_extract_epi16(res, 0);
+		if (value < min_value) {
+			min_value = value;
+			min_index = i + _mm_extract_epi16(res, 1);
+		}
+	}
+
+	*min_val = min_value;
+	return min_index;
 }
 #endif
 
@@ -160,22 +176,28 @@ static int ss_increment(struct ss_table *tbl, void *key)
 #endif
 
 #ifdef SS_SIMD
-	u32 mask = ~0;
+	u32 mask;
 
-	for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
-		mask &= __find_mask_u32_avx2((const u32 *)tbl->keys +
-						     blk_idx * 8,
-					     ((const u32 *)key)[blk_idx]);
-		if (mask == 0) {
-			goto replace_or_insert;
+	for (i = 0; i < SS_NUM_COUNTERS; i += 8) {
+		mask = ~0;
+
+		for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
+			mask &= __find_mask_u32_avx(
+				(const u32 *)tbl->keys +
+					blk_idx * SS_NUM_COUNTERS + i,
+				((const u32 *)key)[blk_idx]);
+			if (mask == 0) {
+				goto replace_or_insert;
+			}
 		}
-	}
 
-	i = __tzcnt_u32(mask) >> 2;
-	ss_log(debug, "found matching key (with SIMD) at %d, count = %d\n", i,
-	       tbl->counts[i]);
-	tbl->counts[i]++;
-	goto out;
+		i += __tzcnt_u32(mask) >> 2;
+		ss_log(debug,
+		       "found matching key (with SIMD) at %d, count = %d\n", i,
+		       tbl->counts[i]);
+		tbl->counts[i]++;
+		goto out;
+	}
 #else
 	for (i = 0; i < SS_NUM_COUNTERS; i++) {
 		for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
@@ -199,8 +221,7 @@ static int ss_increment(struct ss_table *tbl, void *key)
      */
 #ifdef SS_SIMD
 replace_or_insert:
-	min_idx = find_min_u16_sse(tbl->counts);
-	min_count = tbl->counts[min_idx];
+	min_idx = __find_min_u16_sse(tbl->counts, SS_NUM_COUNTERS, &min_count);
 #else
 	for (i = 0; i < SS_NUM_COUNTERS; i++) {
 		if (tbl->counts[i] < min_count) {
@@ -214,7 +235,7 @@ replace_or_insert:
 	       min_idx, min_count);
 
 	for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
-		((u32 *)tbl->keys)[blk_idx * 8 + min_idx] =
+		((u32 *)tbl->keys)[blk_idx * SS_NUM_COUNTERS + min_idx] =
 			((const u32 *)key)[blk_idx];
 	}
 	tbl->overestimates[min_idx] = min_count;
@@ -231,10 +252,13 @@ long ss_update_elem(struct bpf_map *map, void *key, void *value, u64 flags)
 	struct ss_table *tbl;
 	int ret = 0;
 
+#ifdef SS_DEBUG
 	if (ss_map == NULL) {
+		ss_log(err, "invalid map; this should never happen\n");
 		ret = -EINVAL;
 		goto out;
 	}
+#endif
 
 	tbl = this_cpu_ptr(ss_map->tbl);
 	ret = ss_increment(tbl, key);
@@ -242,6 +266,14 @@ long ss_update_elem(struct bpf_map *map, void *key, void *value, u64 flags)
 out:
 	return ret;
 }
+
+__bpf_kfunc long bpf_ss_update_elem(struct bpf_map *map, void *key,
+				    size_t key__sz, void *value,
+				    size_t value__sz, u64 flags)
+{
+	return ss_update_elem(map, key, value, flags);
+}
+EXPORT_SYMBOL_GPL(bpf_ss_update_elem);
 
 uint64_t ss_mem_usage(const struct bpf_map *map)
 {
@@ -258,9 +290,32 @@ static struct bpf_map_ops ss_ops = {
 	.map_mem_usage = ss_mem_usage,
 };
 
+BTF_SET8_START(bpf_ss_kfunc_ids)
+BTF_ID_FLAGS(func, bpf_ss_update_elem)
+BTF_SET8_END(bpf_ss_kfunc_ids)
+
+static const struct btf_kfunc_id_set bpf_ss_kfunc_set = {
+	.owner = THIS_MODULE,
+	.set = &bpf_ss_kfunc_ids,
+};
+
 static int ss_initialize(void)
 {
-	return 0;
+	int ret;
+
+	if ((ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_XDP,
+					     &bpf_ss_kfunc_set)) < 0) {
+		ss_log(err, "failed to register kfunc set: %d\n", ret);
+		goto out;
+	}
+
+out:
+	return ret;
+}
+
+static void ss_cleanup(void)
+{
+	// Nothing to do
 }
 
 #ifdef SS_DEBUG
@@ -418,6 +473,7 @@ static void __exit ss_exit(void)
 	ss_proc_cleanup();
 #endif
 	bpf_unregister_static_cmap(THIS_MODULE);
+	ss_cleanup();
 
 	ss_log(info, "exiting\n");
 }

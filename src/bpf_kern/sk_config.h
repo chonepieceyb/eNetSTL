@@ -10,6 +10,7 @@
 #define _NM_LAYERS 32
 #define _HEAP_SIZE 32
 #define MAX_GEOSAMPLING_SIZE 1024
+#define USE_CRC 1
 #define USE_XXHASH 1
 #define PRINT_TIME 0
 #define SIMD_CACHE_PKTS 64

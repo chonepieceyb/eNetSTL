@@ -40,12 +40,9 @@ add_compile_definitions(LOG_LEVEL=${LOG_LEVEL})
 set(USE_STATIC OFF CACHE BOOL "should compile with static library")
 message(STATUS "USE_STATIC: ${USE_STATIC}")
 
-set(USE_EBPF_IMPL OFF CACHE BOOL "should use eBPF implementation")
-message(STATUS "USE_EBPF_IMPL: ${USE_EBPF_IMPL}")
-
-if(${USE_EBPF_IMPL})
-    add_compile_definitions(USE_EBPF_IMPL)
-endif()
+set(USE_IMPL 0 CACHE STRING "type of implementation used")
+message(STATUS "USE_IMPL: ${USE_IMPL}")
+add_compile_definitions(USE_IMPL=${USE_IMPL})
 
 set(USE_LOOKUP_ONLY OFF CACHE BOOL "should lookup only and never update")
 message(STATUS "USE_LOOKUP_ONLY: ${USE_LOOKUP_ONLY}")

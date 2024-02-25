@@ -27,6 +27,16 @@ char _license[] SEC("license") = "GPL";
 #define TVR_MASK (TVR_SIZE - 1)
 #define TIMER_MAX_LOOKS 128
 
+#define NUM_TIME_WHEELS 2
+#if NUM_TIME_WHEELS < 2 || NUM_TIME_WHEELS > 5
+#error NUM_TIME_WHEELS must be between 2 and 5
+#endif
+
+// #define TIMER_MAX_TIMEOUT (1 << (TVR_BITS + TVN_BITS * (NUM_TIME_WHEELS - 1)))
+#define TIMER_MAX_TIMEOUT 512
+
+#define MAX_LOOP ((u32)20000)
+
 #define time_after(a,b)		\
 	(typecheck(unsigned long, a) && \
 	 typecheck(unsigned long, b) && \
@@ -39,9 +49,8 @@ char _license[] SEC("license") = "GPL";
 	 ((long)(a) - (long)(b) >= 0))
 #define time_before_eq(a,b)	time_after_eq(b,a)
 
-#define BKT_NUM_PER_CPU (TVR_SIZE + TVN_SIZE)
+#define BKT_NUM_PER_CPU (TVR_SIZE + TVN_SIZE * (NUM_TIME_WHEELS - 1))
 /*elem of the time list*/
-
 
 #define FRONT_TAIL_BIT_POS 0     //bit pos, set means front 
 #define INS_LOOK_BIT_POS 1     //bit pos, set means insert
@@ -110,14 +119,44 @@ static __always_inline struct bpf_time_list* __add_timer_on(struct time_wheel_qu
         } else if (idx < 1 << (TVR_BITS + TVN_BITS)) {
 		i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;      /*index is lv1 + offset in lv2*/
 		log_debug("add timer to lv2 index %d", i);
-	} else if ((signed long) idx < 0) {
+#if NUM_TIME_WHEELS >= 3
+	} else if (idx < 1 << (TVR_BITS + 2 * TVN_BITS)) {
+		i = ((expires >> (TVR_BITS + TVN_BITS)) & TVN_MASK) + TVR_SIZE +
+		    TVN_SIZE;
+		log_debug("add timer to lv3 index %d", i);
+#if NUM_TIME_WHEELS >= 4
+	} else if (idx < 1 << (TVR_BITS + 3 * TVN_BITS)) {
+		i = ((expires >> (TVR_BITS + 2 * TVN_BITS)) & TVN_MASK) +
+		    TVR_SIZE + 2 * TVN_SIZE;
+		log_debug("add timer to lv4 index %d", i);
+#endif
+#endif
+	} else if ((signed long)idx < 0) {
 		i = (base->clk & TVR_MASK);
 		log_warn("idx < 0 add timer to current clk %d", i);
 	} else {
+#if NUM_TIME_WHEELS == 2
 		expires = base->clk + (1 << (TVR_BITS + TVN_BITS)) - 1;
                 i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;
 		log_warn("add timer to lv2(max) index %d", i);
-        }
+#elif NUM_TIME_WHEELS == 3
+		expires = base->clk + (1 << (TVR_BITS + 2 * TVN_BITS)) - 1;
+		i = ((expires >> (TVR_BITS + TVN_BITS)) & TVN_MASK) + TVR_SIZE +
+		    TVN_SIZE;
+		log_warn("add timer to lv3(max) index %d", i);
+#else /* NUM_TIME_WHEELS >= 4 */
+		expires = base->clk + (1 << (TVR_BITS + 3 * TVN_BITS)) - 1;
+#if NUM_TIME_WHEELS == 4
+		i = ((expires >> (TVR_BITS + 2 * TVN_BITS)) & TVN_MASK) +
+		    TVR_SIZE + 2 * TVN_SIZE;
+		log_warn("add timer to lv4(max) index %d", i);
+#else /* NUM_TIME_WHEELS == 5 */
+		i = ((expires >> (TVR_BITS + 3 * TVN_BITS)) & TVN_MASK) +
+		    TVR_SIZE + 3 * TVN_SIZE;
+		log_warn("add timer to lv5(max) index %d", i);
+#endif
+#endif
+	}
 
         struct __bktlist_key_type key = {
                 .idx = i,
@@ -202,7 +241,7 @@ static int cascade(struct time_wheel_queue *base, void *timer_bkt_map, int idx_o
                 res = 0,
         };
 
-	res = bpf_loop(base->cnt, &__cascade_loop, &ctx, 0);
+	res = bpf_loop(min(base->cnt, MAX_LOOP), &__cascade_loop, &ctx, 0);
 	if (unlikely(res < 0 || ctx.res < 0)) {
 		log_error(" failed to run bpf_loop, res: %d, ctx res: %d", res, ctx.res);
 		return res; 
@@ -225,11 +264,23 @@ static int __run_timer(struct time_wheel_queue *base, void *timer_bkt_map) {
                 struct time_wheel_bkt_list *tl;
                 int index = base->clk  & TVR_MASK;  /*current timer bkt idx*/
 
-		if (!index) {
-			//cascade
-			cascade(base, timer_bkt_map, INDEX(0), TVR_SIZE);
-		}	
-	
+		if (index) {
+		} else if (cascade(base, timer_bkt_map, INDEX(0), TVR_SIZE)) {
+#if NUM_TIME_WHEELS >= 3
+		} else if (cascade(base, timer_bkt_map, INDEX(1),
+				   TVR_SIZE + TVN_SIZE)) {
+#if NUM_TIME_WHEELS >= 4
+		} else if (cascade(base, timer_bkt_map, INDEX(2),
+				   TVR_SIZE + 2 * TVN_SIZE)) {
+#if NUM_TIME_WHEELS >= 5
+		} else if (cascade(base, timer_bkt_map, INDEX(3),
+				   TVR_SIZE + 3 * TVN_SIZE)) {
+#endif
+#endif
+#endif
+			log_debug("cascade max level returned non-zero");
+		}
+
                 struct __run_timerlist_ctx ctx = {
                         .timer_bkt_map = timer_bkt_map,
                         .twq = base,
@@ -239,8 +290,9 @@ static int __run_timer(struct time_wheel_queue *base, void *timer_bkt_map) {
                         }
                 };
                 /* travel the work list*/
-                res = bpf_loop(base->cnt, &__run_timerlist_loop, &ctx, 0);
-                if (res < 0) {
+		res = bpf_loop(min(base->cnt, MAX_LOOP), &__run_timerlist_loop,
+			       &ctx, 0);
+		if (res < 0) {
                         log_error(" failed to run bpf_loop");
                         return res; 
                 }
@@ -265,6 +317,13 @@ struct {
 	__type(value, struct time_wheel_queue);  
 	__uint(max_entries, 1);
 } time_wheel_map SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, int);
+	__type(value, u64);
+	__uint(max_entries, 1);
+} num_runs_map SEC(".maps");
 
 SEC("tc")
 int test_timewheel(void *ctx)
@@ -305,6 +364,8 @@ int xdp_main(void *ctx)
 	int key = 0, res;
 	unsigned long ct = get_current_time();
 	struct time_wheel_queue *twq;
+	u64 num_runs, *num_runs_ptr;
+
 	twq = bpf_map_lookup_elem(&time_wheel_map, &key);
 	xdp_assert_neq(NULL, twq, "failed to lookup time_wheel_map");
 
@@ -315,9 +376,17 @@ int xdp_main(void *ctx)
                 twq->init = 1;
         }
 
-        unsigned long expires = ct + 1;
-        struct bpf_time_list *timer = __add_timer_on(twq, &timer_bkt, expires);
-        xdp_assert_neq(NULL, timer, "__add_timer_on failed");
+	num_runs_ptr = bpf_map_lookup_elem(&num_runs_map, &key);
+	xdp_assert_neq(NULL, num_runs_ptr, "failed to lookup num_runs_map");
+	num_runs = *num_runs_ptr + 1;
+	*num_runs_ptr = num_runs;
+
+	log_debug("num runs %llu, timeout %u", num_runs,
+		  num_runs & (TIMER_MAX_TIMEOUT - 1));
+
+	unsigned long expires = ct + (num_runs & (TIMER_MAX_TIMEOUT - 1));
+	struct bpf_time_list *timer = __add_timer_on(twq, &timer_bkt, expires);
+	xdp_assert_neq(NULL, timer, "__add_timer_on failed");
         timer->expires = expires;
         twq->cnt += 1;
         

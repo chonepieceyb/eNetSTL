@@ -18,8 +18,8 @@ typedef struct pkt_5tuple_with_pad ss_key_t;
 typedef u16 ss_count_t;
 
 #define SS_NUM_COUNTERS 8
-#if SS_NUM_COUNTERS != 8
-#error currently SS_NUM_COUNTERS must be 8 for SIMD implementation to work
+#if SS_NUM_COUNTERS % 8 != 0
+#error currently SS_NUM_COUNTERS must be a multiple of 8 for SIMD implementation to work
 #endif
 
 #define SS_KEY_SIZE sizeof(ss_key_t)
@@ -71,40 +71,46 @@ static inline int __ss_key_cmp(const ss_key_t *key1, const ss_key_t *key2)
 static inline int ss_increment(struct ss *tbl, const ss_key_t *key)
 {
 	ss_count_t min_count = tbl->counts[0];
-	u32 min_idx = 0, i, blk_idx, mask = ~0;
+	u32 min_idx = 0, i, blk_idx, mask;
 	int ret = 0;
 
-	for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
-		mask &= bpf__find_mask_u32_avx((const u32 *)tbl->keys +
-						       blk_idx * 8,
-					       ((const u32 *)key)[blk_idx]);
-		if (mask == 0) {
-			goto replace_or_insert;
-		}
-	}
+	for (i = 0; i < SS_NUM_COUNTERS; i += 8) {
+		mask = ~0;
 
-	i = bpf_tzcnt_u32(mask) >> 2;
-	/* This bound check actually does not alter i */
-	asm_bound_check(i, SS_NUM_COUNTERS);
-	ss_log(debug, "found matching key (with SIMD) at %d, count = %d", i,
-	       tbl->counts[i]);
-	tbl->counts[i]++;
-	goto out;
+		for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
+			mask &= bpf__find_mask_u32_avx(
+				(const u32 *)tbl->keys +
+					blk_idx * SS_NUM_COUNTERS + i,
+				((const u32 *)key)[blk_idx]);
+			if (mask == 0) {
+				goto replace_or_insert;
+			}
+		}
+
+		i += bpf_tzcnt_u32(mask) >> 2;
+		/* This bound check actually does not alter i */
+		asm_bound_check(i, SS_NUM_COUNTERS);
+		ss_log(debug,
+		       "found matching key (with SIMD) at %d, count = %d", i,
+		       tbl->counts[i]);
+		tbl->counts[i]++;
+		goto out;
+	}
 
 	/* This is also responsible for inserting new keys when the table is not full,
      * since the counts are initialized to 0.
      */
 replace_or_insert:
-	min_idx = bpf_find_min_u16_sse(tbl->counts);
+	min_idx =
+		bpf__find_min_u16_sse(tbl->counts, SS_NUM_COUNTERS, &min_count);
 	/* This bound check actually does not alter min_idx */
 	asm_bound_check(min_idx, SS_NUM_COUNTERS);
-	min_count = tbl->counts[min_idx];
 
 	ss_log(debug, "replacing (or inserting new) key at %d, count = %d",
 	       min_idx, min_count);
 
 	for (blk_idx = 0; blk_idx < SS_KEY_SIZE / 4; ++blk_idx) {
-		((u32 *)tbl->keys)[blk_idx * 8 + min_idx] =
+		((u32 *)tbl->keys)[blk_idx * SS_NUM_COUNTERS + min_idx] =
 			((const u32 *)key)[blk_idx];
 	}
 	tbl->overestimates[min_idx] = min_count;

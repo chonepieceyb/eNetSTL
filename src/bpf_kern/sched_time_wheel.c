@@ -29,6 +29,16 @@ char _license[] SEC("license") = "GPL";
 #define TIMER_MAX_LOOKS 128
 #define CPU_NUM 40
 
+#define NUM_TIME_WHEELS 2
+#if NUM_TIME_WHEELS < 2 || NUM_TIME_WHEELS > 5
+#error NUM_TIME_WHEELS must be between 2 and 5
+#endif
+
+// #define TIMER_MAX_TIMEOUT (1 << (TVR_BITS + TVN_BITS * (NUM_TIME_WHEELS - 1)))
+#define TIMER_MAX_TIMEOUT 512
+
+#define MAX_LOOP ((u32)20000)
+
 #define time_after(a,b)		\
 	(typecheck(unsigned long, a) && \
 	 typecheck(unsigned long, b) && \
@@ -44,7 +54,7 @@ char _license[] SEC("license") = "GPL";
 
 /* Two level time wheel*/
 
-#define BKT_NUM_PER_CPU (TVR_SIZE + TVN_SIZE)
+#define BKT_NUM_PER_CPU (TVR_SIZE + TVN_SIZE * (NUM_TIME_WHEELS - 1))
 
 /*elem of the time list*/
 struct bpf_time_list {
@@ -89,14 +99,44 @@ static int add_timer_on(__u32 cpu, struct time_wheel_queue *base, void *timer_bk
         } else if (idx < 1 << (TVR_BITS + TVN_BITS)) {
 		i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;      /*index is lv1 + offset in lv2*/
 		log_debug("add timer to lv2 index %d", i);
-	} else if ((signed long) idx < 0) {
+#if NUM_TIME_WHEELS >= 3
+	} else if (idx < (1 << (TVR_BITS + 2 * TVN_BITS))) {
+		i = ((expires >> (TVR_BITS + TVN_BITS)) & TVN_MASK) + TVR_SIZE +
+		    TVN_SIZE;
+		log_debug("add timer to lv3 index %d", i);
+#if NUM_TIME_WHEELS >= 4
+	} else if (idx < (1 << (TVR_BITS + 3 * TVN_BITS))) {
+		i = ((expires >> (TVR_BITS + 2 * TVN_BITS)) & TVN_MASK) +
+		    TVR_SIZE + 2 * TVN_SIZE;
+		log_debug("add timer to lv4 index %d", i);
+#endif
+#endif
+	} else if ((signed long)idx < 0) {
 		i = (base->clk & TVR_MASK);
 		log_warn("idx < 0 add timer to current clk %d", i);
 	} else {
+#if NUM_TIME_WHEELS == 2
 		expires = base->clk + (1 << (TVR_BITS + TVN_BITS)) - 1;
-                i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;
+		i = ((expires >> TVR_BITS) & TVN_MASK) + TVR_SIZE;
 		log_warn("add timer to lv2(max) index %d", i);
-        }
+#elif NUM_TIME_WHEELS == 3
+		expires = base->clk + (1 << (TVR_BITS + 2 * TVN_BITS)) - 1;
+		i = ((expires >> (TVR_BITS + TVN_BITS)) & TVN_MASK) + TVR_SIZE +
+		    TVN_SIZE;
+		log_warn("add timer to lv3(max) index %d", i);
+#else /* NUM_TIME_WHEELS >= 4 */
+		expires = base->clk + (1 << (TVR_BITS + 3 * TVN_BITS)) - 1;
+#if NUM_TIME_WHEELS == 4
+		i = ((expires >> (TVR_BITS + 2 * TVN_BITS)) & TVN_MASK) +
+		    TVR_SIZE + 2 * TVN_SIZE;
+		log_warn("add timer to lv4(max) index %d", i);
+#else /* NUM_TIME_WHEELS == 5 */
+		i = ((expires >> (TVR_BITS + 3 * TVN_BITS)) & TVN_MASK) +
+		    TVR_SIZE;
+		log_warn("add timer to lv5(max) index %d", i);
+#endif
+#endif
+	}
 
 	key = cpu * BKT_NUM_PER_CPU + i;
 	tl = bpf_map_lookup_elem(timer_bkt_map, &key);
@@ -210,8 +250,8 @@ static int cascade(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt_map
 		.cpu = cpu,
 		.res = 0,
 	};
-	
-	res = bpf_loop(base->cnt, &__cascade_loop, &ctx, 0);
+
+	res = bpf_loop(min(base->cnt, MAX_LOOP), &__cascade_loop, &ctx, 0);
 	if (res < 0 || ctx.res < 0) {
 		log_error(" failed to run bpf_loop, res: %d, ctx res: %d", res, ctx.res);
 		return res; 
@@ -234,11 +274,23 @@ static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt
                 struct time_wheel_bkt_list *tl;
                 int index = base->clk  & TVR_MASK;  /*current timer bkt idx*/
 
-		if (!index) {
-			//cascade
-			cascade(cpu, base, timer_bkt_map, INDEX(0), TVR_SIZE);
-		}	
-
+		if (index) {
+		} else if (cascade(cpu, base, timer_bkt_map, INDEX(0),
+				   TVR_SIZE)) {
+#if NUM_TIME_WHEELS >= 3
+		} else if (cascade(cpu, base, timer_bkt_map, INDEX(1),
+				   TVN_SIZE + TVR_SIZE)) {
+#if NUM_TIME_WHEELS >= 4
+		} else if (cascade(cpu, base, timer_bkt_map, INDEX(2),
+				   2 * TVN_SIZE + TVR_SIZE)) {
+#if NUM_TIME_WHEELS >= 5
+		} else if (cascade(cpu, base, timer_bkt_map, INDEX(3),
+				   3 * TVN_SIZE + TVR_SIZE)) {
+#endif
+#endif
+#endif
+			log_debug("cascade max level returned non-zero");
+		}
 
 		int key = cpu * BKT_NUM_PER_CPU + index; 
 		tl = bpf_map_lookup_elem(timer_bkt_map, &key);
@@ -252,8 +304,9 @@ static int __run_timer(__u32 cpu, struct time_wheel_queue *base, void *timer_bkt
                 ctx.head = &tl->head;
 		ctx.lock = &tl->lock;
 		ctx.twq = base;
-                res = bpf_loop(base->cnt, &__run_timerlist_loop, &ctx, 0);
-                if (res < 0) {
+		res = bpf_loop(min(base->cnt, MAX_LOOP), &__run_timerlist_loop,
+			       &ctx, 0);
+		if (res < 0) {
                         log_error(" failed to run bpf_loop");
                         return res; 
                 }
@@ -278,6 +331,13 @@ struct {
 	__type(value, struct time_wheel_bkt_list);  
 	__uint(max_entries, CPU_NUM * BKT_NUM_PER_CPU);
 } time_wheel_bkt_map SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__type(key, int);
+	__type(value, u64);
+	__uint(max_entries, 1);
+} num_runs_map SEC(".maps");
 
 SEC("tc")
 int test_timewheel(void *ctx)
@@ -379,8 +439,21 @@ int xdp_main(void *ctx)
 	elem = bpf_obj_new(typeof(*elem));
 	xdp_assert_neq(NULL, elem, "elem = bpf_obj_new() failed ");
 
-	elem->expires = ct + 1;
-	
+	u64 num_runs, *num_runs_ptr = bpf_map_lookup_elem(&num_runs_map, &key);
+	if (num_runs_ptr != NULL) {
+		num_runs = *num_runs_ptr + 1;
+		*num_runs_ptr = num_runs;
+	} else {
+		log_error("failed to lookup num_runs_map");
+		bpf_obj_drop(elem);
+		goto xdp_error;
+	}
+
+	log_debug("num_runs %llu, timeout %u", num_runs,
+		  num_runs & (TIMER_MAX_TIMEOUT - 1));
+
+	elem->expires = ct + (num_runs & (TIMER_MAX_TIMEOUT - 1));
+
 	res = add_timer_on(cpu, tq, &time_wheel_bkt_map, elem);
 	if (res != 0 && res != -22) {
 		bpf_obj_drop(elem);
