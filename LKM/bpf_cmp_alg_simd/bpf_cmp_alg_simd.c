@@ -261,13 +261,6 @@ __bpf_kfunc u32 bpf_mm256_movemask_epi8(const u8 *arr)
 }
 EXPORT_SYMBOL_GPL(bpf_mm256_movemask_epi8);
 
-__bpf_kfunc uint32_t bpf_crc32c_sse(const void *data, uint32_t data__sz,
-				    uint32_t init_val)
-{
-	return crc32c(data, data__sz, init_val);
-}
-EXPORT_SYMBOL_GPL(bpf_crc32c_sse);
-
 BTF_SET8_START(bpf_cmp_alg_simd_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_find_u32_avx)
 BTF_ID_FLAGS(func, bpf_find_u16_avx)
@@ -291,7 +284,6 @@ BTF_ID_FLAGS(func, bpf_k32_cmp_eq)
 BTF_ID_FLAGS(func, bpf_mm256_cmpeq_epi32)
 BTF_ID_FLAGS(func, bpf_mm256_cmpeq_epi16)
 BTF_ID_FLAGS(func, bpf_mm256_movemask_epi8)
-BTF_ID_FLAGS(func, bpf_crc32c_sse)
 BTF_SET8_END(bpf_cmp_alg_simd_kfunc_ids)
 
 static const struct btf_kfunc_id_set bpf_cmp_alg_simd_kfunc_set = {

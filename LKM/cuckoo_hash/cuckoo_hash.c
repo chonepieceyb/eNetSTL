@@ -595,6 +595,22 @@ static void cuckoo_hash_free(struct bpf_map *map)
 	kvfree(cuckoo_hash_map);
 }
 
+/*
+ * We use higher 16 bits of hash as the signature value stored in table.
+ * We use the lower bits for the primary bucket
+ * location. Then we XOR primary bucket location and the signature
+ * to get the secondary bucket location. This is same as
+ * proposed in Bin Fan, et al's paper
+ * "MemC3: Compact and Concurrent MemCache with Dumber Caching and
+ * Smarter Hashing". The benefit to use
+ * XOR is that one could derive the alternative bucket location
+ * by only using the current bucket location and the signature.
+ */
+static inline uint16_t __cuckoo_hash_get_short_sig(const cuckoo_hash_sig_t hash)
+{
+	return hash >> 16;
+}
+
 static inline uint32_t
 __cuckoo_hash_get_prim_bucket_index(struct cuckoo_hash *h,
 				    const cuckoo_hash_sig_t hash)
@@ -634,25 +650,25 @@ __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h, const void *key,
 		    bkt->key_idx[i] != CUCKOO_HASH_EMPTY_SLOT) {
 #endif
 		k = (struct __cuckoo_hash_key
-			     *)((char *)keys +
-				bkt->key_idx[i] *
+				     *)((char *)keys +
+					bkt->key_idx[i] *
 						CUCKOO_HASH_KEY_ENTRY_SIZE);
-		cuckoo_log(debug, "checking key i = %d, key_idx = %d\n",
+			cuckoo_log(debug, "checking key i = %d, key_idx = %d\n",
 				   i, bkt->key_idx[i]);
 
-		if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
-			cuckoo_log(debug, "key matches\n");
+			if (__cuckoo_hash_cmp_eq(key, k->key, h) == 0) {
+				cuckoo_log(debug, "key matches\n");
 
-			if (data != NULL)
-				*data = &k->value;
-			/*
+				if (data != NULL)
+					*data = &k->value;
+				/*
 				 * Return index where key is stored,
 				 * subtracting the first dummy index
 				 */
-			return bkt->key_idx[i] - 1;
-		} else {
-			cuckoo_log(debug, "key does not match\n");
-		}
+				return bkt->key_idx[i] - 1;
+			} else {
+				cuckoo_log(debug, "key does not match\n");
+			}
 #if defined(CUCKOO_HASH_SIMD) && defined(CUCKOO_HASH_SIMD_OTHER_CMP)
 	}
 #else
@@ -707,6 +723,13 @@ static inline int32_t __cuckoo_hash_lookup_with_hash(struct cuckoo_hash *h,
 	}
 
 	return -ENOENT;
+}
+
+cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h, const void *key)
+{
+	/* calc hash result by key */
+	return __cuckoo_hash_hash_default(key, CUCKOO_HASH_KEY_SIZE,
+					  CUCKOO_HASH_SEED);
 }
 
 int __cuckoo_hash_lookup_data(struct cuckoo_hash *h, const void *key,
@@ -870,10 +893,10 @@ static inline int32_t __cuckoo_hash_cuckoo_insert_mw(
 	}
 
 	if (i != CUCKOO_HASH_BUCKET_ENTRIES)
-		return 0;
+			return 0;
 
-	/* no empty entry */
-	return -1;
+		/* no empty entry */
+		return -1;
 #endif
 }
 
@@ -1209,6 +1232,16 @@ static int cuckoo_hash_initialize(void)
 
 #ifdef CUCKOO_HASH_DEBUG
 static struct proc_dir_entry *ent;
+
+struct pkt_5tuple {
+	__be32 src_ip;
+	__be32 dst_ip;
+	__be16 src_port;
+	__be16 dst_port;
+	uint8_t proto;
+	/* make this structure 16 bytes to use __cuckoo_hash_k16_cmp_eq */
+	uint8_t pad[3];
+} __attribute__((packed));
 
 static int __testing_alloc(struct inode *inode, struct file *filp)
 {
