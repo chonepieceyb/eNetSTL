@@ -4,6 +4,8 @@
 #include <netinet/in.h>
 #include <stdio.h>
 
+typedef uint32_t u32;
+
 struct fwd_entry {
   u32 timestamp;
   u32 port;
