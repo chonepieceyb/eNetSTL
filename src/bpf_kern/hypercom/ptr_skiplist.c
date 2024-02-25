@@ -889,3 +889,68 @@ drop_sl:
 xdp_error:
         return XDP_DROP;
 }
+
+// test one insert and one delete performace
+SEC("xdp")
+int xdp_main_delete_insert(struct xdp_md *ctx) 
+{
+        int key = 0; 
+        int res;
+        struct value_type *mval;
+        mval = bpf_map_lookup_elem(&mymap, &key);
+        xdp_assert_neq(NULL, mval, "map lookup failed");
+        struct ptr_node_container *sl = container_get_or_create(mval);
+        xdp_assert_neq(NULL, sl, "failed to get sl");
+        
+        if (unlikely(!mval->init)) {
+                res = init_skiplist_lite(sl, &mval->cnt);
+                xdp_assert_eq_tag(0, res, "init skiplist failed", drop_sl); /*found*/
+                mval->init = true;
+        }
+        log_debug("init success");
+        /*testing*/
+        sl_key_type k = {0};
+        u64 vv = bpf_get_prandom_u32() & (ELEM_NUM - 1);
+        *(u64*)(&k) = vv;
+
+        /*grow the packet*/
+        u64 packet_size = 0;
+        res = bpf_xdp_adjust_tail(ctx, VALUE_SIZE);
+        xdp_assert_eq_tag(0, res, "failed to grow packet", drop_sl); /*found*/
+        void *data = (void *)(__u64)ctx->data;
+        void *data_end = (void *)(__u64)ctx->data_end;
+        sl_value_type *look_res = (sl_value_type *)(data + packet_size);
+        if ((void*)(look_res + 1) > data_end) {
+                log_error("packet too small should not happen");
+                goto drop_sl;
+        }
+
+        ptr_node *head = head_get_or_init(sl);
+
+        sl_value_type dequeue_v = {0};
+        res = sl_dequeue(sl, head, &dequeue_v, &mval->cnt);
+        xdp_assert_eq_tag(0, res, "dequeue failed", drop_head);
+
+        sl_value_type enqueue_v = {0};
+        *(u64*)(&enqueue_v) = vv;
+        res = sl_enqueue(sl, head, &k, &enqueue_v, &mval->cnt);
+        xdp_assert_eq_tag(0, res, "enqueue failed", drop_head); /*found*/
+
+        ptr_release_node(head);
+        struct ptr_node_container * oldsl = bpf_kptr_xchg(&mval->container, sl);
+        if (unlikely(oldsl != NULL)) {
+              ptr_destory_node_container(oldsl);  
+        }
+#if LOG_LEVEL >= LOG_LEVEL_DEBUG
+        return XDP_PASS;
+#else
+        return XDP_DROP;
+#endif 
+
+drop_head:
+        ptr_release_node(head);
+drop_sl:
+        ptr_destory_node_container(sl);
+xdp_error:
+        return XDP_DROP;
+}
