@@ -20,6 +20,7 @@ if(${USE_STATIC})
 endif()
 
 find_library(LIBBPF NAMES bpf HINTS "${LIBBPF_SEARCH_PATH}" REQUIRED)
+find_library(LIBM NAMES m REQUIRED)
 
 file(GLOB BLACK_LIST "${C_FILES}/*.black")
 file(GLOB TARGET_LIST "${C_FILES}/*_user.c")
@@ -62,14 +63,14 @@ foreach(TF ${TARGET_LIST})
     endif()
 
     if(${USE_STATIC})
-        target_link_libraries(${TN} ${LIBBPF} ${LIBELF} ${LIBZ} ${LIBZSTD})
+        target_link_libraries(${TN} ${LIBBPF} ${LIBM} ${LIBELF} ${LIBZ} ${LIBZSTD})
     else()
-        target_link_libraries(${TN} ${LIBBPF})
+        target_link_libraries(${TN} ${LIBBPF} ${LIBM})
     endif()
 
     add_dependencies(${TN} bpf_skel)
 endforeach()
 
 set(CMAKE_C_FLAGS
-    "${CMAKE_C_FLAGS} -O2 -lm"
+    "${CMAKE_C_FLAGS} -O2"
 )
