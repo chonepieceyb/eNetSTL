@@ -2,177 +2,102 @@
 #define _JHASH_H
 
 #include "common.h"
-/*
- * jhash.h
- *
- * Example hash function.
- *
- * Copyright 2009-2012 - Mathieu Desnoyers <mathieu.desnoyers@polymtl.ca>
- *
- * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY EXPRESSED
- * OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
- *
- * Permission is hereby granted to use or copy this program for any
- * purpose,  provided the above notices are retained on all copies.
- * Permission to modify the code and to distribute modified code is
- * granted, provided the above notices are retained, and a notice that
- * the code was modified is included with the above copyright notice.
- */
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright (C) 2006 Bob Jenkins <bob_jenkins@burtleburtle.net> */
+/* Copyright (C) 2006-2020 Authors of the Linux kernel */
+/* Copyright (C) 2020 Authors of Cilium */
 
-/*
- * Hash function
- * Source: http://burtleburtle.net/bob/c/lookup3.c
- * Originally Public Domain
- */
+#define JHASH_INITVAL	0xdeadbeef
 
-/* definition of the packet 5 tuple */
-// struct pkt_5tuple {
-//   	__be32 src_ip;
-//   	__be32 dst_ip;
-//   	__be16 src_port;
-//   	__be16 dst_port;
-//   	uint8_t proto;
-// } __attribute__((packed));
-
-#define rot(x, k) (((x) << (k)) | ((x) >> (32 - (k))))
-
-#define mix(a, b, c) \
-do { \
-	a -= c; a ^= rot(c,  4); c += b; \
-	b -= a; b ^= rot(a,  6); a += c; \
-	c -= b; c ^= rot(b,  8); b += a; \
-	a -= c; a ^= rot(c, 16); c += b; \
-	b -= a; b ^= rot(a, 19); a += c; \
-	c -= b; c ^= rot(b,  4); b += a; \
-} while (0)
-
-#define final(a, b, c) \
-{ \
-	c ^= b; c -= rot(b, 14); \
-	a ^= c; a -= rot(c, 11); \
-	b ^= a; b -= rot(a, 25); \
-	c ^= b; c -= rot(b, 16); \
-	a ^= c; a -= rot(c,  4); \
-	b ^= a; b -= rot(a, 14); \
-	c ^= b; c -= rot(b, 24); \
+static __always_inline uint32_t rol32(uint32_t word, uint32_t shift)
+{
+	return (word << shift) | (word >> ((-shift) & 31));
 }
 
-#if (BYTE_ORDER == LITTLE_ENDIAN)
-#define HASH_LITTLE_ENDIAN	1
-#else
-#define HASH_LITTLE_ENDIAN	0
-#endif
+#define __jhash_mix(a, b, c)			\
+{						\
+	a -= c;  a ^= rol32(c, 4);  c += b;	\
+	b -= a;  b ^= rol32(a, 6);  a += c;	\
+	c -= b;  c ^= rol32(b, 8);  b += a;	\
+	a -= c;  a ^= rol32(c, 16); c += b;	\
+	b -= a;  b ^= rol32(a, 19); a += c;	\
+	c -= b;  c ^= rol32(b, 4);  b += a;	\
+}
 
-static
-__u32 hashlittle_u32(__u32 *key, size_t length, __u32 initval)
+#define __jhash_final(a, b, c)			\
+{						\
+	c ^= b; c -= rol32(b, 14);		\
+	a ^= c; a -= rol32(c, 11);		\
+	b ^= a; b -= rol32(a, 25);		\
+	c ^= b; c -= rol32(b, 16);		\
+	a ^= c; a -= rol32(c, 4);		\
+	b ^= a; b -= rol32(a, 14);		\
+	c ^= b; c -= rol32(b, 24);		\
+}
+
+uint32_t jhash(const void *key, uint32_t length, uint32_t initval)
 {
-	__u32 a, b, c;	/* internal state */
-	union {
-		const __u32 *ptr;
-		size_t i;
-	} u;
+	const unsigned char *k = key;
+	uint32_t a, b, c;
+	
+	a = b = c = JHASH_INITVAL + length + initval;
 
-	/* Set up the internal state */
-	a = b = c = 0xdeadbeef + ((__u32)length) + initval;
+	while (length > 12) {
+		a += *(uint32_t *)(k);
+		b += *(uint32_t *)(k + 4);
+		c += *(uint32_t *)(k + 8);
 
-	u.ptr = key;
-	// if (HASH_LITTLE_ENDIAN && ((u.i & 0x3) == 0)) {
-		const __u32 *k = (const __u32 *) key;	/* read 32-bit chunks */
+		__jhash_mix(a, b, c);
+		length -= 12;
+		k += 12;
+	}
 
-		/*------ all but last block: aligned reads and affect 32 bits of (a,b,c) */
-		while (length > 12) {
-			a += k[0];
-			b += k[1];
-			c += k[2];
-			mix(a, b, c);
-			length -= 12;
-			k += 3;
-		}
+	switch (length) {
+	case 12: c += (uint32_t)k[11] << 24;
+	case 11: c += (uint32_t)k[10] << 16;
+	case 10: c +=  (uint32_t)k[9] <<  8;
+	case 9:  c +=  (uint32_t)k[8];
+	case 8:  b +=  (uint32_t)k[7] << 24;
+	case 7:  b +=  (uint32_t)k[6] << 16;
+	case 6:  b +=  (uint32_t)k[5] <<  8;
+	case 5:  b +=  (uint32_t)k[4];
+	case 4:  a +=  (uint32_t)k[3] << 24;
+	case 3:  a +=  (uint32_t)k[2] << 16;
+	case 2:  a +=  (uint32_t)k[1] <<  8;
+	case 1:  a +=  (uint32_t)k[0];
 
-		switch (length) {
-		case 12: c+=k[2]; b+=k[1]; a+=k[0]; break;
-		case 11: c+=k[2]&0xffffff; b+=k[1]; a+=k[0]; break;
-		case 10: c+=k[2]&0xffff; b+=k[1]; a+=k[0]; break;
-		case 9 : c+=k[2]&0xff; b+=k[1]; a+=k[0]; break;
-		case 8 : b+=k[1]; a+=k[0]; break;
-		case 7 : b+=k[1]&0xffffff; a+=k[0]; break;
-		case 6 : b+=k[1]&0xffff; a+=k[0]; break;
-		case 5 : b+=k[1]&0xff; a+=k[0]; break;
-		case 4 : a+=k[0]; break;
-		case 3 : a+=k[0]&0xffffff; break;
-		case 2 : a+=k[0]&0xffff; break;
-		case 1 : a+=k[0]&0xff; break;
-		case 0 : return c;		/* zero length strings require no mixing */
-		}
+		__jhash_final(a, b, c);
+	case 0: /* Nothing left to add */
+		break;
+	}
 
-	// } else {					/* key size smaller than 4Bytes */
-	// 	log_error("unexcepted error at %d", __LINE__);
-	// }
-
-	final(a, b, c);
 	return c;
 }
 
-static
-__u32 jhash_u32(__u32 *key, size_t length, __u32 seed)
+static __always_inline uint32_t __jhash_nwords(uint32_t a, uint32_t b, uint32_t c,
+					    uint32_t initval)
 {
-	return hashlittle_u32(key, length, seed);
-}
-
-static
-__u32 hashlittle_pkt(struct pkt_5tuple *key, size_t length, __u32 initval)
-{
-	__u32 a, b, c;	/* internal state */
-	union {
-		const struct pkt_5tuple *ptr;
-		size_t i;
-	} u;
-
-	/* Set up the internal state */
-	a = b = c = 0xdeadbeef + ((__u32)length) + initval;
-
-	u.ptr = key;
-	// if (HASH_LITTLE_ENDIAN && ((u.i & 0x3) == 0)) {
-		const __u32 *k = (const __u32 *) key;	/* read 32-bit chunks */
-
-		/*------ all but last block: aligned reads and affect 32 bits of (a,b,c) */
-		while (length > 12) {
-			a += k[0];
-			b += k[1];
-			c += k[2];
-			mix(a, b, c);
-			length -= 12;
-			k += 3;
-		}
-
-		switch (length) {
-		case 12: c+=k[2]; b+=k[1]; a+=k[0]; break;
-		case 11: c+=k[2]&0xffffff; b+=k[1]; a+=k[0]; break;
-		case 10: c+=k[2]&0xffff; b+=k[1]; a+=k[0]; break;
-		case 9 : c+=k[2]&0xff; b+=k[1]; a+=k[0]; break;
-		case 8 : b+=k[1]; a+=k[0]; break;
-		case 7 : b+=k[1]&0xffffff; a+=k[0]; break;
-		case 6 : b+=k[1]&0xffff; a+=k[0]; break;
-		case 5 : b+=k[1]&0xff; a+=k[0]; break;
-		case 4 : a+=k[0]; break;
-		case 3 : a+=k[0]&0xffffff; break;
-		case 2 : a+=k[0]&0xffff; break;
-		case 1 : a+=k[0]&0xff; break;
-		case 0 : return c;		/* zero length strings require no mixing */
-		}
-
-	// } else {					/* key size smaller than 4Bytes */
-	// 	log_error("unexcepted error at %d", __LINE__);
-	// }
-
-	final(a, b, c);
+	a += initval;
+	b += initval;
+	c += initval;
+	__jhash_final(a, b, c);
 	return c;
 }
 
-static
-__u32 jhash_pkt(struct pkt_5tuple *key, size_t length, __u32 seed)
+uint32_t jhash_3words(uint32_t a, uint32_t b, uint32_t c,
+					  uint32_t initval)
 {
-	return hashlittle_pkt(key, length, seed);
+	return __jhash_nwords(a, b, c, initval + JHASH_INITVAL + (3 << 2));
+}
+
+uint32_t jhash_2words(uint32_t a, uint32_t b, uint32_t initval)
+{
+	return __jhash_nwords(a, b, 0, initval + JHASH_INITVAL + (2 << 2));
+}
+
+uint32_t jhash_1word(uint32_t a, uint32_t initval)
+{
+	return __jhash_nwords(a, 0, 0, initval + JHASH_INITVAL + (1 << 2));
 }
 
 #endif /* _JHASH_H */

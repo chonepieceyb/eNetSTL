@@ -6,6 +6,7 @@
 #include <net/if.h>
 #include <linux/if_link.h>
 #include <stdio.h>
+#include <errno.h>
 
 static int __default_callback_load(void *skel)
 {

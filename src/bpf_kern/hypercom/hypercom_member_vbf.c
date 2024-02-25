@@ -1,9 +1,9 @@
-#include "vmlinux.h"
-#include "bpf_helpers.h"
-#include "common.h"
-#include "jhash.h"
-#include "xxhash.h"
-#include "fasthash.h"
+#include "../vmlinux.h"
+
+#include "../common.h"
+#include "../bpf_cmp_alg_simd.h"
+#include "../fasthash.h"
+#include <bpf/bpf_helpers.h>
 
 char _license[] SEC("license") = "GPL";
 
@@ -29,16 +29,14 @@ char _license[] SEC("license") = "GPL";
 #define DIV_SHIFT 2
 
 #define TEST_RANGE 20
-/* set to 1 enable design pattern test, it will replace the kfunc to constant operation */
-#define DESIGN_PATTERN_TEST 0
 /* bitwise operation */
-static inline __u32
+static __always_inline __u32
 ctz32(__u32 v)
 {
-	v = v - (v&(v-1));
-	return ( ( (v & 0xFFFF0000 ) != 0 ? ( v &= 0xFFFF0000, 16) : 0) | ( ( v& 0xFF00FF00 ) != 0 ? ( v &= 0xFF00FF00, 8 ) : 0 ) | ( ( v & 0xF0F0F0F0) != 0 ? ( v &= 0xF0F0F0F0, 4 ) : 0 ) 
-	| ( ( v & 0xCCCCCCCC ) != 0 ? ( v &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( v & 0xAAAAAAAA ) != 0 ) );
+	return bpf_tzcnt_u32(v);
 }
+// #define HASH_FUNC fasthash32
+#define HASH_FUNC bpf_crc32_hash
 
 /* core malloc area */
 typedef __u16 set_t;
@@ -82,13 +80,8 @@ set_bit(__u32 *table, __u32 bit_loc, __s32 set)
 static int
 member_lookup_vbf(__u32 *table, struct pkt_5tuple *key, __u32 key_len, set_t *set_id)
 {
-#if DESIGN_PATTERN_TEST == 0
-	__u32 h1 = fasthash32(key, key_len, HASH_SEED_1);
-	__u32 h2 = fasthash32(&h1, sizeof(__u32), HASH_SEED_2);
-#else 
-	__u32 h1 = key->src_ip;
-	__u32 h2 = key->dst_ip;
-#endif
+	__u32 h1 = HASH_FUNC(key, key_len, HASH_SEED_1);
+	__u32 h2 = HASH_FUNC(&h1, sizeof(__u32), HASH_SEED_2);
 	__u32 mask = ~0;
 	__u32 bit_loc;
 
@@ -98,16 +91,8 @@ member_lookup_vbf(__u32 *table, struct pkt_5tuple *key, __u32 key_len, set_t *se
 		mask &= test_bit(table, bit_loc);
 	}
 
-#if DESIGN_PATTERN_TEST != 0
-	// force execute ctz32 to test performance
-	mask |= 0x00100000;
-#endif
 	if (mask) {
-#if DESIGN_PATTERN_TEST == 0
 		*set_id = ctz32(mask) + 1;
-#else 
-		*set_id = (set_t)mask;
-#endif
 		return 1;
 	} else {
 		*set_id = MEMBER_NO_MATCH;
@@ -124,8 +109,8 @@ member_add_vbf(__u32 *table, struct pkt_5tuple *key, __u32 key_len, set_t set_id
 	if (set_id > NUM_SET || set_id == MEMBER_NO_MATCH)
 		return -1;
 
-	h1 = fasthash32(key, key_len, HASH_SEED_1);
-	h2 = fasthash32(&h1, sizeof(__u32), HASH_SEED_2);
+	h1 = HASH_FUNC(key, key_len, HASH_SEED_1);
+	h2 = HASH_FUNC(&h1, sizeof(__u32), HASH_SEED_2);
 
 	for (i = 0; i < NUM_HASHES; i++) {
 		bit_loc = (h1 + i * h2) & BIT_MASK;
@@ -254,7 +239,7 @@ int xdp_main(struct xdp_md *ctx) {
 
 	// member_add_vbf(table, &pkt, sizeof(struct pkt_5tuple), set_id);
 	int lookup_res = member_lookup_vbf(table, &pkt, sizeof(struct pkt_5tuple), &set_id);
-
+	// bpf_printk("lookup_res: %d, set_id: %d\n", lookup_res, set_id);
 finish:
 	return XDP_DROP;
 }

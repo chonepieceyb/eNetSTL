@@ -5,7 +5,7 @@ char _license[] SEC("license") = "GPL";
 #define __TARGET_ARCH_x86
 #include <bpf/bpf_tracing.h>
 
-#define MAX_ENTRY 512
+#define MAX_ENTRY 2048
 
 /* core malloc aera */
 typedef __u16 sig_t;
@@ -25,14 +25,6 @@ int xdp_main(struct xdp_md *ctx) {
 	set_t set_id = 1;
 
 	struct pkt_5tuple pkt = {0};
-
-	// __u32 random = bpf_get_prandom_u32();
-	// pkt.src_ip = random;
-	// pkt.dst_ip = random;
-	// pkt.src_port = random;
-	// pkt.dst_port = random;
-	// pkt.proto = 0x04;
-	
 	void *data, *data_end;
 	struct hdr_cursor nh;
 	int ret;
@@ -52,10 +44,7 @@ int xdp_main(struct xdp_md *ctx) {
 
 	// int ret = bpf_map_update_elem(&htss, &pkt, &set_id, BPF_ANY);
 	set_t *set_id_res = bpf_map_lookup_elem(&htss, &pkt);
-	if (set_id_res != NULL) {
-		log_error("htss LKM lookup error\n");
-	}
-	
+
 finish:
 	return XDP_DROP;
 }

@@ -1,8 +1,9 @@
-#include "vmlinux.h"
-#include "bpf_helpers.h"
-#include "common.h"
-#include "jhash.h"
-#include "fasthash.h"
+#include "../vmlinux.h"
+
+#include "../common.h"
+#include "../bpf_cmp_alg_simd.h"
+#include "../fasthash.h"
+#include <bpf/bpf_helpers.h>
 
 char _license[] SEC("license") = "GPL";
 
@@ -26,7 +27,7 @@ char _license[] SEC("license") = "GPL";
 #define MEMBER_BUCKET_ENTRIES 8
 
 /* set to 1 enable design pattern test, it will replace the kfunc to constant operation */
-#define DESIGN_PATTERN_TEST 0
+#define DESIGN_PATTERN_TEST 1
 #define TEST_RANGE 20
 /* core malloc aera */
 typedef __u16 sig_t;
@@ -81,19 +82,14 @@ struct {
 	__uint(max_entries, 1);
 } count_map SEC(".maps");
 
-
 /* htss helper function */
-static __always_inline void
-get_buckets_index(struct pkt_5tuple *key, __u32 key_len, __u32 *prim_bkt, __u32 *sec_bkt, sig_t *sig)
+static __always_inline void get_buckets_index(struct pkt_5tuple *key,
+					      __u32 key_len, __u32 *prim_bkt,
+					      __u32 *sec_bkt, sig_t *sig)
 {
-	/* 和vbf一样，计算两个hash值，其中 h1 = hash(key) h2 = hash(hash(key)) */
-#if DESIGN_PATTERN_TEST == 0
-	__u32 first_hash = fasthash32(key, key_len, HASH_SEED_1);
-	__u32 sec_hash = fasthash32(&first_hash, sizeof(__u32), HASH_SEED_2);
-#else
-	__u32 first_hash = 0xdeadbeef;
-	__u32 sec_hash = 0xaaaabbbb;
-#endif
+	__u32 first_hash = bpf_crc32_hash(key, key_len, HASH_SEED_1);
+	__u32 sec_hash =
+		bpf_crc32_hash(&first_hash, sizeof(__u32), HASH_SEED_2);
 
 	if (prim_bkt == NULL || sec_bkt == NULL || sig == NULL) {
 		log_error("error at line %d", __LINE__);
@@ -101,14 +97,12 @@ get_buckets_index(struct pkt_5tuple *key, __u32 key_len, __u32 *prim_bkt, __u32 
 	}
 	*sig = first_hash;
 	*prim_bkt = sec_hash & BUCKET_MASK;
-	*sec_bkt =  (*prim_bkt ^ *sig) & BUCKET_MASK;
-
+	*sec_bkt = (*prim_bkt ^ *sig) & BUCKET_MASK;
 }
 
-
-static __always_inline int
-try_insert(struct member_ht_bucket *buckets, __u32 prim, __u32 sec,
-		sig_t sig, set_t set_id)
+static __always_inline int try_insert(struct member_ht_bucket *buckets,
+				      __u32 prim, __u32 sec, sig_t sig,
+				      set_t set_id)
 {
 	int i;
 	/* If not full then insert into one slot */
@@ -130,20 +124,22 @@ try_insert(struct member_ht_bucket *buckets, __u32 prim, __u32 sec,
 	return -1;
 }
 
-int __always_inline
-make_space_bucket_non_recur(struct member_ht_bucket *buckets, __u32 bkt_idx,
-			unsigned int *nr_pushes, sig_t tmp_sig, set_t set_id)
+int __always_inline make_space_bucket_non_recur(
+	struct member_ht_bucket *buckets, __u32 bkt_idx,
+	unsigned int *nr_pushes, sig_t tmp_sig, set_t set_id)
 {
 	__u32 curr_bkt_idx = bkt_idx;
 	__u32 index = 0;
 
 	/* get stack memory pointer */
-	struct pushed_array *__pushed_array = bpf_map_lookup_elem(&pushed_map, &index);
+	struct pushed_array *__pushed_array =
+		bpf_map_lookup_elem(&pushed_map, &index);
 	if (__pushed_array == NULL) {
 		log_error("eBPF Map Memory error at %d\n", __LINE__);
 		goto error;
 	}
-	struct record_array *__record_array = bpf_map_lookup_elem(&record_map, &index);
+	struct record_array *__record_array =
+		bpf_map_lookup_elem(&record_map, &index);
 	if (__record_array == NULL) {
 		log_error("eBPF Map Memory error at %d\n", __LINE__);
 		goto error;
@@ -151,7 +147,7 @@ make_space_bucket_non_recur(struct member_ht_bucket *buckets, __u32 bkt_idx,
 
 	/* clear stack memory */
 	for (int i = 0; i < NUM_BUCKETS; i++) {
-		for (int j = 0; j< MEMBER_BUCKET_ENTRIES; j++) {
+		for (int j = 0; j < MEMBER_BUCKET_ENTRIES; j++) {
 			__pushed_array->data[i][j] = 0;
 		}
 	}
@@ -177,7 +173,8 @@ make_space_bucket_non_recur(struct member_ht_bucket *buckets, __u32 bkt_idx,
 		/* i: 当前bucket的set id, j: 下一个bucket的set id */
 		for (i = 0; i < MEMBER_BUCKET_ENTRIES; i++) {
 			sig_t curr_sig = curr_bkt->sigs[i];
-			next_bucket_idx = (curr_sig ^ curr_bkt_idx) & BUCKET_MASK;
+			next_bucket_idx = (curr_sig ^ curr_bkt_idx) &
+					  BUCKET_MASK;
 			next_bkt[i] = &buckets[next_bucket_idx];
 			for (j = 0; j < MEMBER_BUCKET_ENTRIES; j++) {
 				if (next_bkt[i]->sets[j] == MEMBER_NO_MATCH)
@@ -193,26 +190,35 @@ make_space_bucket_non_recur(struct member_ht_bucket *buckets, __u32 bkt_idx,
 			// 记录当前的桶和位置(入栈)
 			push_record[p].bkt_idx = curr_bkt_idx;
 			push_record[p].set_idx = i;
-			p = (p + 1) & (MEMBER_MAX_PUSHES - 1); /* 这里为了过验证的修改导致MEMBER_MAX_PUSHES必须为2的幂 */
+			p = (p + 1) &
+			    (MEMBER_MAX_PUSHES -
+			     1); /* 这里为了过验证的修改导致MEMBER_MAX_PUSHES必须为2的幂 */
 			push_record[p].bkt_idx = next_bucket_idx;
 			push_record[p].set_idx = j;
 			break; // 跳出整个循环，结束递归寻找空间
 		} else {
 			/* 下一个桶没有空位，需要选择当前桶中一个没有被踢出过的元素，将其踢出到下一个桶中，并继续下一轮大循环，直到找到空位置 */
 			for (i = 0; i < MEMBER_BUCKET_ENTRIES; i++) {
-				if (__pushed_array->data[curr_bkt_idx][i] == 0) {
+				if (__pushed_array->data[curr_bkt_idx][i] ==
+				    0) {
 					push_record[p].bkt_idx = curr_bkt_idx;
 					push_record[p].set_idx = i;
 					if (p == 0) {
 						initial_set_id = i;
 					}
-					__pushed_array->data[curr_bkt_idx][i] = 1;
-					curr_bkt_idx = (curr_bkt->sigs[i] ^ curr_bkt_idx) & BUCKET_MASK;;
+					__pushed_array->data[curr_bkt_idx][i] =
+						1;
+					curr_bkt_idx = (curr_bkt->sigs[i] ^
+							curr_bkt_idx) &
+						       BUCKET_MASK;
+					;
 					break;
 				}
 			}
 			if (i == MEMBER_BUCKET_ENTRIES) {
-				log_debug("add to bucket %d hit max push(set all pushed)\n", bkt_idx);
+				log_debug(
+					"add to bucket %d hit max push(set all pushed)\n",
+					bkt_idx);
 				return -ENOSPC;
 			}
 		}
@@ -225,30 +231,39 @@ make_space_bucket_non_recur(struct member_ht_bucket *buckets, __u32 bkt_idx,
 		/* 逆序遍历递归记录(出栈)，将所有的记录的位置的元素都移动到下一个桶 */
 		for (int c = p; c > 0; c--) {
 			if (c >= MEMBER_MAX_PUSHES || c < 0) {
-				log_error("eBPF Map Memory error at %d\n", __LINE__);
+				log_error("eBPF Map Memory error at %d\n",
+					  __LINE__);
 				goto error;
 			}
-			if (push_record[c].bkt_idx >= NUM_BUCKETS || push_record[c].set_idx >= MEMBER_BUCKET_ENTRIES) {
-				log_error("eBPF Map Memory error at %d\n", __LINE__);
+			if (push_record[c].bkt_idx >= NUM_BUCKETS ||
+			    push_record[c].set_idx >= MEMBER_BUCKET_ENTRIES) {
+				log_error("eBPF Map Memory error at %d\n",
+					  __LINE__);
 				goto error;
 			}
 			struct record curr_record = push_record[c];
-			struct record prev_record = push_record[c-1];
+			struct record prev_record = push_record[c - 1];
 			asm_bound_check(curr_record.bkt_idx, NUM_BUCKETS);
 			asm_bound_check(prev_record.bkt_idx, NUM_BUCKETS);
-			asm_bound_check(curr_record.set_idx, MEMBER_BUCKET_ENTRIES);
-			asm_bound_check(prev_record.set_idx, MEMBER_BUCKET_ENTRIES);
+			asm_bound_check(curr_record.set_idx,
+					MEMBER_BUCKET_ENTRIES);
+			asm_bound_check(prev_record.set_idx,
+					MEMBER_BUCKET_ENTRIES);
 			buckets[curr_record.bkt_idx].sigs[curr_record.set_idx] =
-				buckets[prev_record.bkt_idx].sigs[prev_record.set_idx];
+				buckets[prev_record.bkt_idx]
+					.sigs[prev_record.set_idx];
 			buckets[curr_record.bkt_idx].sets[curr_record.set_idx] =
-				buckets[prev_record.bkt_idx].sets[prev_record.set_idx];
+				buckets[prev_record.bkt_idx]
+					.sets[prev_record.set_idx];
 		}
 		/* 赋值本次add待插入的元素 */
 		struct record first_record = push_record[0];
 		asm_bound_check(first_record.bkt_idx, NUM_BUCKETS);
 		asm_bound_check(first_record.set_idx, MEMBER_BUCKET_ENTRIES);
-		buckets[first_record.bkt_idx].sets[first_record.set_idx] = set_id;
-		buckets[first_record.bkt_idx].sigs[first_record.set_idx] = tmp_sig;
+		buckets[first_record.bkt_idx].sets[first_record.set_idx] =
+			set_id;
+		buckets[first_record.bkt_idx].sigs[first_record.set_idx] =
+			tmp_sig;
 
 		return initial_set_id;
 	}
@@ -258,31 +273,28 @@ error:
 
 static __always_inline int
 search_bucket_single(__u32 bucket_id, sig_t tmp_sig,
-		struct member_ht_bucket *buckets,
-		set_t *set_id)
+		     struct member_ht_bucket *buckets, set_t *set_id)
 {
 	asm_bound_check(bucket_id, NUM_BUCKETS);
-	__u32 iter;
-#if DESIGN_PATTERN_TEST == 0
-	for (iter = 0; iter < MEMBER_BUCKET_ENTRIES; iter++) {
-		if (tmp_sig == buckets[bucket_id].sigs[iter] && buckets[bucket_id].sets[iter] != MEMBER_NO_MATCH) {
-			*set_id = buckets[bucket_id].sets[iter];
+	__u32 hitmask = bpf_htss_sig_cmp(buckets[bucket_id].sigs,
+					 sizeof(sig_t) * MEMBER_BUCKET_ENTRIES,
+					 tmp_sig);
+	for (int i = 0; hitmask != 0 && i < 8; i++) {
+		__u32 hit_idx = bpf_tzcnt_u32(hitmask) >> 1;
+		asm_bound_check(hit_idx, MEMBER_BUCKET_ENTRIES);
+		if (buckets[bucket_id].sets[hit_idx] != MEMBER_NO_MATCH) {
+			*set_id = buckets[bucket_id].sets[hit_idx];
 			return 1;
 		}
+		hitmask &= ~(3U << ((hit_idx) << 1));
 	}
-#else
-	if (tmp_sig == buckets[bucket_id].sigs[iter] && buckets[bucket_id].sets[iter] != MEMBER_NO_MATCH) {
-		*set_id = buckets[bucket_id].sets[iter];
-		return 1;
-	}
-#endif
 not_found:
 	return 0;
 }
 
-/* htss API implementation */
-static int
-member_lookup_ht(struct member_ht_bucket *buckets, struct pkt_5tuple *key, set_t *set_id)
+/* using bpf_htss_sig_cmp() */
+static int member_lookup_ht(struct member_ht_bucket *buckets,
+			    struct pkt_5tuple *key, set_t *set_id)
 {
 	__u32 prim_bucket_idx = 0, sec_bucket_idx = 0;
 	sig_t tmp_sig = 0;
@@ -292,18 +304,55 @@ member_lookup_ht(struct member_ht_bucket *buckets, struct pkt_5tuple *key, set_t
 		goto not_found;
 	}
 	*set_id = MEMBER_NO_MATCH;
-	get_buckets_index(key, sizeof(struct pkt_5tuple), &prim_bucket_idx, &sec_bucket_idx, &tmp_sig);
+	get_buckets_index(key, sizeof(struct pkt_5tuple), &prim_bucket_idx,
+			  &sec_bucket_idx, &tmp_sig);
 
 	if (search_bucket_single(prim_bucket_idx, tmp_sig, buckets, set_id) 
 			|| search_bucket_single(sec_bucket_idx, tmp_sig, buckets, set_id))
+	// if (search_bucket_single(prim_bucket_idx, tmp_sig, buckets, set_id))
 		return 1;
-
 not_found:
 	return 0;
 }
 
-static int
-member_add_ht(struct member_ht_bucket *buckets, struct pkt_5tuple *key, set_t set_id)
+/* using bpf_htss_bucket_search() */
+// static int member_lookup_ht(struct member_ht_bucket *buckets,
+// 			    struct pkt_5tuple *key, set_t *set_id)
+// {
+// 	__u32 prim_bucket_idx = 0, sec_bucket_idx = 0;
+// 	sig_t tmp_sig = 0;
+
+// 	if (set_id == NULL || buckets == NULL) {
+// 		log_error("error at line %d\n", __LINE__);
+// 		goto not_found;
+// 	}
+// 	*set_id = MEMBER_NO_MATCH;
+// 	get_buckets_index(key, sizeof(struct pkt_5tuple), &prim_bucket_idx,
+// 			  &sec_bucket_idx, &tmp_sig);
+
+// 	asm_bound_check(prim_bucket_idx, NUM_BUCKETS);
+// 	*set_id = bpf_htss_bucket_search(buckets[prim_bucket_idx].sigs,
+// 					 sizeof(sig_t) * MEMBER_BUCKET_ENTRIES,
+// 					 tmp_sig, buckets[prim_bucket_idx].sets,
+// 					 sizeof(sig_t) * MEMBER_BUCKET_ENTRIES);
+// 	if (*set_id == MEMBER_NO_MATCH) {
+// 		asm_bound_check(sec_bucket_idx, NUM_BUCKETS);
+// 		*set_id = bpf_htss_bucket_search(
+// 			buckets[sec_bucket_idx].sigs,
+// 			sizeof(sig_t) * MEMBER_BUCKET_ENTRIES, tmp_sig,
+// 			buckets[sec_bucket_idx].sets,
+// 			sizeof(sig_t) * MEMBER_BUCKET_ENTRIES);
+// 		if (*set_id == MEMBER_NO_MATCH) {
+// 			goto not_found;
+// 		}
+// 	}
+// 	return 1;
+// not_found:
+// 	return 0;
+// }
+
+static int member_add_ht(struct member_ht_bucket *buckets,
+			 struct pkt_5tuple *key, set_t set_id)
 {
 	int ret;
 	unsigned int nr_pushes = 0;
@@ -317,7 +366,8 @@ member_add_ht(struct member_ht_bucket *buckets, struct pkt_5tuple *key, set_t se
 		return -1;
 	}
 
-	get_buckets_index(key, sizeof(struct pkt_5tuple), &prim_bucket, &sec_bucket, &tmp_sig);
+	get_buckets_index(key, sizeof(struct pkt_5tuple), &prim_bucket,
+			  &sec_bucket, &tmp_sig);
 
 	ret = try_insert(buckets, prim_bucket, sec_bucket, tmp_sig, set_id);
 	if (ret != -1)
@@ -326,7 +376,8 @@ member_add_ht(struct member_ht_bucket *buckets, struct pkt_5tuple *key, set_t se
 	/* Random pick prim or sec for recursive displacement */
 	__u32 select_bucket = (tmp_sig && 1U) ? prim_bucket : sec_bucket;
 
-	ret = make_space_bucket_non_recur(buckets, select_bucket, &nr_pushes, tmp_sig, set_id);
+	ret = make_space_bucket_non_recur(buckets, select_bucket, &nr_pushes,
+					  tmp_sig, set_id);
 	if (ret >= 0) {
 		ret = 1;
 	}
@@ -336,10 +387,12 @@ member_add_ht(struct member_ht_bucket *buckets, struct pkt_5tuple *key, set_t se
 
 /* test program */
 SEC("xdp")
-int test_htss(struct xdp_md *ctx) {
+int test_htss(struct xdp_md *ctx)
+{
 	__u32 zero = 0;
 	__u32 set_id = 1;
-	struct htss_memory* __htss = bpf_map_lookup_elem(&htss_memory_map, &zero);
+	struct htss_memory *__htss =
+		bpf_map_lookup_elem(&htss_memory_map, &zero);
 	if (__htss == NULL) {
 		log_error("error at line %d\n", __LINE__);
 		goto finish;
@@ -354,11 +407,11 @@ int test_htss(struct xdp_md *ctx) {
 	__u32 prim = 0, sec = 0;
 	__u32 i = 0;
 
-	__u8 add_res[TEST_RANGE] = {0};
-	__u8 lookup_res[TEST_RANGE] = {0};
+	__u8 add_res[TEST_RANGE] = { 0 };
+	__u8 lookup_res[TEST_RANGE] = { 0 };
 	__u32 add_count = 0;
 
-	struct pkt_5tuple pkt = {0};
+	struct pkt_5tuple pkt = { 0 };
 	for (i = 2; i < TEST_RANGE; i += 2) {
 		pkt.src_ip = i;
 		pkt.dst_ip = i;
@@ -371,7 +424,7 @@ int test_htss(struct xdp_md *ctx) {
 			add_count++;
 			add_res[i] = 1;
 		} else {
-			log_info("add %d failed\n", i);
+			log_info("add %d failed, ret: %d\n", i, ret);
 		}
 	}
 
@@ -384,8 +437,11 @@ int test_htss(struct xdp_md *ctx) {
 		pkt.proto = 0x04;
 		int ret = member_lookup_ht(buckets, &pkt, &set_id_res);
 		if (ret == 1) {
-			log_info("lookup %d success, set_id: %d\n", i, set_id_res);
+			log_info("lookup %d success, set_id: %d\n", i,
+				 set_id_res);
 			lookup_res[i] = 1;
+		} else {
+			log_info("lookup %d failed\n", i);
 		}
 	}
 
@@ -394,23 +450,20 @@ int test_htss(struct xdp_md *ctx) {
 	// 		log_info("error at %d, add_res: %d, lookup_res: %d", i, add_res[i], lookup_res[i]);
 	// 	}
 	// }
-	log_info("--------------------space usability: %d/%d", add_count, NUM_BUCKETS*MEMBER_BUCKET_ENTRIES);
-
-	for (int i=0; i<NUM_BUCKETS; i++) {
-		for (int j=0; j<MEMBER_BUCKET_ENTRIES; j++) {
-			log_info("bucket %d, set %d, sig: %x, set_id: %d", i, j, buckets[i].sigs[j], buckets[i].sets[j]);
-		}
-	}
+	log_info("--------------------space usability: %d/%d", add_count,
+		 NUM_BUCKETS * MEMBER_BUCKET_ENTRIES);
 
 finish:
 	return XDP_DROP;
 }
 /* exp setup program */
 SEC("xdp")
-int add_data(struct xdp_md *ctx) {
+int add_data(struct xdp_md *ctx)
+{
 	__u32 zero = 0;
 	set_t set_id = 1;
-	struct htss_memory* __htss = bpf_map_lookup_elem(&htss_memory_map, &zero);
+	struct htss_memory *__htss =
+		bpf_map_lookup_elem(&htss_memory_map, &zero);
 	if (__htss == NULL) {
 		log_error("error at line %d\n", __LINE__);
 		goto finish;
@@ -431,14 +484,13 @@ int add_data(struct xdp_md *ctx) {
 	} else {
 		log_debug(
 			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
-			pkt.src_ip, pkt.src_port, pkt.dst_ip,
-			pkt.dst_port, pkt.proto);
+			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
+			pkt.proto);
 	}
-
 
 	// member_add_ht(buckets, &pkt, set_id);
 
-	int add_res = member_add_ht(buckets, &pkt,  set_id);
+	int add_res = member_add_ht(buckets, &pkt, set_id);
 	if (add_res != 0) {
 		log_error("add failed\n");
 	}
@@ -448,10 +500,12 @@ finish:
 
 /* exp program */
 SEC("xdp")
-int xdp_main(struct xdp_md *ctx) {
+int xdp_main(struct xdp_md *ctx)
+{
 	__u32 zero = 0;
 	set_t set_id = 1;
-	struct htss_memory* __htss = bpf_map_lookup_elem(&htss_memory_map, &zero);
+	struct htss_memory *__htss =
+		bpf_map_lookup_elem(&htss_memory_map, &zero);
 	if (__htss == NULL) {
 		log_error("error at line %d\n", __LINE__);
 		goto finish;
@@ -472,10 +526,9 @@ int xdp_main(struct xdp_md *ctx) {
 	} else {
 		log_debug(
 			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
-			pkt.src_ip, pkt.src_port, pkt.dst_ip,
-			pkt.dst_port, pkt.proto);
+			pkt.src_ip, pkt.src_port, pkt.dst_ip, pkt.dst_port,
+			pkt.proto);
 	}
-
 
 	// member_add_ht(buckets, &pkt, set_id);
 
