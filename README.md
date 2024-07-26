@@ -21,7 +21,7 @@ eNetSTL 源码仓库。
 
 ### 构建并加载内核模块
 
-以 `bpf_hash_alg_simd`（SIMD 并行比较）模块为例，
+以 `bpf_hash_alg_simd`（SIMD 并行哈希）模块为例，
 
 1. 进入相应模块目录，构建内核模块：
 
