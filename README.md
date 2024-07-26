@@ -1,46 +1,79 @@
-# eBPF-demos 
+# eNetSTL
 
-为了能够更快速地编译eBPF内核态和用户态程序，同时用python封装了libbpf，能够用python进行快速地技术验证。
+eNetSTL 源码仓库。
 
-## How to use
+## 目录结构
 
-1. 将linux源代码下载到根目录（或者建立软连接）
+```
+├── src                     # 网络功能
+│   ├── bpf_kern            # eBPF 程序
+│   ├── c                   # 用户态 C 程序
+│   └── python              # Python 程序
+├── LKM                     # 内核模块
+│   ├── bpf_cmp_alg_simd    # SIMD 并行比较
+│   ├── bpf_hash_alg_simd   # SIMD 并行哈希
+│   └── ...
+├── deps                    # 依赖
+└── scripts                 # 工具脚本
+```
 
-2. 编译libbpf 和 bpftool 
+## 构建与使用
 
-    ```sh
-    #编译libbpf
-    cd ./linux/tools/lib/bpf
-    make 
-    #编译bpftool
-    cd ./linux/tools/bpf/bpftool
-    make 
-    ```
+### 构建并加载内核模块
 
-    ps : scripts里的 gen_vmlinux.h 依赖于bpftool 
+以 `bpf_hash_alg_simd`（SIMD 并行比较）模块为例，
 
-    ​	   cmake中的编译选项依赖于libbpf
+1. 进入相应模块目录，构建内核模块：
 
-    ​       也可以自行修改相应的编译脚本
+   ```bash
+   cd LKM/bpf_hash_alg_simd
+   make GCC_VERSION=<GCC 版本>
+   ```
 
-3. 将eBPF内核态程序放到 `src/bpf_kern` 下
+2. 加载内核模块：
 
-4. 将C文件放到 `src/c` 下 （如果含有main函数需要 后缀为 _user.c) 
+   ```bash
+   sudo insmod bpf_hash_alg_simd.ko
+   ```
 
-5. python封装的使用方式查看 bpftools.py 
+### 构建并加载网络功能
 
-6. 生成vmlinux.h `./scripts/gen_vmlinux.sh` 
- 
-7. 编译
+1. 将 Linux 内核源代码下载（或链接到）到 `linux/` 目录下；
 
-    ```sh 
-    #在根目录下
-    cmake -B build .
-    cd build 
-    make 
-    make install 
-    ```
+2. 编译 libbpf 和 bpftool：
 
-8. 被编译的eBPF字节码放在 `./install/bpf_kern_objs` 
+   ```bash
+   # 编译 libbpf
+   make -C ./linux/tools/bpf/libbpf
+   # 编译 bpftool
+   make -C ./linux/tools/bpf/bpftool
+   ```
 
-8. bin文件放在 `./bin` 
+3. 生成 `vmlinux.h`：
+
+   ```bash
+   ./scripts/gen_vmlinux_h.h
+   ```
+
+4. 更改相应网络功能加载时绑定的网卡，如对于 VBF，可修改其对应用户态程序源码 [`src/c/member_vbf_user.c`](https://github.com/chonepieceyb/ebpf_dp_data_structure/blob/main/src/c/member_vbf_user.c)；
+
+5. 构建网络功能 eBPF 与用户态程序：
+
+   ```bash
+   mkdir -p build
+   cd build
+   cmake -DUSE_HYPERCOM=on -DUSE_STATIC=on ..
+   make clean && make -j$(nproc)
+   ```
+
+6. 构建完成后，用户态控制程序（通过 BPF skeleton 已包含 BPF 程序）在 `bin/` 目录下，可以直接执行：
+
+   ```bash
+   sudo ./bin/member_vbf_user
+   ```
+
+7. 用户态控制程序执行后，网络功能已 attach 到指定网卡，可通过脚本 detach：
+
+   ```bash
+   ./scripts/detach_xdp.sh "<网卡名>" all 
+   ```
