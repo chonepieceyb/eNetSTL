@@ -31,7 +31,7 @@ char _license[] SEC("license") = "GPL";
 struct {
 	__uint(type, BPF_MAP_TYPE_STATIC_CUSTOM_MAP);
 	__uint(max_entries, 1);
-	__type(key, struct sketch);
+	__type(key, sketch_key);
 	__type(value, u32);
 } sketch_map SEC(".maps");
 
@@ -90,8 +90,14 @@ SEC("xdp") int xdp_test(struct xdp_md *ctx)
 	pkt.pkt.src_port = 0x1111;
 	pkt.pkt.dst_port = 0x2222;
 	pkt.pkt.proto = 0x06;
+	pkt.pad[0] = 0;
+	pkt.pad[1] = 0;
+	pkt.pad[2] = 0;
 
-	bpf_map_update_elem(&sketch_map, &pkt, &v, BPF_ANY);
+	for(int i=0;i<10;i++){
+		pkt.pkt.src_ip = i;
+		bpf_map_update_elem(&sketch_map, &pkt, &v, BPF_ANY);
+	}
 out:
 	return XDP_PASS;
 }
