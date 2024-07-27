@@ -1,8 +1,10 @@
+#include "linux/gfp_types.h"
 #include <linux/init.h> 
 #include <linux/printk.h>
 #include <linux/string.h>
 #include <linux/bpf.h>
 #include <linux/types.h>
+#include <linux/spinlock.h>
 
 /* include SIMD header */
 #if defined (USE_SIMD) || defined (USE_SIMD_HASH)
@@ -28,7 +30,7 @@ extern void *bpf_map_area_alloc(u64 size, int numa_node);
 #define HASH_SEED_1 0xdeadbeef
 #define HASH_SEED_2 0xaaaabbbb
 #define MEMBER_NO_MATCH 0
-#define MEMBER_MAX_PUSHES 16
+#define MEMBER_MAX_PUSHES 8
 
 /* datastruct params */
 #define NUM_ENTRIES 1024
@@ -54,11 +56,12 @@ struct member_ht_bucket {
 };
 struct htss_memory {
 	struct member_ht_bucket buckets[NUM_BUCKETS];
+	rwlock_t rw_lock;
 };
 
 struct static_htss_map {
 	struct bpf_map map;
-	struct htss_memory __percpu *table;
+	struct htss_memory *table;
 };
 
 int htss_alloc_check(union bpf_attr *attr) {
@@ -80,16 +83,14 @@ static struct bpf_map *htss_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	htss_map->table = __alloc_percpu_gfp(attr->key_size * NUM_BUCKETS * MEMBER_BUCKET_ENTRIES, __alignof__(u64), GFP_USER | __GFP_NOWARN);
+	htss_map->table = kmalloc(attr->key_size * NUM_BUCKETS * MEMBER_BUCKET_ENTRIES, GFP_ATOMIC);
 	if (htss_map->table == NULL) {
 		res_ptr = ERR_PTR(-ENOMEM);
 		goto free_tmap;
 	}
-	for_each_possible_cpu(cpu) {
-		struct htss_memory *__htss;
-		__htss = per_cpu_ptr(htss_map->table, cpu);
-		memset(__htss, 0, sizeof(struct htss_memory));
-	}
+	struct htss_memory* __htss = htss_map->table;
+	memset(__htss, 0, sizeof(struct htss_memory));
+	rwlock_init (&__htss->rw_lock);
 	return (struct bpf_map*)htss_map;
 free_tmap:
 	return res_ptr;
@@ -102,7 +103,7 @@ static void htss_free(struct bpf_map *map) {
 	}
 	htss_map = container_of(map, struct static_htss_map, map);
 
-	free_percpu(htss_map->table);
+	kfree(htss_map->table);
 	bpf_map_area_free(htss_map);
 	return;
 }
@@ -263,20 +264,18 @@ static void* htss_lookup_elem(struct bpf_map *map, void *key)
 
 	__u32 prim_bucket, sec_bucket;
 	sig_t tmp_sig;
-
+	// add read lock
+	read_lock(&__htss->rw_lock);
 	get_buckets_index(key, map->key_size, &prim_bucket, &sec_bucket, &tmp_sig);
 
 	set_t *search_res = SERCH_BUCKET_FUNC(prim_bucket, tmp_sig, buckets);
+	// if result not present in first bucket, search second bucket
 	if (search_res == NULL) {
 		search_res = SERCH_BUCKET_FUNC(sec_bucket, tmp_sig, buckets);
-		if (search_res == NULL) {
-			return NULL;
-		} else {
-			return search_res;
-		}
-	} else {
-		return search_res;
 	}
+
+	read_unlock(&__htss->rw_lock);
+	return search_res;
 }
 
 static long htss_update_elem(struct bpf_map *map, void *key, void *value, u64 flag) {
@@ -295,10 +294,12 @@ static long htss_update_elem(struct bpf_map *map, void *key, void *value, u64 fl
 	if (set_id == MEMBER_NO_MATCH || (set_id & flag_mask) != 0) {
 		return -1;
 	}
+	// add writer lock
+	write_lock(&__htss->rw_lock);
 	get_buckets_index(key, map->key_size, &prim_bucket, &sec_bucket, &tmp_sig);
 	ret = try_insert(buckets, prim_bucket, sec_bucket, tmp_sig, set_id);
 	if (ret != -1)
-		return ret;
+		goto unlock;
 
 	/* Random pick prim or sec for recursive displacement */
 	__u32 select_bucket = (tmp_sig && 1U) ? prim_bucket : sec_bucket;
@@ -308,8 +309,10 @@ static long htss_update_elem(struct bpf_map *map, void *key, void *value, u64 fl
 		buckets[select_bucket].sigs[ret] = tmp_sig;
 		buckets[select_bucket].sets[ret] = set_id;
 		ret = 1;
+		goto unlock;
 	}
-
+unlock:
+	write_unlock(&__htss->rw_lock);
 	return ret;
 }
 
