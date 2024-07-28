@@ -51,48 +51,48 @@ struct sketch{
 	sketch_key flows[SKETCH_WIDTH*SKETCH_DEPTH];
 };
 
-struct static_heavy_hitter_map {
+struct static_heavy_keeper_map {
 	struct bpf_map map;
 	struct sketch __percpu *tbl;
 };
 
-int heavy_hitter_alloc_check(union bpf_attr *attr) {
+int heavy_keeper_alloc_check(union bpf_attr *attr) {
 	return 0;
 }
 
-static struct bpf_map *heavy_hitter_alloc(union bpf_attr *attr)
+static struct bpf_map *heavy_keeper_alloc(union bpf_attr *attr)
 {
 	//demo alloc we just alloc char[hello world]
-	struct static_heavy_hitter_map *hh_map;
+	struct static_heavy_keeper_map *hk_map;
 	void *res_ptr; 
 	int cpu;
 
-	hh_map = bpf_map_area_alloc(sizeof(struct static_heavy_hitter_map), NUMA_NO_NODE);
-	if (hh_map == NULL) {
+	hk_map = bpf_map_area_alloc(sizeof(struct static_heavy_keeper_map), NUMA_NO_NODE);
+	if (hk_map == NULL) {
 		return ERR_PTR(-ENOMEM);
 	}
 
-	hh_map->tbl = __alloc_percpu_gfp(sizeof(struct sketch), __alignof__(u64), GFP_USER | __GFP_NOWARN);
-	if (hh_map->tbl == NULL) {
+	hk_map->tbl = __alloc_percpu_gfp(sizeof(struct sketch), __alignof__(u64), GFP_USER | __GFP_NOWARN);
+	if (hk_map->tbl == NULL) {
 		res_ptr = ERR_PTR(-ENOMEM);
 		goto free_tmap;
 	}
 	for_each_possible_cpu(cpu) {
 		struct sketch *tbl;
-		tbl = per_cpu_ptr(hh_map->tbl, cpu);
+		tbl = per_cpu_ptr(hk_map->tbl, cpu);
 		memset(tbl, 0, sizeof(struct sketch));
 	}
-	return (struct bpf_map*)hh_map;
+	return (struct bpf_map*)hk_map;
 free_tmap:
 	return res_ptr;
 }
 
-static void heavy_hitter_free(struct bpf_map *map) {
-	struct static_heavy_hitter_map *hh_map;
+static void heavy_keeper_free(struct bpf_map *map) {
+	struct static_heavy_keeper_map *hh_map;
 	if (map == NULL) {
 		return;
 	}
-	hh_map = container_of(map, struct static_heavy_hitter_map, map);
+	hh_map = container_of(map, struct static_heavy_keeper_map, map);
 
 	free_percpu(hh_map->tbl);
 	bpf_map_area_free(hh_map);
@@ -146,13 +146,13 @@ static inline int flow_memcmp(const sketch_key *key1, const sketch_key *key2)
 	return packet_memcmp(key1, key2, SKETCH_KEY_SIZE);
 }
 
-static void* heavy_hitter_lookup_elem(struct bpf_map *map, void *key) 
+static void* heavy_keeper_lookup_elem(struct bpf_map *map, void *key) 
 {
 	return NULL;
 }
 
-static long heavy_hitter_update_elem(struct bpf_map *map, void *key, void *value, u64 flag) {
-	struct static_heavy_hitter_map *hh_map = container_of(map, struct static_heavy_hitter_map, map);
+static long heavy_keeper_update_elem(struct bpf_map *map, void *key, void *value, u64 flag) {
+	struct static_heavy_keeper_map *hh_map = container_of(map, struct static_heavy_keeper_map, map);
 	struct sketch *tbl = this_cpu_ptr(hh_map->tbl);
 
 	for (int i = 0; i < SKETCH_DEPTH; ++i) {
@@ -186,36 +186,36 @@ static long heavy_hitter_update_elem(struct bpf_map *map, void *key, void *value
     return 0;
 }
 
-static u64 heavy_hitter_mem_usage(const struct bpf_map *map) 
+static u64 heavy_keeper_mem_usage(const struct bpf_map *map) 
 {
 	return sizeof(struct sketch) * num_possible_cpus();
 }
 
 
 static struct bpf_map_ops cmap_ops = {
-	.map_alloc_check = heavy_hitter_alloc_check,
-	.map_alloc = heavy_hitter_alloc,
-	.map_free = heavy_hitter_free,
-	.map_lookup_elem = heavy_hitter_lookup_elem,
-	.map_update_elem = heavy_hitter_update_elem,
-	.map_mem_usage = heavy_hitter_mem_usage
+	.map_alloc_check = heavy_keeper_alloc_check,
+	.map_alloc = heavy_keeper_alloc,
+	.map_free = heavy_keeper_free,
+	.map_lookup_elem = heavy_keeper_lookup_elem,
+	.map_update_elem = heavy_keeper_update_elem,
+	.map_mem_usage = heavy_keeper_mem_usage
 };
 
-static int __init static_cmap_vbf_init(void) {
-	pr_info("register static vbf_scmaps");
+static int __init static_cmap_heavy_keeper_init(void) {
+	pr_info("register static heavy_keeper_scmaps");
 	return bpf_register_static_cmap(&cmap_ops, THIS_MODULE);
 }
 
-static void __exit static_cmap_vbf_exit(void) {
-	pr_info("unregister static vbf_scmaps");
+static void __exit static_cmap_heavy_keeper_exit(void) {
+	pr_info("unregister static heavy_keeper_scmaps");
 	bpf_unregister_static_cmap(THIS_MODULE);
 }
 
 /* Register module functions */
-module_init(static_cmap_vbf_init);
-module_exit(static_cmap_vbf_exit);
+module_init(static_cmap_heavy_keeper_init);
+module_exit(static_cmap_heavy_keeper_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("LunqiZhao");
-MODULE_DESCRIPTION("DPDK vBF implementation.");
+MODULE_DESCRIPTION("heavy_keeper implementation.");
 MODULE_VERSION("0.01");

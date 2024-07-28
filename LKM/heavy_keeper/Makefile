@@ -1,11 +1,11 @@
-OBJ_NAME := heavy_hitter
+OBJ_NAME := heavy_keeper
 
 obj-m := ${OBJ_NAME}.o
 #lkm_example-y := x.o
 
 #KDIR ?= /home/chonepieceyb/CODING/Src/linux-6.0
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
-KDIR ?= /lib/modules/6.6.0scmap/build
+KDIR ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
 
 ifeq (${USE_DEBUG},1)
 	ccflags-y += -DUSE_DEBUG
