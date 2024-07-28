@@ -1,0 +1,1278 @@
+From 95ce464ec92cc73737bb1060d2782fafa536d2ef Mon Sep 17 00:00:00 2001
+From: chonepieceyb <1759315491@qq.com>
+Date: Tue, 4 Apr 2023 17:27:55 +0800
+Subject: [PATCH 2/3] module struct_ops support
+
+---
+ include/linux/bpf.h                   |  19 +
+ include/linux/bpf_struct_ops_module.h | 159 +++++++++
+ include/linux/btf.h                   |   4 +
+ kernel/bpf/Kconfig                    |   7 +-
+ kernel/bpf/bpf_struct_ops.c           | 480 ++++++++++++++++++++++++--
+ kernel/bpf/btf.c                      |   7 +-
+ kernel/bpf/core.c                     |   8 +
+ kernel/bpf/syscall.c                  |  29 +-
+ kernel/bpf/verifier.c                 |  19 +-
+ tools/bpf/bpftool/struct_ops.c        |  27 +-
+ tools/lib/bpf/libbpf.c                |  70 +++-
+ tools/lib/bpf/libbpf.h                |   3 +
+ tools/lib/bpf/libbpf.map              |   5 +
+ 13 files changed, 799 insertions(+), 38 deletions(-)
+ create mode 100644 include/linux/bpf_struct_ops_module.h
+
+diff --git a/include/linux/bpf.h b/include/linux/bpf.h
+index c1bd1bd10506..1e1878c441e0 100644
+--- a/include/linux/bpf.h
++++ b/include/linux/bpf.h
+@@ -1140,6 +1140,9 @@ struct bpf_prog_aux {
+ 	u32 max_rdonly_access;
+ 	u32 max_rdwr_access;
+ 	struct btf *attach_btf;
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	struct bpf_module_struct_ops *mod_struct_ops;
++#endif
+ 	const struct bpf_ctx_arg_aux *ctx_arg_info;
+ 	struct mutex dst_mutex; /* protects dst_* pointers below, *after* prog becomes visible */
+ 	struct bpf_prog *dst_prog;
+@@ -1302,6 +1305,22 @@ struct bpf_link_primer {
+ struct bpf_struct_ops_value;
+ struct btf_member;
+ 
++enum bpf_struct_ops_state {
++	BPF_STRUCT_OPS_STATE_INIT,
++	BPF_STRUCT_OPS_STATE_INUSE,
++	BPF_STRUCT_OPS_STATE_TOBEFREE,
++};
++
++#define BPF_STRUCT_OPS_COMMON_VALUE			\
++	refcount_t refcnt;				\
++	enum bpf_struct_ops_state state
++
++struct bpf_struct_ops_value {
++	BPF_STRUCT_OPS_COMMON_VALUE;
++	char data[] ____cacheline_aligned_in_smp;
++};
++
++
+ #define BPF_STRUCT_OPS_MAX_NR_MEMBERS 64
+ struct bpf_struct_ops {
+ 	const struct bpf_verifier_ops *verifier_ops;
+diff --git a/include/linux/bpf_struct_ops_module.h b/include/linux/bpf_struct_ops_module.h
+new file mode 100644
+index 000000000000..a72fa7907631
+--- /dev/null
++++ b/include/linux/bpf_struct_ops_module.h
+@@ -0,0 +1,159 @@
++#ifndef _LINUX_BPF_STRUCT_OP_MODULE_H
++#define _LINUX_BPF_STRUCT_OP_MODULE_H 1
++
++#include <linux/types.h>
++#include <linux/bpf.h>
++#include <linux/module.h>
++
++#define BPF_MOD_STRUCT_OPS_GET_BTF_FD(attr)		\
++({						\
++	u32 __mod_btf_fd;				\
++	__mod_btf_fd = (attr)->map_extra >> 32;	\
++})
++
++
++#define BPF_MODULE_STRUCT_OPS_COMMON_FIELD		\
++	size_t size;					\
++	struct module 		*owner;			\
++	struct btf 		*btf;			\
++	struct list_head 	list;			\
++
++struct bpf_module_struct_ops {
++    BPF_MODULE_STRUCT_OPS_COMMON_FIELD		\
++    DECLARE_FLEX_ARRAY(struct bpf_struct_ops*, struct_ops);
++};
++
++/*
++ * micro for define bpf_struct_ops array in kenrel module
++ * modify by original struct_ops impl
++ */
++
++/* bpf_struct_ops_##_name (e.g. bpf_struct_ops_tcp_congestion_ops) is
++ * the map's value exposed to the userspace and its btf-type-id is
++ * stored at the map->btf_vmlinux_value_type_id.
++ *
++ */
++
++/*
++ * BPF_STRUCT_OP_TYPES should by like
++ *
++ * #define BPF_STRUCT_OP_TYPES(fn)	\
++ * fn(_name1)	\
++ * fn(_name2)
++ */
++
++/*
++ * declare bpf_struct_ops_value_types like
++ * struct bpf_struct_ops_struct1 {
++ * 	BPF_STRUCT_OPS_COMMON_VALUE;
++ * 	struct struct1 data ____cacheline_aligned_in_smp;
++ * };
++ * struct bpf_struct_ops_struct2 {
++ * 	BPF_STRUCT_OPS_COMMON_VALUE;
++ * 	struct struct2 data ____cacheline_aligned_in_smp;
++ * };
++ *
++ * ps: currently not need to extern it
++ */
++
++#define BPF_STRUCT_OPS_TYPE_VALUE(_name)				\
++struct bpf_struct_ops_##_name {						\
++	BPF_STRUCT_OPS_COMMON_VALUE;				\
++	struct _name data ____cacheline_aligned_in_smp;		\
++};								\
++static struct bpf_struct_ops_##_name ____##_name __attribute__((used));	/*enfore compile btf of bpf_struct_ops_##_name */
++
++#define DECLARE_MODULE_STURCT_OPS_VALUES(bpf_struct_ops_types)		\
++bpf_struct_ops_types(BPF_STRUCT_OPS_TYPE_VALUE)
++
++/*
++ * declare the enum like:
++ * enum {
++ * 	BPF_STRUCT_OPS_TYPE_struct1,
++ * 	BPF_STRUCT_OPS_TYPE_struct2,
++ * 	...
++ * 	__NR_BPF_STRUCT_OPS_TYPE,
++ * }
++ */
++#define BPF_STRUCT_OPS_TYPE_ENUM(_name) BPF_STRUCT_OPS_TYPE_##_name,
++
++#define DECLARE_MODULE_STRUCT_OPS_ENUM(bpf_struct_ops_types)			\
++enum {								\
++	bpf_struct_ops_types(BPF_STRUCT_OPS_TYPE_ENUM)		\
++	__NR_BPF_STRUCT_OPS_TYPE,				\
++};
++
++/*
++ * define the bpf_module_struct_ops, given name and bpf_struct_ops_types, directly use name as a pointer
++ * eg:
++ * struct bpf_module_struct_ops_name {
++ * 	size_t size;
++ *	struct module 		*owner;
++ 	struct btf 		*btf;
++ *	struct list_head 	list;
++ *	struct_ops[__NR_BPF_STRUCT_OPS_TYPE];
++ * };
++ *
++ * static struct bpf_module_struct_ops_name __name = {
++ * 	.size = 	__NR_BPF_STRUCT_OPS_TYPE,
++ * 	.module =	THIS_MODULE,
++ * 	.struct_ops = {
++ * 		[BPF_STRUCT_OPS_TYPE_struct1] = &bpf_struct1,
++ * 		[BPF_STRUCT_OPS_TYPE_struct2] = &bpf_struct2,
++ * 	}
++ * };
++ *
++ * static struct bpf_module_struct_ops *name = (bpf_module_struct_ops*)__name;
++ *
++ * */
++
++#define BPF_STRUCT_OPS_TYPE_ITEM(_name) [BPF_STRUCT_OPS_TYPE_##_name] = &bpf_##_name,
++
++#define DECLARE_MODULE_STRUCT_OPS(name)		\
++struct bpf_module_struct_ops_##name {				\
++	BPF_MODULE_STRUCT_OPS_COMMON_FIELD		\
++	struct bpf_struct_ops	*struct_ops[__NR_BPF_STRUCT_OPS_TYPE];			\
++};
++
++#define DEFINE_MODULE_STRUCT_OPS(name, bpf_struct_ops_types)	\
++static struct bpf_module_struct_ops_##name __##name = {		\
++	.size 		= 	__NR_BPF_STRUCT_OPS_TYPE,	\
++	.owner 		=	THIS_MODULE,			\
++	.struct_ops 	= {					\
++		bpf_struct_ops_types(BPF_STRUCT_OPS_TYPE_ITEM)	\
++	}							\
++};								\
++static struct bpf_module_struct_ops *name = (struct bpf_module_struct_ops*)(&__##name);
++
++/*
++ *derectly use this micro
++ */
++
++#define BPF_MODULE_STRUCT_OPS_SEC(name, bpf_struct_ops_types)	\
++DECLARE_MODULE_STURCT_OPS_VALUES(bpf_struct_ops_types)		\
++DECLARE_MODULE_STRUCT_OPS_ENUM(bpf_struct_ops_types)		\
++DECLARE_MODULE_STRUCT_OPS(name)					\
++DEFINE_MODULE_STRUCT_OPS(name, bpf_struct_ops_types)
++
++struct bpf_module_struct_ops *bpf_get_mod_struct_ops(struct module *mod);
++
++struct bpf_module_struct_ops *bpf_get_mod_struct_ops_name(const char *name);
++
++const struct bpf_struct_ops *
++bpf_module_struct_ops_find_value (struct bpf_module_struct_ops *mod_struct_ops, u32 value_id);
++
++const struct bpf_struct_ops *
++bpf_module_struct_ops_find(struct bpf_module_struct_ops *mod_struct_ops, u32 type_id);
++
++static __always_inline int bpf_try_mod_struct_ops_get(struct bpf_module_struct_ops *mod_struct_ops)
++{
++	return try_module_get(mod_struct_ops->owner);
++}
++
++static __always_inline void bpf_mod_struct_ops_put(struct bpf_module_struct_ops *mod_struct_ops)
++{
++	if (mod_struct_ops != NULL)
++		module_put(mod_struct_ops->owner);
++}
++
++#endif
+diff --git a/include/linux/btf.h b/include/linux/btf.h
+index f9aababc5d78..31105e66c0ac 100644
+--- a/include/linux/btf.h
++++ b/include/linux/btf.h
+@@ -152,6 +152,10 @@ int btf_type_seq_show_flags(const struct btf *btf, u32 type_id, void *obj,
+ int btf_type_snprintf_show(const struct btf *btf, u32 type_id, void *obj,
+ 			   char *buf, int len, u64 flags);
+ 
++const char* btf_get_module_name(const struct btf *btf);
++
++struct btf *btf_get_module_btf(const struct module *module);
++
+ int btf_get_fd_by_id(u32 id);
+ u32 btf_obj_id(const struct btf *btf);
+ bool btf_is_kernel(const struct btf *btf);
+diff --git a/kernel/bpf/Kconfig b/kernel/bpf/Kconfig
+index 1be25d9005bf..c15fc2f30f89 100644
+--- a/kernel/bpf/Kconfig
++++ b/kernel/bpf/Kconfig
+@@ -103,6 +103,11 @@ config BPF_CUSTOM_MAP
+ 	bool "Enable BPF custom map"
+ 	default y
+ 	help
+-	    Enables BPF custom map
++	  Enables BPF custom map
+ 
++config BPF_MODULE_STRUCT_OPS
++	bool "Enable BPF MODULE STRUCT OPS"
++	default y
++	help
++	  Enables BPF MODULE STRUCT OPS
+ endmenu # "BPF subsystem"
+diff --git a/kernel/bpf/bpf_struct_ops.c b/kernel/bpf/bpf_struct_ops.c
+index 84b2d9dba79a..4650c3d88a86 100644
+--- a/kernel/bpf/bpf_struct_ops.c
++++ b/kernel/bpf/bpf_struct_ops.c
+@@ -11,26 +11,21 @@
+ #include <linux/refcount.h>
+ #include <linux/mutex.h>
+ #include <linux/btf_ids.h>
++#include <linux/printk.h>
+ 
+-enum bpf_struct_ops_state {
+-	BPF_STRUCT_OPS_STATE_INIT,
+-	BPF_STRUCT_OPS_STATE_INUSE,
+-	BPF_STRUCT_OPS_STATE_TOBEFREE,
+-};
+-
+-#define BPF_STRUCT_OPS_COMMON_VALUE			\
+-	refcount_t refcnt;				\
+-	enum bpf_struct_ops_state state
+-
+-struct bpf_struct_ops_value {
+-	BPF_STRUCT_OPS_COMMON_VALUE;
+-	char data[] ____cacheline_aligned_in_smp;
+-};
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++#include <linux/bpf_struct_ops_module.h>
++#endif
+ 
+ struct bpf_struct_ops_map {
+ 	struct bpf_map map;
+ 	struct rcu_head rcu;
+ 	const struct bpf_struct_ops *st_ops;
++
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	struct bpf_module_struct_ops *mod_struct_ops;
++#endif
++
+ 	/* protect map_update */
+ 	struct mutex lock;
+ 	/* link has all the bpf_links that is populated
+@@ -90,6 +85,7 @@ static struct bpf_struct_ops * const bpf_struct_ops[] = {
+ #undef BPF_STRUCT_OPS_TYPE
+ };
+ 
++
+ const struct bpf_verifier_ops bpf_struct_ops_verifier_ops = {
+ };
+ 
+@@ -101,6 +97,350 @@ const struct bpf_prog_ops bpf_struct_ops_prog_ops = {
+ 
+ static const struct btf_type *module_type;
+ 
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++
++/*
++ * BPF MODULE STRUCT_OPS SUPPORT
++ */
++
++/*
++ *@copy from bpf_struct_ops.c bpf_struct_ops_init
++ *TODO: optimize the impl
++ *return: 0 succeed;
++ */
++static int bpf_module_struct_ops_init(struct bpf_module_struct_ops *mod_struct_ops, struct bpf_verifier_log *log)
++{
++	struct btf *btf;
++	s32 type_id, value_id;
++	const struct btf_member *member;
++	struct bpf_struct_ops **pst_ops;
++	struct bpf_struct_ops *st_ops;
++	const struct btf_type *t;
++	char value_name[128];
++	const char *mname;
++	u32 i, j;
++	size_t size;
++	int res;
++
++	/* find module btf */
++	btf = btf_get_module_btf(mod_struct_ops->owner);
++
++	if (IS_ERR_OR_NULL(btf)) {
++		pr_err("bpf module struct_op %s, failed to get module btf\n", mod_struct_ops->owner->name);
++		return -EINVAL;
++	}
++
++	mod_struct_ops->btf = btf;
++
++	size = mod_struct_ops->size;
++	pst_ops = mod_struct_ops->struct_ops;
++
++	/*
++	module_id = btf_find_by_name_kind(btf, "module", BTF_KIND_STRUCT);
++	if (module_id < 0) {
++		pr_err("Cannot find struct module in module btf\n");
++		return -EINVAL;
++	}
++	mod_struct_ops->module_type = btf_type_by_id(btf, module_id);
++	*/
++
++	for (i = 0; i < size; i++, pst_ops++) {
++		st_ops = *pst_ops;
++		if (strlen(st_ops->name) + VALUE_PREFIX_LEN >=
++		    sizeof(value_name)) {
++			pr_err("struct_ops name %s is too long\n",
++				st_ops->name);
++			res = -EINVAL;
++			goto put_btf;
++		}
++		sprintf(value_name, "%s%s", VALUE_PREFIX, st_ops->name);
++
++		value_id = btf_find_by_name_kind(btf, value_name,
++						 BTF_KIND_STRUCT);
++		if (value_id < 0) {
++			pr_err("Cannot find struct %s in module btf\n",
++				value_name);
++			res = -EINVAL;
++			goto put_btf;
++		}
++
++		type_id = btf_find_by_name_kind(btf, st_ops->name,
++						BTF_KIND_STRUCT);
++		if (type_id < 0) {
++			pr_err("Cannot find struct %s in module btf\n",
++				st_ops->name);
++			res = -EINVAL;
++			goto put_btf;
++		}
++		t = btf_type_by_id(btf, type_id);
++		if (btf_type_vlen(t) > BPF_STRUCT_OPS_MAX_NR_MEMBERS) {
++			pr_err("Cannot support #%u members in struct %s\n",
++				btf_type_vlen(t), st_ops->name);
++			res = -EINVAL;
++			goto put_btf;
++		}
++
++		for_each_member(j, t, member) {
++			const struct btf_type *func_proto;
++
++			mname = btf_name_by_offset(btf, member->name_off);
++			if (!*mname) {
++				pr_err("anon member in struct %s is not supported\n",
++					st_ops->name);
++				res = -EINVAL;
++				goto put_btf;
++			}
++
++			if (__btf_member_bitfield_size(t, member)) {
++				pr_err("bit field member %s in struct %s is not supported\n",
++					mname, st_ops->name);
++				res = -EINVAL;
++				goto put_btf;
++			}
++
++			func_proto = btf_type_resolve_func_ptr(btf,
++							       member->type,
++							       NULL);
++			if (func_proto &&
++			    btf_distill_func_proto(log, btf,
++						   func_proto, mname,
++						   &st_ops->func_models[j])) {
++				pr_err("Error in parsing func ptr %s in struct %s\n",
++					mname, st_ops->name);
++				res = -EINVAL;
++				goto put_btf;
++			}
++		}
++
++		if (j == btf_type_vlen(t)) {
++			if (st_ops->init(btf)) {
++				pr_err("Error in init bpf_struct_ops %s\n",
++					st_ops->name);
++				res = -EINVAL;
++				goto put_btf;
++			} else {
++				st_ops->type_id = type_id;
++				st_ops->type = t;
++				st_ops->value_id = value_id;
++				st_ops->value_type = btf_type_by_id(btf,
++								    value_id);
++			}
++		}
++	}
++	return 0;
++
++put_btf:
++	btf_put(btf);
++	return res;
++}
++
++/*
++ * default varefier ops
++ */
++
++static const struct bpf_func_proto *
++default_mod_stops_get_func_proto(enum bpf_func_id func_id,
++			   const struct bpf_prog *prog)
++{
++        /* just return the base helper functions set */
++        const struct bpf_func_proto *proto;
++        proto = bpf_base_func_proto(func_id);
++        return proto;
++}
++
++static bool default_mod_stops_is_valid_access(int off, int size, enum bpf_access_type type,
++					const struct bpf_prog *prog,
++					struct bpf_insn_access_aux *info)
++{
++        int ret = 0;
++        ret = bpf_tracing_btf_ctx_access(off, size, type, prog, info);
++        return ret;
++}
++
++
++static int default_mod_stops_btf_struct_access(struct bpf_verifier_log *log,
++					 const struct btf *btf,
++					 const struct btf_type *t, int off, int size,
++					 enum bpf_access_type atype,
++					 u32 *next_btf_id, enum bpf_type_flag *flag)
++{
++	return btf_struct_access(log, btf, t, off, size, atype, next_btf_id, flag);
++}
++
++const struct bpf_verifier_ops default_mod_stops_verifier_ops = {
++	.get_func_proto		= default_mod_stops_get_func_proto,
++	.is_valid_access	= default_mod_stops_is_valid_access,
++	.btf_struct_access	= default_mod_stops_btf_struct_access,
++};
++EXPORT_SYMBOL_GPL(default_mod_stops_verifier_ops);
++
++/*
++ * get custom_map by key
++ */
++
++static DEFINE_SPINLOCK(bpf_mod_stops_list_lock);
++static LIST_HEAD(bpf_mod_stops_list);
++
++struct bpf_module_struct_ops *bpf_get_mod_struct_ops(struct module *mod) {
++	struct bpf_module_struct_ops *mod_struct_ops, *e;
++	rcu_read_lock();
++	list_for_each_entry_rcu(e, &bpf_mod_stops_list, list) {
++		if (e->owner == mod) {
++			/*find the map*/
++			mod_struct_ops = rcu_dereference(e);
++			if (!bpf_try_mod_struct_ops_get(mod_struct_ops))
++				mod_struct_ops = NULL;
++			rcu_read_unlock();
++			return mod_struct_ops;
++		}
++	}
++	rcu_read_unlock();
++	return NULL;
++}
++
++struct bpf_module_struct_ops *bpf_get_mod_struct_ops_name(const char *name) {
++	struct bpf_module_struct_ops *mod_struct_ops, *e;
++	size_t len;
++	struct module *mod;
++
++	len = strlen(name);
++	rcu_read_lock();
++	list_for_each_entry_rcu(e, &bpf_mod_stops_list, list) {
++		mod = e->owner;
++		if (!try_module_get(mod))
++			continue;
++		if (strlen(mod->name) == len && !memcmp(mod->name, name, len)) {
++			/*find the map*/
++			mod_struct_ops = rcu_dereference(e);
++			if (!bpf_try_mod_struct_ops_get(mod_struct_ops))
++				/*This should not happen*/
++				mod_struct_ops = NULL;
++			module_put(mod);
++			rcu_read_unlock();
++			return mod_struct_ops;
++		}
++		module_put(mod);
++	}
++	rcu_read_unlock();
++	return NULL;
++}
++
++static inline struct bpf_module_struct_ops *__bpf_get_mod_struct_ops(struct module *mod) {
++	struct bpf_module_struct_ops *e;
++	list_for_each_entry(e, &bpf_mod_stops_list, list) {
++		if (e->owner == mod) {
++			/*find the map*/
++			return e;
++		}
++	}
++	return NULL;
++}
++
++int bpf_reg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops) {
++	int res;
++	struct bpf_verifier_log *log;
++	struct module *mod;
++
++	mod = mod_struct_ops->owner;
++
++	if (!mod) {
++		pr_err("module struct_ops does not set owner!\n");
++		return -EINVAL;
++	}
++
++	log = kzalloc(sizeof(*log), GFP_KERNEL | __GFP_NOWARN);
++	if (!log)
++		return -ENOMEM;
++
++	/*init btf_struct_ops in kern module*/
++	res = bpf_module_struct_ops_init(mod_struct_ops, log);
++	if (res)
++		goto free_log;
++
++	spin_lock(&bpf_mod_stops_list_lock);
++
++	if (__bpf_get_mod_struct_ops(mod)) {
++		spin_unlock(&bpf_mod_stops_list_lock);
++		pr_err("module struct_ops %s exist!\n", mod->name);
++		res = -EBUSY;
++		goto free_log;
++	}
++
++	list_add_tail_rcu(&mod_struct_ops->list, &bpf_mod_stops_list);
++
++	spin_unlock(&bpf_mod_stops_list_lock);
++
++	pr_debug("register module struct_ops %s\n", mod->name);
++	/* return id */
++
++	kfree(log);
++	return 0;
++
++free_log:
++	kfree(log);
++	return res;
++}
++EXPORT_SYMBOL_GPL(bpf_reg_module_struct_ops);
++
++void bpf_unreg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops) {
++	spin_lock(&bpf_mod_stops_list_lock);
++	/*we get mod_struct_ops->btf in reg, now put it*/
++	btf_put(mod_struct_ops->btf);
++	list_del_rcu(&mod_struct_ops->list);
++	spin_unlock(&bpf_mod_stops_list_lock);
++	pr_debug("unregister module struct_ops %s\n", mod_struct_ops->owner->name);
++}
++EXPORT_SYMBOL_GPL(bpf_unreg_module_struct_ops);
++
++/*
++ * @value_id: btf_value_type_id in module btf
++ */
++const struct bpf_struct_ops *
++bpf_module_struct_ops_find_value (struct bpf_module_struct_ops *mod_struct_ops, u32 value_id)
++{
++	struct bpf_struct_ops **pst_ops;
++	size_t size;
++	int i;
++
++	size = mod_struct_ops->size;
++	pst_ops = mod_struct_ops->struct_ops;
++
++	for (i = 0; i < size; i++) {
++		if ((*pst_ops)->value_id == value_id)
++			return *pst_ops;
++		++pst_ops;
++	}
++
++	return NULL;
++}
++
++/*
++ * @type_id: btf_type_id in module btf
++ */
++const struct bpf_struct_ops *
++bpf_module_struct_ops_find (struct bpf_module_struct_ops *mod_struct_ops, u32 type_id)
++{
++	struct bpf_struct_ops **pst_ops;
++	size_t size;
++	int i;
++
++	size = mod_struct_ops->size;
++	pst_ops = mod_struct_ops->struct_ops;
++
++	for (i = 0; i < size; i++) {
++		if ((*pst_ops)->type_id == type_id)
++			return *pst_ops;
++		++pst_ops;
++	}
++
++	return NULL;
++}
++
++/*
++ * BPF MODULE STRUTC OPS END
++ */
++#endif
++
+ void bpf_struct_ops_init(struct btf *btf, struct bpf_verifier_log *log)
+ {
+ 	s32 type_id, value_id, module_id;
+@@ -290,7 +630,10 @@ static void bpf_struct_ops_map_put_progs(struct bpf_struct_ops_map *st_map)
+ 	}
+ }
+ 
+-static int check_zero_holes(const struct btf_type *t, void *data)
++/*
++ * modify for module struct_ops
++ */
++static int check_zero_holes(struct btf *btf, const struct btf_type *t, void *data)
+ {
+ 	const struct btf_member *member;
+ 	u32 i, moff, msize, prev_mend = 0;
+@@ -302,8 +645,8 @@ static int check_zero_holes(const struct btf_type *t, void *data)
+ 		    memchr_inv(data + prev_mend, 0, moff - prev_mend))
+ 			return -EINVAL;
+ 
+-		mtype = btf_type_by_id(btf_vmlinux, member->type);
+-		mtype = btf_resolve_size(btf_vmlinux, mtype, &msize);
++		mtype = btf_type_by_id(btf, member->type);
++		mtype = btf_resolve_size(btf, mtype, &msize);
+ 		if (IS_ERR(mtype))
+ 			return PTR_ERR(mtype);
+ 		prev_mend = moff + msize;
+@@ -355,6 +698,7 @@ static int bpf_struct_ops_map_update_elem(struct bpf_map *map, void *key,
+ 	struct bpf_struct_ops_map *st_map = (struct bpf_struct_ops_map *)map;
+ 	const struct bpf_struct_ops *st_ops = st_map->st_ops;
+ 	struct bpf_struct_ops_value *uvalue, *kvalue;
++	struct btf *btf;
+ 	const struct btf_member *member;
+ 	const struct btf_type *t = st_ops->type;
+ 	struct bpf_tramp_links *tlinks = NULL;
+@@ -363,18 +707,29 @@ static int bpf_struct_ops_map_update_elem(struct bpf_map *map, void *key,
+ 	void *image, *image_end;
+ 	u32 i;
+ 
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	if (st_map->mod_struct_ops != NULL) {
++		btf = st_map->mod_struct_ops->btf;
++	} else {
++		btf = btf_vmlinux;
++	}
++#else
++	btf = btf_vmlinux;
++	__module_type = module_type;
++#endif
++
+ 	if (flags)
+ 		return -EINVAL;
+ 
+ 	if (*(u32 *)key != 0)
+ 		return -E2BIG;
+ 
+-	err = check_zero_holes(st_ops->value_type, value);
++	err = check_zero_holes(btf, st_ops->value_type, value);
+ 	if (err)
+ 		return err;
+ 
+ 	uvalue = value;
+-	err = check_zero_holes(t, uvalue->data);
++	err = check_zero_holes(btf, t, uvalue->data);
+ 	if (err)
+ 		return err;
+ 
+@@ -409,8 +764,14 @@ static int bpf_struct_ops_map_update_elem(struct bpf_map *map, void *key,
+ 		u32 moff;
+ 
+ 		moff = __btf_member_bit_offset(t, member) / 8;
+-		ptype = btf_type_resolve_ptr(btf_vmlinux, member->type, NULL);
++		ptype = btf_type_resolve_ptr(btf, member->type, NULL);
++
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++		/* it seems like a bug, module btf have tow type with the same name module"*/
++		if (BTF_INFO_KIND(ptype->info) == BTF_KIND_STRUCT && strcmp(btf_name_by_offset(btf, ptype->name_off), "module") == 0) {
++#else
+ 		if (ptype == module_type) {
++#endif
+ 			if (*(void **)(udata + moff))
+ 				goto reset_unlock;
+ 			*(void **)(kdata + moff) = BPF_MODULE_OWNER;
+@@ -434,8 +795,8 @@ static int bpf_struct_ops_map_update_elem(struct bpf_map *map, void *key,
+ 		if (!ptype || !btf_type_is_func_proto(ptype)) {
+ 			u32 msize;
+ 
+-			mtype = btf_type_by_id(btf_vmlinux, member->type);
+-			mtype = btf_resolve_size(btf_vmlinux, mtype, &msize);
++			mtype = btf_type_by_id(btf, member->type);
++			mtype = btf_resolve_size(btf, mtype, &msize);
+ 			if (IS_ERR(mtype)) {
+ 				err = PTR_ERR(mtype);
+ 				goto reset_unlock;
+@@ -557,13 +918,27 @@ static void bpf_struct_ops_map_seq_show_elem(struct bpf_map *map, void *key,
+ 	void *value;
+ 	int err;
+ 
++	struct btf *btf;
++
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	struct bpf_struct_ops_map *st_map = (struct bpf_struct_ops_map*)(map);
++
++	if (st_map->mod_struct_ops != NULL) {
++		btf = st_map->mod_struct_ops->btf;
++	} else {
++		btf = btf_vmlinux;
++	}
++#else
++	btf = btf_vmlinux;
++#endif
++
+ 	value = kmalloc(map->value_size, GFP_USER | __GFP_NOWARN);
+ 	if (!value)
+ 		return;
+ 
+ 	err = bpf_struct_ops_map_sys_lookup_elem(map, key, value);
+ 	if (!err) {
+-		btf_type_seq_show(btf_vmlinux, map->btf_vmlinux_value_type_id,
++		btf_type_seq_show(btf, map->btf_vmlinux_value_type_id,
+ 				  value, m);
+ 		seq_puts(m, "\n");
+ 	}
+@@ -575,6 +950,9 @@ static void bpf_struct_ops_map_free(struct bpf_map *map)
+ {
+ 	struct bpf_struct_ops_map *st_map = (struct bpf_struct_ops_map *)map;
+ 
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	bpf_mod_struct_ops_put(st_map->mod_struct_ops);
++#endif
+ 	if (st_map->links)
+ 		bpf_struct_ops_map_put_progs(st_map);
+ 	bpf_map_area_free(st_map->links);
+@@ -599,16 +977,57 @@ static struct bpf_map *bpf_struct_ops_map_alloc(union bpf_attr *attr)
+ 	const struct btf_type *t, *vt;
+ 	struct bpf_map *map;
+ 
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	int mod_btf_fd;
++	struct btf *mod_btf;
++	const char *mod_name;
++	struct bpf_module_struct_ops *mod_struct_ops;
++#endif
++
+ 	if (!bpf_capable())
+ 		return ERR_PTR(-EPERM);
+ 
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	mod_btf_fd = BPF_MOD_STRUCT_OPS_GET_BTF_FD(attr);
++	if (mod_btf_fd == 0) {
++		st_ops = bpf_struct_ops_find_value(attr->btf_vmlinux_value_type_id);
++	} else {
++		/*
++		 * TODO: currently we get owenr by kernel btf_fd, simplify it
++		 * */
++		mod_btf = btf_get_by_fd(mod_btf_fd);
++		if (IS_ERR(mod_btf) || !btf_is_module(mod_btf)) {
++			pr_err("failed to get module btf by the given fd %d\n", mod_btf_fd);
++			btf_put(mod_btf);
++			return ERR_PTR(-EINVAL);
++		}
++		mod_name = btf_get_module_name(mod_btf);
++		mod_struct_ops = bpf_get_mod_struct_ops_name(mod_name);
++		if (mod_struct_ops == NULL) {
++			pr_err("failed to find module struct ops %s\n", mod_name);
++			btf_put(mod_btf);
++			return ERR_PTR(-EINVAL);
++		}
++		st_ops = bpf_module_struct_ops_find_value(mod_struct_ops, attr->btf_vmlinux_value_type_id);
++		btf_put(mod_btf);
++	}
++#else
+ 	st_ops = bpf_struct_ops_find_value(attr->btf_vmlinux_value_type_id);
+-	if (!st_ops)
++#endif
++	if (!st_ops) {
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++		bpf_mod_struct_ops_put(mod_struct_ops);
++#endif
+ 		return ERR_PTR(-ENOTSUPP);
++	}
+ 
+ 	vt = st_ops->value_type;
+-	if (attr->value_size != vt->size)
++	if (attr->value_size != vt->size) {
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++		bpf_mod_struct_ops_put(mod_struct_ops);
++#endif
+ 		return ERR_PTR(-EINVAL);
++	}
+ 
+ 	t = st_ops->type;
+ 
+@@ -619,9 +1038,16 @@ static struct bpf_map *bpf_struct_ops_map_alloc(union bpf_attr *attr)
+ 		(vt->size - sizeof(struct bpf_struct_ops_value));
+ 
+ 	st_map = bpf_map_area_alloc(st_map_size, NUMA_NO_NODE);
+-	if (!st_map)
++	if (!st_map) {
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++		bpf_mod_struct_ops_put(mod_struct_ops);
++#endif
+ 		return ERR_PTR(-ENOMEM);
++	}
+ 
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	st_map->mod_struct_ops = mod_struct_ops;
++#endif
+ 	st_map->st_ops = st_ops;
+ 	map = &st_map->map;
+ 
+@@ -666,6 +1092,7 @@ bool bpf_struct_ops_get(const void *kdata)
+ 
+ 	return refcount_inc_not_zero(&kvalue->refcnt);
+ }
++EXPORT_SYMBOL_GPL(bpf_struct_ops_get);
+ 
+ static void bpf_struct_ops_put_rcu(struct rcu_head *head)
+ {
+@@ -699,3 +1126,4 @@ void bpf_struct_ops_put(const void *kdata)
+ 		call_rcu(&st_map->rcu, bpf_struct_ops_put_rcu);
+ 	}
+ }
++EXPORT_SYMBOL_GPL(bpf_struct_ops_put);
+diff --git a/kernel/bpf/btf.c b/kernel/bpf/btf.c
+index 35c07afac924..0a8dd8231e68 100644
+--- a/kernel/bpf/btf.c
++++ b/kernel/bpf/btf.c
+@@ -535,6 +535,11 @@ s32 btf_find_by_name_kind(const struct btf *btf, const char *name, u8 kind)
+ 	return -ENOENT;
+ }
+ 
++const char* btf_get_module_name(const struct btf *btf)
++{
++	return btf->name;
++}
++
+ static s32 bpf_find_btf_id(const char *name, u32 kind, struct btf **btf_p)
+ {
+ 	struct btf *btf;
+@@ -7230,7 +7235,7 @@ struct module *btf_try_get_module(const struct btf *btf)
+ /* Returns struct btf corresponding to the struct module.
+  * This function can return NULL or ERR_PTR.
+  */
+-static struct btf *btf_get_module_btf(const struct module *module)
++struct btf *btf_get_module_btf(const struct module *module)
+ {
+ #ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+ 	struct btf_module *btf_mod, *tmp;
+diff --git a/kernel/bpf/core.c b/kernel/bpf/core.c
+index 25a54e04560e..dc5a1a626e04 100644
+--- a/kernel/bpf/core.c
++++ b/kernel/bpf/core.c
+@@ -38,6 +38,10 @@
+ #include <asm/barrier.h>
+ #include <asm/unaligned.h>
+ 
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++#include <linux/bpf_struct_ops_module.h>
++#endif
++
+ /* Registers */
+ #define BPF_R0	regs[BPF_REG_0]
+ #define BPF_R1	regs[BPF_REG_1]
+@@ -2549,6 +2553,10 @@ static void bpf_prog_free_deferred(struct work_struct *work)
+ #ifdef CONFIG_PERF_EVENTS
+ 	if (aux->prog->has_callchain_buf)
+ 		put_callchain_buffers();
++#endif
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	if (aux->mod_struct_ops)
++		bpf_mod_struct_ops_put(aux->mod_struct_ops);
+ #endif
+ 	if (aux->dst_trampoline)
+ 		bpf_trampoline_put(aux->dst_trampoline);
+diff --git a/kernel/bpf/syscall.c b/kernel/bpf/syscall.c
+index d2e4dbfc12ef..dc7d7fd97e0d 100644
+--- a/kernel/bpf/syscall.c
++++ b/kernel/bpf/syscall.c
+@@ -36,6 +36,10 @@
+ #include <linux/memcontrol.h>
+ #include <linux/trace_events.h>
+ 
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++#include <linux/bpf_struct_ops_module.h>
++#endif
++
+ #define IS_FD_ARRAY(map) ((map)->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY || \
+ 			  (map)->map_type == BPF_MAP_TYPE_CGROUP_ARRAY || \
+ 			  (map)->map_type == BPF_MAP_TYPE_ARRAY_OF_MAPS)
+@@ -1091,6 +1095,7 @@ static int map_create(union bpf_attr *attr)
+ 
+ 	if (attr->map_type != BPF_MAP_TYPE_BLOOM_FILTER &&
+ 	    attr->map_type != BPF_MAP_TYPE_CUSTOM_MAP &&
++	    attr->map_type != BPF_MAP_TYPE_STRUCT_OPS &&
+ 	    attr->map_extra != 0)
+ 		return -EINVAL;
+ 
+@@ -2469,7 +2474,9 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
+ 	int err;
+ 	char license[128];
+ 	bool is_gpl;
+-
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	struct bpf_module_struct_ops *mod_struct_ops;
++#endif
+ 	if (CHECK_ATTR(BPF_PROG_LOAD))
+ 		return -EINVAL;
+ 
+@@ -2548,6 +2555,21 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
+ 		return -EINVAL;
+ 	}
+ 
++	/*bpf module struct ops*/
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	mod_struct_ops = NULL;
++	if (type == BPF_PROG_TYPE_STRUCT_OPS && btf_is_module(attach_btf)) {
++		mod_struct_ops = bpf_get_mod_struct_ops_name(btf_get_module_name(attach_btf));
++		if (!mod_struct_ops) {
++			if (dst_prog)
++				bpf_prog_put(dst_prog);
++			if (attach_btf)
++				btf_put(attach_btf);
++			return -EINVAL;
++		}
++	}
++#endif
++
+ 	/* plain bpf_prog allocation */
+ 	prog = bpf_prog_alloc(bpf_prog_size(attr->insn_cnt), GFP_USER);
+ 	if (!prog) {
+@@ -2555,6 +2577,10 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
+ 			bpf_prog_put(dst_prog);
+ 		if (attach_btf)
+ 			btf_put(attach_btf);
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++		if (mod_struct_ops)
++			bpf_mod_struct_ops_put(mod_struct_ops);
++#endif
+ 		return -ENOMEM;
+ 	}
+ 
+@@ -2565,6 +2591,7 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
+ 	prog->aux->offload_requested = !!attr->prog_ifindex;
+ 	prog->aux->sleepable = attr->prog_flags & BPF_F_SLEEPABLE;
+ 	prog->aux->xdp_has_frags = attr->prog_flags & BPF_F_XDP_HAS_FRAGS;
++	prog->aux->mod_struct_ops = mod_struct_ops;
+ 
+ 	err = security_bpf_prog_alloc(prog->aux);
+ 	if (err)
+diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
+index 264b3dc714cc..fb137bf442a4 100644
+--- a/kernel/bpf/verifier.c
++++ b/kernel/bpf/verifier.c
+@@ -25,6 +25,10 @@
+ #include <linux/btf_ids.h>
+ #include <linux/poison.h>
+ 
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++#include <linux/bpf_struct_ops_module.h>
++#endif
++
+ #include "disasm.h"
+ 
+ static const struct bpf_verifier_ops * const bpf_verifier_ops[] = {
+@@ -14755,6 +14759,7 @@ static int check_struct_ops_btf_id(struct bpf_verifier_env *env)
+ 	struct bpf_prog *prog = env->prog;
+ 	u32 btf_id, member_idx;
+ 	const char *mname;
++	struct btf *kern_btf;
+ 
+ 	if (!prog->gpl_compatible) {
+ 		verbose(env, "struct ops programs must have a GPL compatible license\n");
+@@ -14762,7 +14767,16 @@ static int check_struct_ops_btf_id(struct bpf_verifier_env *env)
+ 	}
+ 
+ 	btf_id = prog->aux->attach_btf_id;
++	kern_btf = prog->aux->attach_btf;
++#ifdef CONFIG_BPF_MODULE_STRUCT_OPS
++	if (prog->aux->mod_struct_ops != NULL) {
++		st_ops = bpf_module_struct_ops_find(prog->aux->mod_struct_ops, btf_id);
++	} else {
++		st_ops = bpf_struct_ops_find(btf_id);
++	}
++#else
+ 	st_ops = bpf_struct_ops_find(btf_id);
++#endif
+ 	if (!st_ops) {
+ 		verbose(env, "attach_btf_id %u is not a supported struct\n",
+ 			btf_id);
+@@ -14778,8 +14792,8 @@ static int check_struct_ops_btf_id(struct bpf_verifier_env *env)
+ 	}
+ 
+ 	member = &btf_type_member(t)[member_idx];
+-	mname = btf_name_by_offset(btf_vmlinux, member->name_off);
+-	func_proto = btf_type_resolve_func_ptr(btf_vmlinux, member->type,
++	mname = btf_name_by_offset(kern_btf, member->name_off);
++	func_proto = btf_type_resolve_func_ptr(kern_btf, member->type,
+ 					       NULL);
+ 	if (!func_proto) {
+ 		verbose(env, "attach to invalid member %s(@idx %u) of struct %s\n",
+@@ -14800,7 +14814,6 @@ static int check_struct_ops_btf_id(struct bpf_verifier_env *env)
+ 	prog->aux->attach_func_proto = func_proto;
+ 	prog->aux->attach_func_name = mname;
+ 	env->ops = st_ops->verifier_ops;
+-
+ 	return 0;
+ }
+ #define SECURITY_PREFIX "security_"
+diff --git a/tools/bpf/bpftool/struct_ops.c b/tools/bpf/bpftool/struct_ops.c
+index e08a6ff2866c..b9c8c2a05419 100644
+--- a/tools/bpf/bpftool/struct_ops.c
++++ b/tools/bpf/bpftool/struct_ops.c
+@@ -44,9 +44,10 @@ static const char *get_kern_struct_ops_name(const struct bpf_map_info *info)
+ 	const struct btf_type *t;
+ 	const char *st_ops_name;
+ 
++
+ 	kern_btf = get_btf_vmlinux();
+ 	if (libbpf_get_error(kern_btf))
+-		return "<btf_vmlinux_not_found>";
++		return "<btf_vmlinux_not_found> or kernel module btf_not found";
+ 
+ 	t = btf__type_by_id(kern_btf, info->btf_vmlinux_value_type_id);
+ 	st_ops_name = btf__name_by_offset(kern_btf, t->name_off);
+@@ -486,13 +487,16 @@ static int do_register(int argc, char **argv)
+ 	struct bpf_object *obj;
+ 	struct bpf_link *link;
+ 	struct bpf_map *map;
+-	const char *file;
++	const char *file, *module_name = NULL;
+ 
+-	if (argc != 1)
++	if (argc != 1 && argc != 2)
+ 		usage();
+ 
+ 	file = GET_ARG();
+ 
++	if (argc == 1)
++		module_name = GET_ARG();
++
+ 	if (verifier_logs)
+ 		/* log_level1 + log_level2 + stats, but not stable UAPI */
+ 		open_opts.kernel_log_level = 1 + 2 + 4;
+@@ -503,6 +507,21 @@ static int do_register(int argc, char **argv)
+ 
+ 	set_max_rlimit();
+ 
++	/*support for module struct ops*/
++	if (module_name) {
++		bpf_object__for_each_map(map, obj) {
++			if (bpf_map__type(map) != BPF_MAP_TYPE_STRUCT_OPS)
++				continue;
++			if (bpf_map__set_struct_ops_module(map, module_name)) {
++				nr_errs++;
++				break;
++			}
++		}
++		if (nr_errs != 0) {
++			bpf_object__close(obj);
++			return -1;
++		}
++	}
+ 	if (bpf_object__load(obj)) {
+ 		bpf_object__close(obj);
+ 		return -1;
+@@ -565,7 +584,7 @@ static int do_help(int argc, char **argv)
+ 	fprintf(stderr,
+ 		"Usage: %1$s %2$s { show | list } [STRUCT_OPS_MAP]\n"
+ 		"       %1$s %2$s dump [STRUCT_OPS_MAP]\n"
+-		"       %1$s %2$s register OBJ\n"
++		"       %1$s %2$s register OBJ [module_name]\n"
+ 		"       %1$s %2$s unregister STRUCT_OPS_MAP\n"
+ 		"       %1$s %2$s help\n"
+ 		"\n"
+diff --git a/tools/lib/bpf/libbpf.c b/tools/lib/bpf/libbpf.c
+index 6f03b87fbb57..eac389f7360f 100644
+--- a/tools/lib/bpf/libbpf.c
++++ b/tools/lib/bpf/libbpf.c
+@@ -458,6 +458,9 @@ struct bpf_struct_ops {
+ 	 */
+ 	void *kern_vdata;
+ 	__u32 type_id;
++
++	/*supported for bpf module struct ops*/
++	const char *module_name;
+ };
+ 
+ #define DATA_SEC ".data"
+@@ -1005,7 +1008,8 @@ static bool bpf_map__is_struct_ops(const struct bpf_map *map)
+ /* Init the map's fields that depend on kern_btf */
+ static int bpf_map__init_kern_struct_ops(struct bpf_map *map,
+ 					 const struct btf *btf,
+-					 const struct btf *kern_btf)
++					 const struct btf *kern_btf,
++					 const struct module_btf *mod_btf)
+ {
+ 	const struct btf_member *member, *kern_member, *kern_data_member;
+ 	const struct btf_type *type, *kern_type, *kern_vtype;
+@@ -1106,6 +1110,10 @@ static int bpf_map__init_kern_struct_ops(struct bpf_map *map,
+ 			prog->attach_btf_id = kern_type_id;
+ 			prog->expected_attach_type = kern_member_idx;
+ 
++			/*set attach_obj_fd for module btf*/
++			if (mod_btf != NULL)
++				prog->attach_btf_obj_fd = mod_btf->fd;
++
+ 			st_ops->kern_func_off[i] = kern_data_off + kern_moff;
+ 
+ 			pr_debug("struct_ops init_kern %s: func ptr %s is set to prog %s from data(+%u) to kern_data(+%u)\n",
+@@ -1133,20 +1141,55 @@ static int bpf_map__init_kern_struct_ops(struct bpf_map *map,
+ 	return 0;
+ }
+ 
++static int load_module_btfs(struct bpf_object *obj);
++
++static const struct module_btf* find_module_btf(struct bpf_object *obj, const char *module_name)
++{
++	int ret, i;
++	if (obj->btf_module_cnt == 0) {
++		if (obj->btf_vmlinux == NULL)
++			obj->btf_vmlinux = btf__load_vmlinux_btf();
++		ret = load_module_btfs(obj);
++		if (ret) {
++			pr_warn("failed to load module btfs err %d\n", ret);
++			return NULL;
++		}
++	}
++	for (i = 0; i < obj->btf_module_cnt; i++) {
++		const struct module_btf *mod = &obj->btf_modules[i];
++		if (strcmp(mod->name, module_name) == 0)
++			return mod;
++	}
++	return NULL;
++}
++
+ static int bpf_object__init_kern_struct_ops_maps(struct bpf_object *obj)
+ {
+ 	struct bpf_map *map;
++	struct bpf_struct_ops *st_ops;
++	struct btf *kern_btf;
+ 	size_t i;
+ 	int err;
++	const struct module_btf *mod_btf;
+ 
+ 	for (i = 0; i < obj->nr_maps; i++) {
+ 		map = &obj->maps[i];
+ 
+ 		if (!bpf_map__is_struct_ops(map))
+ 			continue;
++		st_ops = map->st_ops;
++		if (st_ops->module_name) {
++			mod_btf = find_module_btf(obj, st_ops->module_name);
++			if (mod_btf == NULL)
++				return -EINVAL;
++			kern_btf = mod_btf->btf;
++		} else {
++			kern_btf = obj->btf_vmlinux;
++			mod_btf = NULL;
++		}
+ 
+ 		err = bpf_map__init_kern_struct_ops(map, obj->btf,
+-						    obj->btf_vmlinux);
++						    kern_btf, mod_btf);
+ 		if (err)
+ 			return err;
+ 	}
+@@ -11444,6 +11487,29 @@ struct bpf_link *bpf_map__attach_struct_ops(const struct bpf_map *map)
+ 	return link;
+ }
+ 
++
++int bpf_map__set_struct_ops_module(struct bpf_map *map, const char *module_name)
++{
++	struct bpf_struct_ops *st_ops;
++	const struct module_btf *mod_btf;
++	struct bpf_object *obj = map->obj;
++	if (!bpf_map__is_struct_ops(map)) {
++		return -EINVAL;
++	}
++
++	/*find_module_btf*/
++	mod_btf = find_module_btf(obj, module_name);
++	if (mod_btf == NULL) {
++		pr_warn("faild to find kernel module btf %s\n", module_name);
++		return -EINVAL;
++	}
++
++	st_ops = map->st_ops;
++	st_ops->module_name = module_name;
++	map->map_extra = (__u64)mod_btf->fd << 32;
++	return 0;
++}
++
+ typedef enum bpf_perf_event_ret (*bpf_perf_event_print_t)(struct perf_event_header *hdr,
+ 							  void *private_data);
+ 
+diff --git a/tools/lib/bpf/libbpf.h b/tools/lib/bpf/libbpf.h
+index eee883f007f9..65c7b34ba854 100644
+--- a/tools/lib/bpf/libbpf.h
++++ b/tools/lib/bpf/libbpf.h
+@@ -650,6 +650,9 @@ bpf_program__attach_freplace(const struct bpf_program *prog,
+ 
+ struct bpf_map;
+ 
++LIBBPF_API int bpf_map__set_struct_ops_module(struct bpf_map *map, const char *module_name);
++
++/*should be called before loading map*/
+ LIBBPF_API struct bpf_link *bpf_map__attach_struct_ops(const struct bpf_map *map);
+ 
+ struct bpf_iter_attach_opts {
+diff --git a/tools/lib/bpf/libbpf.map b/tools/lib/bpf/libbpf.map
+index c1d6aa7c82b6..a463129112cc 100644
+--- a/tools/lib/bpf/libbpf.map
++++ b/tools/lib/bpf/libbpf.map
+@@ -378,3 +378,8 @@ LIBBPF_1.1.0 {
+ 		user_ring_buffer__reserve_blocking;
+ 		user_ring_buffer__submit;
+ } LIBBPF_1.0.0;
++
++LIBBPF_1.1.1 {
++	global:
++		bpf_map__set_struct_ops_module;
++} LIBBPF_1.1.0;
+-- 
+2.34.1
+

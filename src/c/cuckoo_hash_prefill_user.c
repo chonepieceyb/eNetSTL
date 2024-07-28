@@ -8,17 +8,24 @@
 #define __USE_GNU
 #include <sched.h>
 
+
 #define set_test_cpu(skel)                                       \
 	({                                                       \
 		topts.cpu = cpu; /* FIXME: this does not work */ \
 		0;                                               \
 	})
 
+
+static int empty_before_load(void *skel)
+{
+	return 0;
+}
+
 void __run_prefill_with_cpu(uint32_t cpu)
 {
 	BPF_PROG_TEST_RUNNER_WITH_CALLBACK("cuckoo_hash prefill",
 					   cuckoo_hash_prefill, pkt_v4, prefill,
-					   1, set_test_cpu, 0);
+					   1, empty_before_load, set_test_cpu, 0);
 }
 
 int run_prefill_with_cpu(uint32_t cpu)

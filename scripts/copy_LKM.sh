@@ -7,4 +7,4 @@ if [ ! -d ${PROJECT_DIR}${LINUX}/build ]; then
     mkdir ${PROJECT_DIR}${LINUX}/build
 fi
 
-cp -rf ${PROJECT_DIR}LKM ${PROJECT_DIR}${LINUX}/build
+sudo cp -rf ${PROJECT_DIR}LKM ${PROJECT_DIR}${LINUX}/build
