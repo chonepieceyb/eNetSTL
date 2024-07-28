@@ -20,10 +20,10 @@
 
 typedef u16 ss_count_t;
 
-#define SS_CAPACITY_BITS 3
-#define SS_CAPACITY (1 << SS_CAPACITY_BITS)
+#define SS_CAPACITY 8
 #define SS_KEY_SIZE 16
 #define SS_COUNT_SIZE sizeof(ss_count_t)
+#define SS_HASH_BITS 3
 #define SS_HASH_SEED 0xdeadbeef
 
 struct ss_bucket;
@@ -47,7 +47,7 @@ struct ss_table {
 	struct bpf_mem_alloc bucket_mem_alloc;
 	struct bpf_mem_alloc element_mem_alloc;
 
-	DECLARE_HASHTABLE(elements, SS_CAPACITY_BITS);
+	DECLARE_HASHTABLE(elements, SS_HASH_BITS);
 	struct list_head buckets;
 	size_t size;
 };
@@ -392,8 +392,12 @@ out:
 
 uint64_t ss_mem_usage(const struct bpf_map *map)
 {
+	/* FIXME: This is estimated max usage */
 	return sizeof(struct ss_table_bpf_map) +
-	       num_possible_cpus() * sizeof(struct ss_table);
+	       num_possible_cpus() *
+		       (sizeof(struct ss_table) +
+			SS_CAPACITY * (sizeof(struct ss_table) +
+				       sizeof(struct ss_element)));
 }
 
 static struct bpf_map_ops ss_ops = {
