@@ -3,7 +3,7 @@
 #include <linux/btf.h>
 #include <linux/bpf_verifier.h>
 
-#include "mod_struct_ops_demo.h"
+#include "htss_struct_ops.h"
 
 extern const struct bpf_func_proto *
 default_mod_stops_get_func_proto(enum bpf_func_id func_id,
@@ -16,11 +16,11 @@ extern bool default_mod_stops_is_valid_access(int off, int size, enum bpf_access
 extern int bpf_reg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops);
 extern int bpf_unreg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops);
 
-extern int reg_htss_structop_ops(struct mod_struct_ops_demo *new_ext_ops);
-extern void unreg_htss_structop_ops(struct mod_struct_ops_demo *ops);
+extern int reg_htss_structop_ops(struct htss_struct_ops *new_ext_ops);
+extern void unreg_htss_structop_ops(struct htss_struct_ops *ops);
 
 #define BPF_MOD_STRUCT_OPS_TYPES(fn)	\
-fn(mod_struct_ops_demo)					\
+fn(htss_struct_ops)					\
 
 /*
  * step3: implement struct bpf_struct_ops : 
@@ -36,7 +36,7 @@ fn(mod_struct_ops_demo)					\
 static const struct btf_type *ctx_type;
 static u32 ctx_type_id;
 
-static int mod_struct_ops_demo_init(struct btf *btf)
+static int htss_struct_ops_init(struct btf *btf)
 {
 	ctx_type_id = btf_find_by_name_kind(btf, "mod_struct_ops_ctx", BTF_KIND_STRUCT);
 	if (ctx_type_id < 0)
@@ -46,14 +46,14 @@ static int mod_struct_ops_demo_init(struct btf *btf)
 	return 0;
 }
     
-static int mod_struct_ops_demo_check_member(const struct btf_type *t,
+static int htss_struct_ops_check_member(const struct btf_type *t,
 				    const struct btf_member *member, const struct bpf_prog *prog)
 {
         u32 moff; 
         moff = __btf_member_bit_offset(t, member) / 8;
         switch (moff) {
-        case offsetof(struct mod_struct_ops_demo, htss_loop_up_eBPF):
-        case offsetof(struct mod_struct_ops_demo, htss_update_eBPF):
+        case offsetof(struct htss_struct_ops, htss_loop_up_eBPF):
+        case offsetof(struct htss_struct_ops, htss_update_eBPF):
 	        /* allow to set first_func */
 		break;
 	default: 
@@ -62,25 +62,25 @@ static int mod_struct_ops_demo_check_member(const struct btf_type *t,
 	return 0;
 }
 
-static int mod_struct_ops_demo_init_member(const struct btf_type *t,
+static int htss_struct_ops_init_member(const struct btf_type *t,
 				   const struct btf_member *member,
 				   void *kdata, const void *udata)
 {
-	const struct mod_struct_ops_demo *uop;
-	struct mod_struct_ops_demo *op;
+	const struct htss_struct_ops *uop;
+	struct htss_struct_ops *op;
 	int prog_fd;
 	u32 moff;
 
-	uop = (const struct mod_struct_ops_demo *)udata;
-	op = (struct mod_struct_ops_demo *)kdata;
+	uop = (const struct htss_struct_ops *)udata;
+	op = (struct htss_struct_ops *)kdata;
 
 	moff = __btf_member_bit_offset(t, member) / 8;
 	    
 	switch (moff) {
         /*check function member */
-	case offsetof(struct mod_struct_ops_demo, htss_loop_up_eBPF):
+	case offsetof(struct htss_struct_ops, htss_loop_up_eBPF):
 		goto func_member;
-	case offsetof(struct mod_struct_ops_demo, htss_update_eBPF):
+	case offsetof(struct htss_struct_ops, htss_update_eBPF):
 		goto func_member;
 	default:
 		return -EINVAL;
@@ -95,12 +95,12 @@ func_member:
 	return 0;
 }
 
-static int  mod_struct_ops_demo_reg(void *kdata)
+static int  htss_struct_ops_reg(void *kdata)
 {
 	return reg_htss_structop_ops(kdata);
 }
 
-static void mod_struct_ops_demo_unreg(void *kdata) 
+static void htss_struct_ops_unreg(void *kdata) 
 {
 	unreg_htss_structop_ops(kdata);
 }
@@ -119,8 +119,8 @@ static int default_mod_stops_btf_struct_access(struct bpf_verifier_log *log,
 	}
 
 	switch (off) {
-	case offsetof(struct mod_struct_ops_ctx, rw_lock):
-		end = offsetofend(struct mod_struct_ops_ctx, rw_lock);
+	case offsetof(struct mod_struct_ops_ctx, buckets):
+		end = offsetofend(struct mod_struct_ops_ctx, buckets);
 		break;
 	default:
 		bpf_log(log, "no write support to mod_struct_ops_ctx at off %d\n", off);
@@ -145,14 +145,14 @@ const struct bpf_verifier_ops demo_mod_stops_verifier_ops = {
 };
 
 
-struct bpf_struct_ops bpf_mod_struct_ops_demo = {
+struct bpf_struct_ops bpf_htss_struct_ops = {
 	.verifier_ops = &demo_mod_stops_verifier_ops,
-	.reg = mod_struct_ops_demo_reg,
-	.unreg = mod_struct_ops_demo_unreg,
-	.check_member = mod_struct_ops_demo_check_member,
-	.init_member = mod_struct_ops_demo_init_member,
-	.init = mod_struct_ops_demo_init,
-	.name = "mod_struct_ops_demo",
+	.reg = htss_struct_ops_reg,
+	.unreg = htss_struct_ops_unreg,
+	.check_member = htss_struct_ops_check_member,
+	.init_member = htss_struct_ops_init_member,
+	.init = htss_struct_ops_init,
+	.name = "htss_struct_ops",
 };
 
 BPF_MODULE_STRUCT_OPS_SEC(demo_mod_struct_ops, BPF_MOD_STRUCT_OPS_TYPES)

@@ -1,5 +1,5 @@
-#ifndef MOD_STRUCT_OPS_DEMO_H
-#define MOD_STRUCT_OPS_DEMO_H
+#ifndef HTSS_STRUCT_OPS_H
+#define HTSS_STRUCT_OPS_H
 
 #include <linux/module.h>
 
@@ -29,7 +29,7 @@ struct mod_struct_ops_ctx {
   rwlock_t rw_lock;
 };
 
-struct mod_struct_ops_demo {
+struct htss_struct_ops {
   int (*htss_loop_up_eBPF)(struct mod_struct_ops_ctx *ctx);
   int (*htss_update_eBPF)(struct mod_struct_ops_ctx *ctx);
   struct module *owner;

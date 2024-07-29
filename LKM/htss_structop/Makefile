@@ -1,4 +1,4 @@
-obj-m := mod_struct_ops_demo.o
+obj-m := htss_struct_ops.o
 obj-m += htss_structop.o
 
 #KDIR ?= /home/chonepieceyb/CODING/Src/linux-6.0
