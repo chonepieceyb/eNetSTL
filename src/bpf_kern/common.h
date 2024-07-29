@@ -272,6 +272,10 @@ struct hdr_cursor {
 	void *pos;
 };
 
+struct pkt_count {
+	__u32 rx_count;
+};
+
 /**
  * parse_pkt_5tuple() - Parse into packet 5-tuple.
  * 
