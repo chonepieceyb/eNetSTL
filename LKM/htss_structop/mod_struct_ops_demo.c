@@ -16,8 +16,8 @@ extern bool default_mod_stops_is_valid_access(int off, int size, enum bpf_access
 extern int bpf_reg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops);
 extern int bpf_unreg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops);
 
-extern int reg_cmap_ext_demo_ops(struct mod_struct_ops_demo *new_ext_ops);
-extern void unreg_cmap_ext_demo_ops(struct mod_struct_ops_demo *ops);
+extern int reg_htss_structop_ops(struct mod_struct_ops_demo *new_ext_ops);
+extern void unreg_htss_structop_ops(struct mod_struct_ops_demo *ops);
 
 #define BPF_MOD_STRUCT_OPS_TYPES(fn)	\
 fn(mod_struct_ops_demo)					\
@@ -52,7 +52,8 @@ static int mod_struct_ops_demo_check_member(const struct btf_type *t,
         u32 moff; 
         moff = __btf_member_bit_offset(t, member) / 8;
         switch (moff) {
-        case offsetof(struct mod_struct_ops_demo, hello_world):
+        case offsetof(struct mod_struct_ops_demo, htss_loop_up_eBPF):
+        case offsetof(struct mod_struct_ops_demo, htss_update_eBPF):
 	        /* allow to set first_func */
 		break;
 	default: 
@@ -77,7 +78,9 @@ static int mod_struct_ops_demo_init_member(const struct btf_type *t,
 	    
 	switch (moff) {
         /*check function member */
-	case offsetof(struct mod_struct_ops_demo, hello_world):
+	case offsetof(struct mod_struct_ops_demo, htss_loop_up_eBPF):
+		goto func_member;
+	case offsetof(struct mod_struct_ops_demo, htss_update_eBPF):
 		goto func_member;
 	default:
 		return -EINVAL;
@@ -94,12 +97,12 @@ func_member:
 
 static int  mod_struct_ops_demo_reg(void *kdata)
 {
-	return reg_cmap_ext_demo_ops(kdata);
+	return reg_htss_structop_ops(kdata);
 }
 
 static void mod_struct_ops_demo_unreg(void *kdata) 
 {
-	unreg_cmap_ext_demo_ops(kdata);
+	unreg_htss_structop_ops(kdata);
 }
 
 static int default_mod_stops_btf_struct_access(struct bpf_verifier_log *log,
@@ -116,8 +119,8 @@ static int default_mod_stops_btf_struct_access(struct bpf_verifier_log *log,
 	}
 
 	switch (off) {
-	case offsetof(struct mod_struct_ops_ctx, val):
-		end = offsetofend(struct mod_struct_ops_ctx, val);
+	case offsetof(struct mod_struct_ops_ctx, rw_lock):
+		end = offsetofend(struct mod_struct_ops_ctx, rw_lock);
 		break;
 	default:
 		bpf_log(log, "no write support to mod_struct_ops_ctx at off %d\n", off);
