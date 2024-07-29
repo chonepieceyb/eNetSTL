@@ -57,7 +57,7 @@ int hash_callback_register(struct hash_callback_ops *ops)
 		ret = -ENODEV;
 		goto err_unlock;
 	}
-	static_call_update(bpf_hash_alg_simd_callback, callback);
+	static_call_update(bpf_hash_alg_simd_callback, ops->callback);
 	callback_ops = ops;
 
 err_unlock:
@@ -129,7 +129,8 @@ EXPORT_SYMBOL_GPL(bpf_fasthash32_alt_avx2_pkt5);
 
 __bpf_kfunc void
 bpf_fasthash32_alt_avx2_pkt5_with_callback(const struct pkt_5tuple *buf,
-					   const u32 *seeds, void *ctx)
+					   const u32 *seeds, void *ctx,
+					   size_t ctx__sz)
 {
 	__m256i seeds_vec = _mm256_loadu_si256((const __m256i_u *)seeds);
 
@@ -238,6 +239,7 @@ BTF_ID_FLAGS(func, bpf_xxh32_avx2_pkt5_pkts)
 BTF_ID_FLAGS(func, bpf_fasthash32_avx2)
 BTF_ID_FLAGS(func, bpf_fasthash32_alt_avx2)
 BTF_ID_FLAGS(func, bpf_fasthash32_alt_avx2_pkt5)
+BTF_ID_FLAGS(func, bpf_fasthash32_alt_avx2_pkt5_with_callback)
 BTF_ID_FLAGS(func, bpf_crc32c_sse)
 BTF_ID_FLAGS(func, bpf_kernel_fpu_begin)
 BTF_ID_FLAGS(func, bpf_kernel_fpu_end)

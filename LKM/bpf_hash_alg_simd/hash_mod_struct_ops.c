@@ -3,7 +3,6 @@
 #include <linux/btf.h>
 #include <linux/bpf_verifier.h>
 
-#include "hash_mod_struct_ops.h"
 #include "hash_callback.h"
 
 #define BPF_MOD_STRUCT_OPS_TYPES(fn) fn(hash_mod_struct_ops)
@@ -184,7 +183,7 @@ static int __init hash_mod_struct_ops_module_init(void)
 
 static void __exit hash_mod_struct_ops_module_exit(void)
 {
-	bpf_unreg_module_struct_ops(demo_mod_struct_ops);
+	bpf_unreg_module_struct_ops(hash_mod_struct_ops);
 	pr_info("unregister mod_struct_ops %s\n", THIS_MODULE->name);
 }
 

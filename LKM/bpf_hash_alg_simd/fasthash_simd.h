@@ -5,7 +5,12 @@
 #include <linux/types.h>
 
 // This macro is required to include <immtrin.h> in the kernel
+#ifdef __clang__
+#define __MM_MALLOC_H
+#else
 #define _MM_MALLOC_H_INCLUDED
+#endif
+
 #else
 #include <stdint.h>
 #include <stdio.h>

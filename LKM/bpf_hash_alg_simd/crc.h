@@ -10,7 +10,12 @@
 #include <linux/types.h>
 
 // This macro is required to include <immintrin.h> in the kernel
+#ifdef __clang__
+#define __MM_MALLOC_H
+#else
 #define _MM_MALLOC_H_INCLUDED
+#endif
+
 #include <immintrin.h>
 
 static inline uint32_t crc32c_sse42_u8(uint8_t data, uint32_t init_val)

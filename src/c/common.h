@@ -54,4 +54,32 @@ clean:;                                                                      \
 	BPF_XDP_SKEL_LOADER_WITH_CALLBACK(__skel, _ifname, _prog, \
 					  __default_callback_load, mode)
 
+#define BPF_MOD_LOAD_STRUCT_OPS(__skel, _map, module_name)                  \
+	struct __skel *skel = NULL;                                         \
+	int res;                                                            \
+	skel = __skel##__open();                                            \
+	if (skel == NULL) {                                                 \
+		printf("faild to open and load %s\n", #__skel);             \
+		return NULL;                                                \
+	}                                                                   \
+	res = bpf_map__set_struct_ops_module(skel->maps._map, module_name); \
+	if (res != 0) {                                                     \
+		printf("failed to set struct_ops_module, res %d\n", res);   \
+		goto clean_stops;                                           \
+	}                                                                   \
+	res = __skel##__load(skel);                                         \
+	if (res) {                                                          \
+		printf("faild to load, res %d %s\n", res, strerror(errno)); \
+		goto clean_stops;                                           \
+	}                                                                   \
+	void *bpf_link = bpf_map__attach_struct_ops(skel->maps._map);       \
+	if (bpf_link == NULL) {                                             \
+		printf("failed to attach struct ops error: %d", errno);     \
+		goto clean_stops;                                           \
+	}                                                                   \
+	return skel;                                                        \
+clean_stops:;                                                               \
+	__skel##__destroy(skel);                                            \
+	return NULL;
+
 #endif

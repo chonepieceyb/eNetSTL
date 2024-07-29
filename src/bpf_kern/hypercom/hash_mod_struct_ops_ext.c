@@ -1,5 +1,5 @@
-#include "common.h"
-#include "bpf_hash_alg_simd.h"
+#include "../common.h"
+#include "../bpf_hash_alg_simd.h"
 
 #include <bpf/bpf_tracing.h>
 
@@ -24,38 +24,11 @@ struct hash_mod_struct_ops {
 
 char _license[] SEC("license") = "GPL";
 
-SEC("xdp")
-int xdp_main(struct xdp_md *ctx)
-{
-	struct pkt_5tuple pkt;
-	u32 seeds[8] = { TEST_HASH_MOD_STRUCT_OPS_SEEDx8 };
-	struct hdr_cursor nh = {
-		.pos = (void *)(long)ctx->data,
-	};
-	void *data_end = (void *)(long)ctx->data_end;
-	struct test_hash_mod_struct_ops_ctx c = {
-		.val = 10,
-	};
-	int ret, i;
-
-	if ((ret = parse_pkt_5tuple(&nh, data_end, &pkt)) != 0) {
-		test_hash_mod_struct_ops_log(
-			error, "parse_pkt_5tuple() failed: %d", ret);
-		goto out;
-	}
-
-	bpf_fasthash32_alt_avx2_pkt5_with_callback(&pkt, seeds, &c);
-	test_hash_mod_struct_ops_log(info, "c.val = %u", c.val);
-
-out:
-	return XDP_PASS;
-}
-
 SEC("struct_ops/callback")
 int BPF_PROG(hash_callback, struct test_hash_mod_struct_ops_ctx *c, int i,
 	     u32 hash)
 {
-	c->val += hash;
+	// c->val += hash; // FIXME:
 	test_hash_mod_struct_ops_log(debug, "c->val = %u, i = %d, hash = %u",
 				     c->val, i, hash);
 	return 0;
