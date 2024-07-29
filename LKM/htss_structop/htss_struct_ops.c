@@ -119,8 +119,8 @@ static int default_mod_stops_btf_struct_access(struct bpf_verifier_log *log,
 	}
 
 	switch (off) {
-	case offsetof(struct mod_struct_ops_ctx, buckets):
-		end = offsetofend(struct mod_struct_ops_ctx, buckets);
+	case offsetof(struct mod_struct_ops_ctx, res):
+		end = offsetofend(struct mod_struct_ops_ctx, res);
 		break;
 	default:
 		bpf_log(log, "no write support to mod_struct_ops_ctx at off %d\n", off);

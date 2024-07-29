@@ -2,7 +2,6 @@
 #define HTSS_STRUCT_OPS_H
 
 #include <linux/module.h>
-
 /* static vars */
 #define MAX_ENTRY 2048
 #define HASH_SEED_1 0xdeadbeef
@@ -24,14 +23,26 @@ struct member_ht_bucket {
   set_t sets[MEMBER_BUCKET_ENTRIES];
 };
 
+struct pkt_5tuple {
+	__be32 src_ip;
+	__be32 dst_ip;
+	__be16 src_port;
+	__be16 dst_port;
+	uint8_t proto;
+} __attribute__((packed));
+
+struct htss_key_type {
+	char data[13];
+};
 struct mod_struct_ops_ctx {
-  struct member_ht_bucket buckets[NUM_BUCKETS];
+  // lookup res
+  int res;
   rwlock_t rw_lock;
 };
 
 struct htss_struct_ops {
-  int (*htss_loop_up_eBPF)(struct mod_struct_ops_ctx *ctx);
-  int (*htss_update_eBPF)(struct mod_struct_ops_ctx *ctx);
+  int (*htss_loop_up_eBPF)(struct mod_struct_ops_ctx *ctx, struct htss_key_type *key);
+  int (*htss_update_eBPF)(struct mod_struct_ops_ctx *ctx, struct htss_key_type *key, set_t set_id);
   struct module *owner;
 };
 

@@ -45,7 +45,7 @@ struct {
 	__type(key, __u32);
 	__type(value, struct htss_memory);
 	__uint(max_entries, 1);
-	__uint(pinning, 1)
+	__uint(pinning, 0);
 } htss_memory_map SEC(".maps");
 
 struct record {
@@ -263,13 +263,8 @@ search_bucket_single(__u32 bucket_id, sig_t tmp_sig,
 	__u32 iter;
 #if DESIGN_PATTERN_TEST == 0
 	for (iter = 0; iter < MEMBER_BUCKET_ENTRIES; iter++) {
-		asm_bound_check(iter, MEMBER_BUCKET_ENTRIES);
-		sig_t curr_sig = curr_bkt.sigs[iter];
-		asm_bound_check(iter, MEMBER_BUCKET_ENTRIES);
-		set_t curr_set = curr_bkt.sets[iter];
-		if (tmp_sig == curr_sig && curr_set != MEMBER_NO_MATCH) {
-			asm_bound_check(iter, MEMBER_BUCKET_ENTRIES);
-			*set_id = curr_bkt.sets[iter];
+		if (tmp_sig == buckets[bucket_id].sigs[iter] && buckets[bucket_id].sets[iter] != MEMBER_NO_MATCH) {
+			*set_id = buckets[bucket_id].sets[iter];
 			return 1;
 		}
 	}
@@ -384,7 +379,7 @@ int test_htss(struct xdp_md *ctx)
 {
 	__u32 zero = 0;
 	__u32 set_id = 1;
-	struct htss_memory *__htss = bpf_map_lookup_elem(&map, &zero);
+	struct htss_memory *__htss = bpf_map_lookup_elem(&htss_memory_map, &zero);
 	if (__htss == NULL) {
 		log_error("error at line %d\n", __LINE__);
 		goto finish;
@@ -443,12 +438,12 @@ int test_htss(struct xdp_md *ctx)
 	log_info("--------------------space usability: %d/%d", add_count,
 		 NUM_BUCKETS * MEMBER_BUCKET_ENTRIES);
 
-	for (int i = 0; i < NUM_BUCKETS; i++) {
-		for (int j = 0; j < MEMBER_BUCKET_ENTRIES; j++) {
-			log_info("bucket %d, set %d, sig: %x, set_id: %d", i, j,
-				 buckets[i].sigs[j], buckets[i].sets[j]);
-		}
-	}
+	// for (int i = 0; i < NUM_BUCKETS; i++) {
+	// 	for (int j = 0; j < MEMBER_BUCKET_ENTRIES; j++) {
+	// 		log_info("bucket %d, set %d, sig: %x, set_id: %d", i, j,
+	// 			 buckets[i].sigs[j], buckets[i].sets[j]);
+	// 	}
+	// }
 
 finish:
 	return XDP_DROP;
@@ -458,7 +453,7 @@ SEC("xdp")
 int add_data(struct xdp_md *ctx) {
 	__u32 zero = 0;
 	set_t set_id = 1;
-	struct htss_memory *__htss = bpf_map_lookup_elem(&map, &zero);
+	struct htss_memory *__htss = bpf_map_lookup_elem(&htss_memory_map, &zero);
 	if (__htss == NULL) {
 		log_error("error at line %d\n", __LINE__);
 		goto finish;
@@ -500,7 +495,7 @@ SEC("xdp")
 int xdp_main(struct xdp_md *ctx){
 	__u32 zero = 0;
 	set_t set_id = 1;
-	struct htss_memory *__htss = bpf_map_lookup_elem(&map, &zero);
+	struct htss_memory *__htss = bpf_map_lookup_elem(&htss_memory_map, &zero);
 	if (__htss == NULL) {
 		log_error("error at line %d\n", __LINE__);
 		goto finish;
