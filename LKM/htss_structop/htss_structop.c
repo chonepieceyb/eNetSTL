@@ -28,22 +28,22 @@ struct htss_struct_ops *bpf_ops = NULL;
 static DEFINE_SPINLOCK(static_ops_lock);
 
 // stub for eBPF impl
-static int htss_loop_up_eBPF(struct mod_struct_ops_ctx *ctx) {
+static int htss_loop_up_eBPF(struct mod_struct_ops_ctx *ctx, struct htss_key_type *key) {
   return 0;
 }
 
-static int htss_update_eBPF(struct mod_struct_ops_ctx *ctx) {
+static int htss_update_eBPF(struct mod_struct_ops_ctx *ctx, struct htss_key_type *key, set_t set_id) {
   return 0;
 }
 
 DEFINE_STATIC_CALL_RET0(__htss_loop_up_eBPF, htss_loop_up_eBPF);
 DEFINE_STATIC_CALL_RET0(__htss_update_eBPF, htss_update_eBPF);
 
-static int static_htss_loop_up_eBPF(struct mod_struct_ops_ctx *ctx) {
-  return static_call(__htss_loop_up_eBPF)(ctx);
+static int static_htss_loop_up_eBPF(struct mod_struct_ops_ctx *ctx, struct htss_key_type *key) {
+  return static_call(__htss_loop_up_eBPF)(ctx, key);
 }
-static int static_htss_update_eBPF_eBPF(struct mod_struct_ops_ctx *ctx) {
-  return static_call(__htss_update_eBPF)(ctx);
+static int static_htss_update_eBPF(struct mod_struct_ops_ctx *ctx, struct htss_key_type *key, set_t set_id) {
+  return static_call(__htss_update_eBPF)(ctx, key, set_id);
 }
 
 void set_default_static_funcs(void) {
@@ -111,9 +111,8 @@ static struct bpf_map *htss_structop_alloc(union bpf_attr *attr) {
   if (!htss_map)
     return ERR_PTR(-ENOMEM);
 
-  struct mod_struct_ops_ctx ctx = htss_map->ctx;
-  memset(&ctx, 0, sizeof(struct mod_struct_ops_ctx));
-  rwlock_init(&ctx.rw_lock);
+  memset(&htss_map->ctx, 0, sizeof(struct mod_struct_ops_ctx));
+  rwlock_init(&htss_map->ctx.rw_lock);
   return (struct bpf_map *)htss_map;
 }
 
@@ -131,71 +130,38 @@ static void htss_structop_free(struct bpf_map *map) {
 static void *htss_structop_lookup_elem(struct bpf_map *map, void *key) {
   struct static_htss_map_structop *htss_map =
       container_of(map, struct static_htss_map_structop, map);
-  struct mod_struct_ops_ctx ctx = htss_map->ctx;
 
   __u32 prim_bucket, sec_bucket;
   sig_t tmp_sig;
-  set_t *search_res;
 
   // add read lock
-  read_lock(&ctx.rw_lock);
-  struct member_ht_bucket *buckets = ctx.buckets;
+  read_lock(&htss_map->ctx.rw_lock);
+  // set lookup params
 
-  // todo: add eBPF version impl here, and delete below code segment
+  htss_map->ctx.res = static_htss_loop_up_eBPF(&htss_map->ctx, key);
 
-  // get_buckets_index(key, map->key_size, &prim_bucket, &sec_bucket, &tmp_sig);
-  // search_res = SERCH_BUCKET_FUNC(prim_bucket, tmp_sig, buckets);
-  // if (search_res == NULL) {
-  // 	search_res = SERCH_BUCKET_FUNC(sec_bucket, tmp_sig, buckets);
-  // }
-
-  // implement lookup in this eBPF function
-  static_htss_loop_up_eBPF(&htss_map->ctx);
-  read_unlock(&ctx.rw_lock);
-  return search_res;
+  read_unlock(&htss_map->ctx.rw_lock);
+  return &(htss_map->ctx.res);
 }
 
 static long htss_structop_update_elem(struct bpf_map *map, void *key,
                                       void *value, u64 flags) {
   struct static_htss_map_structop *htss_map =
       container_of(map, struct static_htss_map_structop, map);
-  struct mod_struct_ops_ctx ctx = htss_map->ctx;
 
-  long ret;
-  unsigned int nr_pushes = 0;
-  __u32 prim_bucket = 0;
-  __u32 sec_bucket = 0;
-  sig_t tmp_sig = 0;
+  long ret = 0;
   set_t flag_mask = 1U << (sizeof(set_t) * 8 - 1);
   __u32 set_id = *(__u32 *)value;
 
-  if (set_id == MEMBER_NO_MATCH || (set_id & flag_mask) != 0) {
+  if ((set_id & flag_mask) != 0) {
     return -1;
   }
   // add writer lock
-  write_lock(&ctx.rw_lock);
-  struct member_ht_bucket *buckets = ctx.buckets;
+  write_lock(&htss_map->ctx.rw_lock);
 
-  // todo: add eBPF version impl here, and delete below code segment
+  ret = static_htss_update_eBPF(&htss_map->ctx, key, set_id);
 
-  // get_buckets_index(key, map->key_size, &prim_bucket, &sec_bucket, &tmp_sig);
-  // ret = try_insert(buckets, prim_bucket, sec_bucket, tmp_sig, set_id);
-  // if (ret != -1)
-  // 	goto unlock;
-
-  // /* Random pick prim or sec for recursive displacement */
-  // __u32 select_bucket = (tmp_sig && 1U) ? prim_bucket : sec_bucket;
-
-  // ret = make_space_bucket(buckets, select_bucket, &nr_pushes);
-  // if (ret >= 0) {
-  // 	buckets[select_bucket].sigs[ret] = tmp_sig;
-  // 	buckets[select_bucket].sets[ret] = set_id;
-  // 	ret = 1;
-  // 	goto unlock;
-  // }
-  static_htss_loop_up_eBPF(&htss_map->ctx);
-unlock:
-  write_unlock(&ctx.rw_lock);
+  write_unlock(&htss_map->ctx.rw_lock);
   return ret;
 }
 
