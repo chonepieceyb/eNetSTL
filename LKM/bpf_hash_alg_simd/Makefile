@@ -5,6 +5,7 @@ GCC_VERSION ?= 13
 CC_SIMD_OPTS ?= -mavx2
 
 obj-m := ${OBJ_NAME}.o
+obj-m += hash_mod_struct_ops.o
 
 ${OBJ_NAME}-objs := module.o
 

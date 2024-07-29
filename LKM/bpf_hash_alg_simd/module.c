@@ -1,3 +1,4 @@
+#include <linux/spinlock_types.h>
 #include <linux/bitops.h>
 #include <linux/bpf.h>
 #include <linux/btf.h>
@@ -7,6 +8,7 @@
 #include "crc.h"
 #include "fasthash_simd.h"
 #include "xxhash_simd.h"
+#include "hash_callback.h"
 
 struct pkt_5tuple {
 	__be32 src_ip;
@@ -18,6 +20,69 @@ struct pkt_5tuple {
 
 extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 				     const struct btf_kfunc_id_set *kset);
+
+static struct hash_callback_ops *callback_ops;
+static DEFINE_SPINLOCK(callback_ops_lock);
+
+static int empty_callback(void *ctx, int i, u32 hash)
+{
+	return 0;
+}
+DEFINE_STATIC_CALL_RET0(bpf_hash_alg_simd_callback, empty_callback);
+
+static inline int callback(void *ctx, int i, u32 hash)
+{
+	return static_call(bpf_hash_alg_simd_callback)(ctx, i, hash);
+}
+
+int hash_callback_register(struct hash_callback_ops *ops)
+{
+	int ret = 0;
+
+	if (ops == NULL || ops->owner == NULL || ops->callback == NULL) {
+		pr_err("bpf_hash_alg_simd: invalid ops, owner or callback\n");
+		ret = -EINVAL;
+		goto err;
+	}
+
+	spin_lock(&callback_ops_lock);
+
+	if (callback_ops) {
+		pr_err("bpf_hash_alg_simd: callback already registered\n");
+		ret = -EEXIST;
+		goto err_unlock;
+	}
+	if (!bpf_try_module_get(ops, ops->owner)) {
+		pr_err("bpf_hash_alg_simd: failed to get BPF module\b");
+		ret = -ENODEV;
+		goto err_unlock;
+	}
+	static_call_update(bpf_hash_alg_simd_callback, callback);
+	callback_ops = ops;
+
+err_unlock:
+	spin_unlock(&callback_ops_lock);
+err:
+	return ret;
+}
+EXPORT_SYMBOL_GPL(hash_callback_register);
+
+void hash_callback_unregister(struct hash_callback_ops *ops)
+{
+	if (ops == NULL || ops->owner == NULL) {
+		pr_warn("bpf_hash_alg_simd: invalid ops or owner; ignoring\n");
+		return;
+	}
+
+	spin_lock(&callback_ops_lock);
+
+	callback_ops = NULL;
+	static_call_update(bpf_hash_alg_simd_callback, empty_callback);
+	bpf_module_put(ops, ops->owner);
+
+	spin_unlock(&callback_ops_lock);
+}
+EXPORT_SYMBOL_GPL(hash_callback_unregister);
 
 __bpf_kfunc void bpf_xxh32_avx2_pkt5(const struct pkt_5tuple *buf,
 				     const u32 *seeds, u32 *dest)
@@ -61,6 +126,23 @@ __bpf_kfunc void bpf_fasthash32_alt_avx2_pkt5(const struct pkt_5tuple *buf,
 	fasthash32_alt_avx2_pkt5(buf, seeds, dest);
 }
 EXPORT_SYMBOL_GPL(bpf_fasthash32_alt_avx2_pkt5);
+
+__bpf_kfunc void
+bpf_fasthash32_alt_avx2_pkt5_with_callback(const struct pkt_5tuple *buf,
+					   const u32 *seeds, void *ctx)
+{
+	__m256i seeds_vec = _mm256_loadu_si256((const __m256i_u *)seeds);
+
+	const __m256i hh = _fasthash64_avx2_pkt5(buf, &seeds_vec);
+	const u32 *hashes = (const u32 *)&hh;
+
+	for (int i = 0; i < 8; ++i) {
+		if (callback(ctx, i, hashes[i]) != 0) {
+			break;
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(bpf_fasthash32_alt_avx2_pkt5_with_callback);
 
 __bpf_kfunc uint32_t bpf_crc32c_sse(const void *data, uint32_t data__sz,
 				    uint32_t init_val)
