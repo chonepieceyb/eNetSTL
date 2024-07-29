@@ -7,7 +7,7 @@
 #include <linux/module.h>
 #include <linux/printk.h>
 #include <linux/string.h>
-#include "mod_struct_ops_demo.h"
+#include "htss_struct_ops.h"
 
 extern int bpf_register_static_cmap(struct bpf_map_ops *map,
                                     struct module *onwer);
@@ -17,14 +17,14 @@ extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 struct static_htss_map_structop {
   struct bpf_map map;
-  struct mod_struct_ops_demo *ext_ops;
+  struct htss_struct_ops *ext_ops;
   struct mod_struct_ops_ctx ctx;
 };
 
 // static DEFINE_SPINLOCK(ops_mutex);
-// static struct mod_struct_ops_demo __rcu *ext_ops = NULL;
+// static struct htss_struct_ops __rcu *ext_ops = NULL;
 
-struct mod_struct_ops_demo *bpf_ops = NULL;
+struct htss_struct_ops *bpf_ops = NULL;
 static DEFINE_SPINLOCK(static_ops_lock);
 
 // stub for eBPF impl
@@ -51,7 +51,7 @@ void set_default_static_funcs(void) {
   static_call_update(__htss_update_eBPF, htss_update_eBPF);
 }
 
-int reg_htss_structop_ops(struct mod_struct_ops_demo *new_ext_ops) {
+int reg_htss_structop_ops(struct htss_struct_ops *new_ext_ops) {
   int res = 0;
   spin_lock(&static_ops_lock);
   if (bpf_ops != NULL) {
@@ -66,14 +66,14 @@ int reg_htss_structop_ops(struct mod_struct_ops_demo *new_ext_ops) {
   /* we have get bpf module now*/
   if (new_ext_ops->htss_loop_up_eBPF != NULL) {
     static_call_update(__htss_loop_up_eBPF, new_ext_ops->htss_loop_up_eBPF);
-    pr_debug("mod_struct_ops_demo update htss_loop_up_eBPF");
+    pr_debug("htss_struct_ops update htss_loop_up_eBPF");
   }
   if (new_ext_ops->htss_update_eBPF != NULL) {
 	static_call_update(__htss_update_eBPF, new_ext_ops->htss_update_eBPF);
-    pr_debug("mod_struct_ops_demo update htss_update_eBPF");
+    pr_debug("htss_struct_ops update htss_update_eBPF");
   }
   if(new_ext_ops->htss_loop_up_eBPF == NULL || new_ext_ops->htss_update_eBPF == NULL) {
-    pr_err("mod_struct_ops_demo reg not have htss_update_eBPF or htss_loop_up_eBPF");
+    pr_err("htss_struct_ops reg not have htss_update_eBPF or htss_loop_up_eBPF");
     res = -EINVAL;
     goto error_set_default;
   }
@@ -90,7 +90,7 @@ error:
 }
 EXPORT_SYMBOL(reg_htss_structop_ops);
 
-void unreg_htss_structop_ops(struct mod_struct_ops_demo *ops) {
+void unreg_htss_structop_ops(struct htss_struct_ops *ops) {
   spin_lock(&static_ops_lock);
   if (bpf_ops != NULL) {
     bpf_module_put(bpf_ops, bpf_ops->owner);
