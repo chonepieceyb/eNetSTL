@@ -7,65 +7,13 @@
 #include <linux/module.h>
 #include <linux/printk.h>
 #include <linux/string.h>
+#include "mod_struct_ops_demo.h"
 
-/* include SIMD header */
-#if defined(USE_SIMD) || defined(USE_SIMD_HASH)
-#define _MM_MALLOC_H_INCLUDED
-#include <immintrin.h>
-#endif
-
-#ifdef USE_SIMD_HASH
-#include "crc32hash.h"
-#define HASH_FUNC rte_hash_crc
-#else
-#include "fasthash.h"
-#define HASH_FUNC fasthash32
-#endif
-
-/* static vars */
-#define MAX_ENTRY 2048
-#define HASH_SEED_1 0xdeadbeef
-#define HASH_SEED_2 0xaaaabbbb
-#define MEMBER_NO_MATCH 0
-#define MEMBER_MAX_PUSHES 8
-
-/* datastruct params */
-#define NUM_ENTRIES 1024
-#define NUM_BUCKETS 128
-#define SIZE_BUCKET_T 32
-#define BUCKET_MASK 127
-#define MEMBER_BUCKET_ENTRIES 8
-
-// extern int bpf_register_custom_map(struct bpf_custom_map_ops *cmap);
-// extern void bpf_unregister_custom_map(struct bpf_custom_map_ops *cmap);
 extern int bpf_register_static_cmap(struct bpf_map_ops *map,
                                     struct module *onwer);
 extern void bpf_unregister_static_cmap(struct module *onwer);
 extern void bpf_map_area_free(void *area);
 extern void *bpf_map_area_alloc(u64 size, int numa_node);
-
-/* bitwise operation */
-static inline __u32 ctz32(__u32 v) { return (unsigned int)__builtin_ctz(v); }
-
-typedef __u16 sig_t;
-typedef __u16 set_t;
-struct member_ht_bucket {
-  sig_t sigs[MEMBER_BUCKET_ENTRIES];
-  set_t sets[MEMBER_BUCKET_ENTRIES];
-};
-struct htss_memory {
-  struct member_ht_bucket buckets[NUM_BUCKETS];
-  rwlock_t rw_lock;
-};
-
-struct mod_struct_ops_ctx {
-  struct htss_memory *__htss_memory;
-};
-
-struct mod_struct_ops_demo {
-  int (*hello_world)(struct mod_struct_ops_ctx *ctx);
-  struct module *owner;
-};
 
 struct static_htss_map_structop {
   struct bpf_map map;
@@ -81,12 +29,10 @@ static DEFINE_SPINLOCK(static_ops_lock);
 
 // stub for eBPF impl
 static int htss_loop_up_eBPF(struct mod_struct_ops_ctx *ctx) {
-  ctx->__htss_memory = NULL;
   return 0;
 }
 
 static int htss_update_eBPF(struct mod_struct_ops_ctx *ctx) {
-  ctx->__htss_memory = NULL;
   return 0;
 }
 
@@ -118,11 +64,16 @@ int reg_htss_structop_ops(struct mod_struct_ops_demo *new_ext_ops) {
   }
   bpf_ops = new_ext_ops;
   /* we have get bpf module now*/
-  if (new_ext_ops->hello_world != NULL) {
-    static_call_update(__htss_loop_up_eBPF, new_ext_ops->hello_world);
-    pr_debug("mod_struct_ops_demo update hello world");
-  } else {
-    pr_err("mod_struct_ops_demo reg not have hello world");
+  if (new_ext_ops->htss_loop_up_eBPF != NULL) {
+    static_call_update(__htss_loop_up_eBPF, new_ext_ops->htss_loop_up_eBPF);
+    pr_debug("mod_struct_ops_demo update htss_loop_up_eBPF");
+  }
+  if (new_ext_ops->htss_update_eBPF != NULL) {
+	static_call_update(__htss_update_eBPF, new_ext_ops->htss_update_eBPF);
+    pr_debug("mod_struct_ops_demo update htss_update_eBPF");
+  }
+  if(new_ext_ops->htss_loop_up_eBPF == NULL || new_ext_ops->htss_update_eBPF == NULL) {
+    pr_err("mod_struct_ops_demo reg not have htss_update_eBPF or htss_loop_up_eBPF");
     res = -EINVAL;
     goto error_set_default;
   }
@@ -160,14 +111,9 @@ static struct bpf_map *htss_structop_alloc(union bpf_attr *attr) {
   if (!htss_map)
     return ERR_PTR(-ENOMEM);
 
-  htss_map->ctx.__htss_memory =
-      kmalloc(attr->key_size * NUM_BUCKETS * MEMBER_BUCKET_ENTRIES, GFP_ATOMIC);
-  if (htss_map->ctx.__htss_memory == NULL) {
-    return ERR_PTR(-ENOMEM);
-  }
-  struct htss_memory *__htss = htss_map->ctx.__htss_memory;
-  memset(__htss, 0, sizeof(struct htss_memory));
-  rwlock_init(&__htss->rw_lock);
+  struct mod_struct_ops_ctx ctx = htss_map->ctx;
+  memset(&ctx, 0, sizeof(struct mod_struct_ops_ctx));
+  rwlock_init(&ctx.rw_lock);
   return (struct bpf_map *)htss_map;
 }
 
@@ -178,7 +124,6 @@ static void htss_structop_free(struct bpf_map *map) {
   }
   htss_map = container_of(map, struct static_htss_map_structop, map);
 
-  kfree(htss_map->ctx.__htss_memory);
   bpf_map_area_free(htss_map);
   return;
 }
@@ -186,15 +131,15 @@ static void htss_structop_free(struct bpf_map *map) {
 static void *htss_structop_lookup_elem(struct bpf_map *map, void *key) {
   struct static_htss_map_structop *htss_map =
       container_of(map, struct static_htss_map_structop, map);
-  struct htss_memory *__htss = htss_map->ctx.__htss_memory;
+  struct mod_struct_ops_ctx ctx = htss_map->ctx;
 
   __u32 prim_bucket, sec_bucket;
   sig_t tmp_sig;
   set_t *search_res;
 
   // add read lock
-  read_lock(&__htss->rw_lock);
-  struct member_ht_bucket *buckets = __htss->buckets;
+  read_lock(&ctx.rw_lock);
+  struct member_ht_bucket *buckets = ctx.buckets;
 
   // todo: add eBPF version impl here, and delete below code segment
 
@@ -206,7 +151,7 @@ static void *htss_structop_lookup_elem(struct bpf_map *map, void *key) {
 
   // implement lookup in this eBPF function
   static_htss_loop_up_eBPF(&htss_map->ctx);
-  read_unlock(&__htss->rw_lock);
+  read_unlock(&ctx.rw_lock);
   return search_res;
 }
 
@@ -214,7 +159,7 @@ static long htss_structop_update_elem(struct bpf_map *map, void *key,
                                       void *value, u64 flags) {
   struct static_htss_map_structop *htss_map =
       container_of(map, struct static_htss_map_structop, map);
-  struct htss_memory *__htss = htss_map->ctx.__htss_memory;
+  struct mod_struct_ops_ctx ctx = htss_map->ctx;
 
   long ret;
   unsigned int nr_pushes = 0;
@@ -228,8 +173,8 @@ static long htss_structop_update_elem(struct bpf_map *map, void *key,
     return -1;
   }
   // add writer lock
-  write_lock(&__htss->rw_lock);
-  struct member_ht_bucket *buckets = __htss->buckets;
+  write_lock(&ctx.rw_lock);
+  struct member_ht_bucket *buckets = ctx.buckets;
 
   // todo: add eBPF version impl here, and delete below code segment
 
@@ -250,7 +195,7 @@ static long htss_structop_update_elem(struct bpf_map *map, void *key,
   // }
   static_htss_loop_up_eBPF(&htss_map->ctx);
 unlock:
-  write_unlock(&__htss->rw_lock);
+  write_unlock(&ctx.rw_lock);
   return ret;
 }
 
@@ -259,7 +204,7 @@ static long htss_structop_delete_elem(struct bpf_map *map, void *key) {
 }
 
 static u64 htss_structop_mem_usage(const struct bpf_map *map) {
-  return sizeof(struct htss_memory) * num_possible_cpus();
+  return sizeof(struct mod_struct_ops_ctx) * num_possible_cpus();
 }
 
 static struct bpf_map_ops htss_structop_ops = {
