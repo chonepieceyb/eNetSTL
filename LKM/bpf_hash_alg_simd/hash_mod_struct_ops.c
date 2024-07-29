@@ -128,20 +128,12 @@ static int hash_mod_stops_btf_struct_access(struct bpf_verifier_log *log,
 		return -EACCES;
 	}
 
-	switch (off) {
-	case offsetof(struct hash_mod_struct_ops_ctx, data):
-		end = offsetofend(struct hash_mod_struct_ops_ctx, data);
-		break;
-	default:
-		bpf_log(log,
-			"no write support to hash_mod_struct_ops_ctx at off %d\n",
-			off);
-		return -EACCES;
-	}
+	/* FIXME: Is this correct? */
+	end = sizeof(struct hash_mod_struct_ops_ctx);
 
 	if (off + size > end) {
 		bpf_log(log,
-			"write access at off %d with size %d beyond the member of hash_mod_struct_ops_ctx ended at %zu\n",
+			"write access at off %d with size %d beyond the size of hash_mod_struct_ops_ctx ended at %zu\n",
 			off, size, end);
 		return -EACCES;
 	}

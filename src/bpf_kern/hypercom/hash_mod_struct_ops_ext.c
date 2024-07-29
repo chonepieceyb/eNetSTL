@@ -28,7 +28,7 @@ SEC("struct_ops/callback")
 int BPF_PROG(hash_callback, struct test_hash_mod_struct_ops_ctx *c, int i,
 	     u32 hash)
 {
-	// c->val += hash; // FIXME:
+	c->val += hash;
 	test_hash_mod_struct_ops_log(debug, "c->val = %u, i = %d, hash = %u",
 				     c->val, i, hash);
 	return 0;

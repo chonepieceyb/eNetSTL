@@ -129,8 +129,7 @@ EXPORT_SYMBOL_GPL(bpf_fasthash32_alt_avx2_pkt5);
 
 __bpf_kfunc void
 bpf_fasthash32_alt_avx2_pkt5_with_callback(const struct pkt_5tuple *buf,
-					   const u32 *seeds, void *ctx,
-					   size_t ctx__sz)
+					   const u32 *seeds, u8 *ctx)
 {
 	__m256i seeds_vec = _mm256_loadu_si256((const __m256i_u *)seeds);
 
@@ -138,7 +137,7 @@ bpf_fasthash32_alt_avx2_pkt5_with_callback(const struct pkt_5tuple *buf,
 	const u32 *hashes = (const u32 *)&hh;
 
 	for (int i = 0; i < 8; ++i) {
-		if (callback(ctx, i, hashes[i]) != 0) {
+		if (callback((void *)ctx, i, hashes[i]) != 0) {
 			break;
 		}
 	}

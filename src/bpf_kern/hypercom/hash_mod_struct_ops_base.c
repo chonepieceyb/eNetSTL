@@ -44,7 +44,7 @@ int xdp_main(struct xdp_md *ctx)
 		goto out;
 	}
 
-	bpf_fasthash32_alt_avx2_pkt5_with_callback(&pkt, seeds, &c, sizeof(c));
+	bpf_fasthash32_alt_avx2_pkt5_with_callback(&pkt, seeds, (u8 *)&c);
 	test_hash_mod_struct_ops_log(info, "c.val = %u", c.val);
 
 out:
