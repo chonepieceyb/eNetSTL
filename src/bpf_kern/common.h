@@ -273,7 +273,7 @@ struct hdr_cursor {
 };
 
 struct pkt_count {
-	__u32 rx_count;
+	__u64 rx_count;
 };
 
 /**

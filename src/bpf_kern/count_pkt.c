@@ -8,9 +8,9 @@ char _license[] SEC("license") = "GPL";
 #include <bpf/bpf_tracing.h>
 
 struct {
-	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__type(key, __u32);
 	__type(value, struct pkt_count);
-	__uint(max_entries, 1);
+	__uint(max_entries, 40);
 	__uint(pinning, 1);
 } count_map SEC(".maps");

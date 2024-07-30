@@ -76,10 +76,10 @@ struct {
 } pushed_map SEC(".maps");
 
 struct {
-	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__type(key, __u32);
 	__type(value, struct pkt_count);
-	__uint(max_entries, 1);
+	__uint(max_entries, 40);
 	__uint(pinning, 1);
 } count_map SEC(".maps");
 
@@ -522,11 +522,16 @@ int xdp_main(struct xdp_md *ctx){
 	}
 
 	// member_add_ht(buckets, &pkt, set_id);
-
 	member_lookup_ht(buckets, &pkt, &set_id);
-	struct pkt_count *current_count = bpf_map_lookup_elem(&count_map, &zero);
-	current_count->rx_count += 1;
-	log_debug("count: %d", current_count->rx_count);
+
+	u32 cpu_id = bpf_get_smp_processor_id();
+	struct pkt_count *current_count = bpf_map_lookup_elem(&count_map, &cpu_id);
+	if (current_count == NULL) {
+		log_debug("current_count is null");
+		goto finish;
+	}
+	current_count->rx_count = current_count->rx_count + 1;
+
 finish:
 	return XDP_DROP;
 }
