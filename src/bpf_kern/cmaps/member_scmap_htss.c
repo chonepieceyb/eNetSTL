@@ -19,6 +19,14 @@ struct {
 	__uint(max_entries, MAX_ENTRY);
 } htss SEC(".maps");
 
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, __u32);
+	__type(value, struct pkt_count);
+	__uint(max_entries, 40);
+	__uint(pinning, 1);
+} count_map SEC(".maps");
+
 /* test program */
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx) {
@@ -43,8 +51,24 @@ int xdp_main(struct xdp_md *ctx) {
 	}
 
 	// int ret = bpf_map_update_elem(&htss, &pkt, &set_id, BPF_ANY);
-	set_t *set_id_res = bpf_map_lookup_elem(&htss, &pkt);
+	// set_t *set_id_res = bpf_map_lookup_elem(&htss, &pkt);
 
+	u32 cpu_id = bpf_get_smp_processor_id();
+	struct pkt_count *current_count = bpf_map_lookup_elem(&count_map, &cpu_id);
+	if (current_count == NULL) {
+		log_debug("current_count is null");
+		goto finish;
+	}
+
+	// 在这里修改读写比例，当前为写/读 = 1/32
+	int rw_ratio = 32;
+	if(current_count->rx_count % rw_ratio == 0) {
+		bpf_map_update_elem(&htss, &pkt, &set_id, BPF_ANY);
+	} else {
+		set_t *set_id_res = bpf_map_lookup_elem(&htss, &pkt);
+	}
+	// 纯读
+	// set_t *set_id_res = bpf_map_lookup_elem(&htss, &pkt);
 finish:
 	return XDP_DROP;
 }
