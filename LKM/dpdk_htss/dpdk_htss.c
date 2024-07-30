@@ -259,7 +259,7 @@ set_t* search_bucket_single(__u32 bucket_id, sig_t tmp_sig, struct member_ht_buc
 static void* htss_lookup_elem(struct bpf_map *map, void *key) 
 {
 	struct static_htss_map *htss_map = container_of(map, struct static_htss_map, map);
-	struct htss_memory *__htss = this_cpu_ptr(htss_map->table);
+	struct htss_memory *__htss = htss_map->table;
 	struct member_ht_bucket *buckets = __htss->buckets;
 
 	__u32 prim_bucket, sec_bucket;
@@ -280,7 +280,7 @@ static void* htss_lookup_elem(struct bpf_map *map, void *key)
 
 static long htss_update_elem(struct bpf_map *map, void *key, void *value, u64 flag) {
 	struct static_htss_map *htss_map = container_of(map, struct static_htss_map, map);
-	struct htss_memory *__htss = this_cpu_ptr(htss_map->table);
+	struct htss_memory *__htss = htss_map->table;
 	struct member_ht_bucket *buckets = __htss->buckets;
 	
 	long ret;
