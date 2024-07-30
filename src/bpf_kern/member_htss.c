@@ -521,17 +521,22 @@ int xdp_main(struct xdp_md *ctx){
 			pkt.proto);
 	}
 
-	// member_add_ht(buckets, &pkt, set_id);
-	member_lookup_ht(buckets, &pkt, &set_id);
-
 	u32 cpu_id = bpf_get_smp_processor_id();
 	struct pkt_count *current_count = bpf_map_lookup_elem(&count_map, &cpu_id);
 	if (current_count == NULL) {
 		log_debug("current_count is null");
 		goto finish;
 	}
+	// 在这里修改读写比例，当前为写/读 = 1/32
+	int rw_ratio = 32;
+	if(current_count->rx_count % rw_ratio == 0) {
+		member_add_ht(buckets, &pkt, set_id);
+	} else {
+		member_lookup_ht(buckets, &pkt, &set_id);
+	}
+	// 纯读
+	// member_lookup_ht(buckets, &pkt, &set_id);
 	current_count->rx_count = current_count->rx_count + 1;
-
 finish:
 	return XDP_DROP;
 }
