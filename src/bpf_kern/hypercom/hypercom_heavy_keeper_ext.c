@@ -17,8 +17,7 @@ struct countmin {
 };
 
 struct hash_mod_struct_ops {
-	int (*callback)(struct pkt_5tuple *flow, struct pkt_5tuple *target_flow,
-			u32 *target_value);
+	int (*callback)(struct countmin_element *element, int i, u32 hash);
 	struct module *owner;
 };
 

@@ -146,6 +146,22 @@ __bpf_kfunc void bpf_fasthash32_alt_avx2_pkt5(const struct pkt_5tuple *buf,
 }
 EXPORT_SYMBOL_GPL(bpf_fasthash32_alt_avx2_pkt5);
 
+__bpf_kfunc void bpf_crc32c_sse_batch2_with_callback(const void *data,
+						     uint32_t data__sz,
+						     uint32_t *seeds, u8 *ctx)
+{
+	int i;
+	u32 hash;
+
+	for (i = 0; i < 2; ++i) {
+		hash = crc32c(data, data__sz, seeds[i]);
+		if (callback((void *)ctx, i, hash) != 0) {
+			break;
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(bpf_crc32c_sse_batch2_with_callback);
+
 __bpf_kfunc void
 bpf_fasthash32_alt_avx2_pkt5_with_callback(const struct pkt_5tuple *buf,
 					   const u32 *seeds, u8 *ctx)
@@ -257,6 +273,7 @@ BTF_ID_FLAGS(func, bpf_xxh32_avx2_pkt5_pkts)
 BTF_ID_FLAGS(func, bpf_fasthash32_avx2)
 BTF_ID_FLAGS(func, bpf_fasthash32_alt_avx2)
 BTF_ID_FLAGS(func, bpf_fasthash32_alt_avx2_pkt5)
+BTF_ID_FLAGS(func, bpf_crc32c_sse_batch2_with_callback)
 BTF_ID_FLAGS(func, bpf_fasthash32_alt_avx2_pkt5_with_callback)
 BTF_ID_FLAGS(func, bpf_crc32c_sse)
 BTF_ID_FLAGS(func, bpf_kernel_fpu_begin)

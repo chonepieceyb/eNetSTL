@@ -13,8 +13,8 @@ struct pkt_5tuple_with_pad {
 } __attribute__((packed));
 typedef struct pkt_5tuple_with_pad sketch_key;
 
-#define SKETCH_WIDTH 8
-#define SKETCH_DEPTH 4
+#define SKETCH_DEPTH 8
+#define SKETCH_WIDTH 256
 #define SKETCH_KEY_SIZE sizeof(sketch_key)
 #define BLOOMSIZE 32
 struct sketch {

@@ -1,26 +1,29 @@
 OBJ_NAME := heavy_keeper
+FASTHASH_INLINE ?= 1
+GCC_VERSION ?= 13
+CLANG_VERSION ?= 14.0.0
+CC_SIMD_OPTS ?= -mavx2
 
 obj-m := ${OBJ_NAME}.o
-#lkm_example-y := x.o
 
-#KDIR ?= /home/chonepieceyb/CODING/Src/linux-6.0
+${OBJ_NAME}-objs := module.o
+
+ifneq ($(FASTHASH_INLINE),1)
+$(OBJ_NAME)-objs += fasthash_simd.o
+endif
+
+ifeq ($(LLVM),1)
+ccflags-y += -I/usr/lib/llvm-$(shell echo $(CLANG_VERSION) | cut -d. -f1)/lib/clang/$(CLANG_VERSION)/include $(CC_SIMD_OPTS)
+else
+ccflags-y += -I/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VERSION)/include $(CC_SIMD_OPTS)
+endif
+
+ifeq ($(FASTHASH_INLINE),1)
+ccflags-y += -DFASTHASH_INLINE
+endif
+
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
-KDIR ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
-
-ifeq (${USE_DEBUG},1)
-	ccflags-y += -DUSE_DEBUG
-endif
-
-ifeq (${USE_SIMD},1)
-	ccflags-y += -DUSE_SIMD
-endif
-
-ifeq (${USE_SIMD_HASH},1)
-	ccflags-y += -DUSE_SIMD_HASH
-endif
-
-# add simd header need
-ccflags-y += -DFASTHASH_INLINE -I/usr/lib/gcc/x86_64-linux-gnu/11/include -mavx2 -march=native
+KDIR ?= /lib/modules/$(shell uname -r)/build
 
 default:
 	bear -- make -C $(KDIR) M=$(PWD) modules
