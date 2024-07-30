@@ -2,9 +2,11 @@ OBJ_NAME := bpf_hash_alg_simd
 FASTHASH_INLINE ?= 1
 XXHASH_INLINE ?= 1
 GCC_VERSION ?= 13
+CLANG_VERSION ?= 14.0.0
 CC_SIMD_OPTS ?= -mavx2
 
 obj-m := ${OBJ_NAME}.o
+obj-m += hash_mod_struct_ops.o
 
 ${OBJ_NAME}-objs := module.o
 
@@ -16,7 +18,11 @@ ifneq ($(XXHASH_INLINE),1)
 $(OBJ_NAME)-objs += xxhash_simd.o
 endif
 
+ifeq ($(LLVM),1)
+ccflags-y += -I/usr/lib/llvm-$(shell echo $(CLANG_VERSION) | cut -d. -f1)/lib/clang/$(CLANG_VERSION)/include $(CC_SIMD_OPTS)
+else
 ccflags-y += -I/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VERSION)/include $(CC_SIMD_OPTS)
+endif
 
 ifeq ($(FASTHASH_INLINE),1)
 ccflags-y += -DFASTHASH_INLINE

@@ -8,25 +8,6 @@
 #define __USE_GNU
 #include <sched.h>
 
-#define set_test_cpu(skel)                                       \
-	({                                                       \
-		topts.cpu = cpu; /* FIXME: this does not work */ \
-		0;                                               \
-	})
-
-void __run_prefill_with_cpu(uint32_t cpu)
-{
-	BPF_PROG_TEST_RUNNER_WITH_CALLBACK("cuckoo_hash prefill",
-					   cuckoo_hash_prefill, pkt_v4, prefill,
-					   1, set_test_cpu, 0);
-}
-
-int run_prefill_with_cpu(uint32_t cpu)
-{
-	__run_prefill_with_cpu(cpu);
-	return 0;
-}
-
 void __run_prefill_with_cpu2(void)
 {
 	BPF_PROG_TEST_RUNNER("cuckoo_hash prefill", cuckoo_hash_prefill, pkt_v4,
@@ -38,6 +19,7 @@ int run_prefill_with_cpu2(uint32_t cpu)
 	int res = 0;
 	cpu_set_t cpuset;
 
+	/* Setting bpf_test_run_opts.cpu does not work, hence this method */
 	CPU_ZERO(&cpuset);
 	CPU_SET(cpu, &cpuset);
 	if ((res = sched_setaffinity(0, sizeof(cpuset), &cpuset)) != 0) {

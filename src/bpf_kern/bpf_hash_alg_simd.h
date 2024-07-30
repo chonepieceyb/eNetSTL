@@ -28,6 +28,9 @@ extern void bpf_fasthash32_alt_avx2(const void *buf, size_t buf__sz,
 				    const u32 *seeds, u32 *dest) __ksym;
 extern void bpf_fasthash32_alt_avx2_pkt5(const struct pkt_5tuple *buf,
 					 const u32 *seeds, u32 *dest) __ksym;
+extern void
+bpf_fasthash32_alt_avx2_pkt5_with_callback(const struct pkt_5tuple *buf,
+					   const u32 *seeds, u8 *ctx) __ksym;
 
 extern void bpf_kernel_fpu_begin(void) __ksym;
 extern void bpf_kernel_fpu_end(void) __ksym;
