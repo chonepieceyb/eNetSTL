@@ -69,6 +69,8 @@ int xdp_main(struct xdp_md *ctx) {
 	}
 	// 纯读
 	// set_t *set_id_res = bpf_map_lookup_elem(&htss, &pkt);
+
+	current_count->rx_count = current_count->rx_count + 1;
 finish:
 	return XDP_DROP;
 }
