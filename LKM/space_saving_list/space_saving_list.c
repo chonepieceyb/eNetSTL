@@ -342,6 +342,7 @@ static int ss_increment(struct ss_table *table, void *key)
 			       "removing empty bucket: bucket = %p, bucket->value = %u",
 			       bucket, value);
 			list_del(&bucket->list);
+			__ss_bucket_free(table, bucket);
 		}
 	}
 	ss_log(debug, "adding element to bucket: element = %p, new_bucket = %p",
