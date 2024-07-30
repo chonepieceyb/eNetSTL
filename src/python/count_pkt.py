@@ -5,7 +5,7 @@
 # Copyright (c) Sebastiano Miano <mianosebastiano@gmail.com>
 # Licensed under the Apache License, Version 2.0 (the "License")
 
-import ctypes
+import ctypes as ct
 import sys
 sys.path.append("..") 
 from libbpf import *
@@ -23,10 +23,11 @@ count_map = None   #bpf map
 
 class pkt_count(ct.Structure):
     _fields_  = [\
-        ("rx_count", ct.c_uint32),\
+        ("rx_count", ct.c_uint64),\
     ]
 
-METADATA_VALUE_TYPE = pkt_count * total_cpu
+total_cpu = 40
+METADATA_VALUE_TYPE = pkt_count
 
 def print_rxcnt(count_map, final_count, quiet=False, print_pkts=True, print_bytes=False):
     if count_map == None: 
@@ -39,10 +40,11 @@ def print_rxcnt(count_map, final_count, quiet=False, print_pkts=True, print_byte
     if not quiet : print("Reading pkt count")
     try:
         while count < final_count or final_count == -1:
-            all_cpu_values = count_map.lookup(ct.c_int(0))
             pkts = 0
-            for per_cpu_value in all_cpu_values:
-                pkts += per_cpu_value.rx_count
+            for i in range(0, total_cpu):
+                current_cpu_value = count_map.lookup(ct.c_uint32(i))
+                print(f"cpu:{i} rx_count: {current_cpu_value.rx_count}")
+                pkts += current_cpu_value.rx_count
 
             if pkts and print_pkts:
                 delta = pkts - prev_pkt_cnt
@@ -64,6 +66,16 @@ def print_rxcnt(count_map, final_count, quiet=False, print_pkts=True, print_byte
         
     return avg
 
+def clear_map(count_map):
+    if count_map == None: 
+        print("err! pkt count is not init")
+        return
+        # Fill the map with the random variables
+    ini = count_map.value_type()
+    ini.rx_count = 0
+    for i in range(0, total_cpu):
+        count_map.update(count_map.key_type(i), ini, 0)
+
 if __name__ == '__main__':  
     parser = argparse.ArgumentParser(description="sketch cm primitive")
     parser.add_argument('-i', '--interval', type=int, required=True, help = "interface to attach sketch")
@@ -75,7 +87,9 @@ if __name__ == '__main__':
     with BPFObject(BPF_OBJ_PATH) as bpf_obj:
         print("start load")
         bpf_obj.load()
-        count_map = BPFMap(bpf_obj.get_map(DROPCNT_MAP_NAME), ct.c_int, METADATA_VALUE_TYPE)
+        count_map = BPFMap(bpf_obj.get_map(DROPCNT_MAP_NAME), ct.c_uint32, METADATA_VALUE_TYPE)
+        clear_map(count_map)
+        time.sleep(1)
         # count_map.update(ct.c_int(0), 0, 0)
         try: 
             print_rxcnt(count_map, final_count) 
