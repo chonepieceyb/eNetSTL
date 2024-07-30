@@ -46,7 +46,13 @@ struct {
 static void __always_inline countmin_add(struct countmin *cm, void *element,
 					 __u64 len)
 {
+#if HASHFN_N == 2
+	bpf_crc32c_sse_batch2_with_callback(element, seeds, (u8 *)cm);
+#elif HASHFN_N == 8
 	bpf_fasthash32_alt_avx2_pkt5_with_callback(element, seeds, (u8 *)cm);
+#else
+#error "Unsupported HASHFN_N"
+#endif
 }
 
 SEC("xdp") int xdp_main(struct xdp_md *ctx)
