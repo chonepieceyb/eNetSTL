@@ -3,6 +3,8 @@
 #include "../bpf_skel/htss_structop_ext.skel.h"
 #include "../test_helpers.h"
 
+#define XDP_IF "ens2f0"
+
 struct htss_structop_ext *load_st_ops(void)
 {
         BPF_MOD_LOAD_STRUCT_OPS(htss_structop_ext, htss_struct_op, "htss_struct_ops");
@@ -23,6 +25,16 @@ void test() {
         htss_structop_ext__destroy(skel);
 }
 
-int main() {
-        test();
+int main()
+{
+	BPF_MOD_CLEAR_STRUCT_OPS(htss_structop_ext, "htss_struct_ops")
+
+	// struct htss_structop_ext *ext_skel = load_st_ops();
+	// if (ext_skel == NULL) {
+	// 	return 1;
+	// }
+
+	// htss_structop_ext__destroy(ext_skel);
+	// BPF_XDP_SKEL_LOADER(htss_structop_base, XDP_IF, xdp_main,
+	// 		    XDP_FLAGS_DRV_MODE)
 }
