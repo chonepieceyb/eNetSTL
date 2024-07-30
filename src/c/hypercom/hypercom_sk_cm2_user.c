@@ -13,7 +13,7 @@ struct hypercom_sk_cm2_ext *load_st_ops(void)
 
 int main()
 {
-	/* TODO: Find pinned map and delete previous ops */
+	BPF_MOD_CLEAR_STRUCT_OPS(hypercom_sk_cm2_ext, "hash_mod_struct_ops")
 
 	struct hypercom_sk_cm2_ext *ext_skel = load_st_ops();
 	if (ext_skel == NULL) {

@@ -18,6 +18,8 @@ void test_run()
 void test()
 {
 	struct hash_mod_struct_ops_ext *skel;
+
+	BPF_MOD_CLEAR_STRUCT_OPS(hash_mod_struct_ops_ext, "hash_mod_struct_ops")
 	skel = load_st_ops();
 	if (skel == NULL)
 		return;

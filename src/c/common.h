@@ -7,6 +7,7 @@
 #include <linux/if_link.h>
 #include <stdio.h>
 #include <errno.h>
+#include <stdlib.h>
 
 static int __default_callback_load(void *skel)
 {
@@ -72,6 +73,11 @@ clean:;                                                                      \
 		printf("faild to load, res %d %s\n", res, strerror(errno)); \
 		goto clean_stops;                                           \
 	}                                                                   \
+	res = bpf_map__pin(skel->maps._map, "/sys/fs/bpf/" module_name);    \
+	if (res) {                                                          \
+		printf("failed to pin map: %d %s\n", res, strerror(errno)); \
+		goto clean_stops;                                           \
+	}                                                                   \
 	void *bpf_link = bpf_map__attach_struct_ops(skel->maps._map);       \
 	if (bpf_link == NULL) {                                             \
 		printf("failed to attach struct ops error: %d", errno);     \
@@ -81,5 +87,25 @@ clean:;                                                                      \
 clean_stops:;                                                               \
 	__skel##__destroy(skel);                                            \
 	return NULL;
+
+#define BPF_MOD_CLEAR_STRUCT_OPS(__skel, module_name)                            \
+	int __skel##_map_fd = bpf_obj_get("/sys/fs/bpf/" module_name),           \
+	    __skel##_zero = 0;                                                   \
+	if (__skel##_map_fd < 0) {                                               \
+		printf("failed to get struct ops map fd: %d %s; ignoring\n",     \
+		       -(__skel##_map_fd), strerror(errno));                     \
+		goto __skel##_clear_struct_ops_done;                             \
+	}                                                                        \
+	if (bpf_map_delete_elem(__skel##_map_fd, &(__skel##_zero)) != 0) {       \
+		printf("failed to delete struct ops element: %d %s; ignoring\n", \
+		       errno, strerror(errno));                                  \
+		goto __skel##_clear_struct_ops_done;                             \
+	}                                                                        \
+	if (remove("/sys/fs/bpf/" module_name)) {                                \
+		printf("failed to remove pinned map: %d %s; ignoring\n",         \
+		       errno, strerror(errno));                                  \
+		goto __skel##_clear_struct_ops_done;                             \
+	}                                                                        \
+	__skel##_clear_struct_ops_done:;
 
 #endif
