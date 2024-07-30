@@ -12,7 +12,7 @@ bpf_reg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops);
 extern int
 bpf_unreg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops);
 
-#define HASH_MOD_STRUCT_OPS_CTX_SIZE 8192
+#define HASH_MOD_STRUCT_OPS_CTX_SIZE 16384
 
 struct hash_mod_struct_ops_ctx {
 	u8 data[HASH_MOD_STRUCT_OPS_CTX_SIZE];

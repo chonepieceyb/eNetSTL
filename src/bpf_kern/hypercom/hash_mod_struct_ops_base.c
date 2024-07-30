@@ -7,7 +7,7 @@
 	log_##level(" test_hash_mod_struct_ops: " fmt " (%s @ line %d)", \
 		    ##__VA_ARGS__, __func__, __LINE__)
 
-#define HASH_MOD_STRUCT_OPS_CTX_SIZE 8192
+#define HASH_MOD_STRUCT_OPS_CTX_SIZE 16384
 #define TEST_HASH_MOD_STRUCT_OPS_SEEDx8 \
 	0x1234, 0x5678, 0x9abc, 0xdef0, 0x1234, 0x5678, 0x9abc, 0xdef0
 
