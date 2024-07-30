@@ -7,6 +7,7 @@
 #include "../sk_cm.h"
 
 #define M 0x880355f21e6d1965ULL
+#define COUNTMIN_ELEMENT_SIZE 8
 
 _Static_assert((COLUMNS & (COLUMNS - 1)) == 0,
 	       "COLUMNS must be a power of two");
@@ -27,8 +28,12 @@ static __u32 seeds[] = {
 
 char _license[] SEC("license") = "GPL";
 
+struct countmin_element {
+	u8 data[COUNTMIN_ELEMENT_SIZE];
+} __attribute__((packed));
+
 struct countmin {
-	__u32 values[HASHFN_N][COLUMNS];
+	struct countmin_element elements[HASHFN_N][COLUMNS];
 };
 
 struct {

@@ -12,7 +12,7 @@ struct hypercom_sk_cm2_ext *load_st_ops(void)
 void test_run()
 {
 	BPF_PROG_TEST_RUNNER("test hash_mod_struct_ops", hypercom_sk_cm2_base,
-			     pkt_v4, xdp_main, 1, 2);
+			     pkt_v4, xdp_main, 1, 1);
 }
 
 /* FIXME: Attach to real XDP hookpoint */

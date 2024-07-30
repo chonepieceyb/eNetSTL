@@ -10,6 +10,8 @@
 #include "xxhash_simd.h"
 #include "hash_callback.h"
 
+#define ADAPT_COUNTMIN 1
+
 struct pkt_5tuple {
 	__be32 src_ip;
 	__be32 dst_ip;
@@ -17,6 +19,20 @@ struct pkt_5tuple {
 	__be16 dst_port;
 	uint8_t proto;
 } __attribute__((packed));
+
+#if defined(ADAPT_COUNTMIN) && ADAPT_COUNTMIN == 1
+#define HASHFN_N 8
+#define COLUMNS 256
+#define COUNTMIN_ELEMENT_SIZE 8
+
+struct countmin_element {
+	u8 data[COUNTMIN_ELEMENT_SIZE];
+} __attribute__((packed));
+
+struct countmin {
+	struct countmin_element elements[HASHFN_N][COLUMNS];
+};
+#endif
 
 extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 				     const struct btf_kfunc_id_set *kset);
@@ -32,6 +48,9 @@ DEFINE_STATIC_CALL_RET0(bpf_hash_alg_simd_callback, empty_callback);
 
 static inline int callback(void *ctx, int i, u32 hash)
 {
+#if defined(ADAPT_COUNTMIN) && ADAPT_COUNTMIN == 1
+	ctx = ((struct countmin *)ctx)->elements[i] + (hash & (COLUMNS - 1));
+#endif
 	return static_call(bpf_hash_alg_simd_callback)(ctx, i, hash);
 }
 
