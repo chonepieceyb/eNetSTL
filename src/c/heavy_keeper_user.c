@@ -1,7 +1,7 @@
 #include "common.h"
 #include "bpf_skel/heavy_keeper.skel.h"
 
-#define XDP_IF "ens3"
+#define XDP_IF "ens2f0"
 
 int main()
 {
