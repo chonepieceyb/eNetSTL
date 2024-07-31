@@ -3,11 +3,20 @@
 #include <linux/btf.h>
 #include <linux/btf_ids.h>
 
+#if USE_CALLBACK_PARAM_COUNT == 1
+__bpf_kfunc int empty_primitive(u64 param1)
+{
+	return 0;
+}
+#elif USE_CALLBACK_PARAM_COUNT == 5
 __bpf_kfunc int empty_primitive(u64 param1, u64 param2, u64 param3, u64 param4,
 				u64 param5)
 {
 	return 0;
 }
+#else
+#error "Unsupported USE_CALLBACK_PARAM_COUNT"
+#endif
 EXPORT_SYMBOL_GPL(empty_primitive);
 
 BTF_SET8_START(empty_primitive_kfunc_ids)

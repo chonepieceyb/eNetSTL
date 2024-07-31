@@ -16,11 +16,20 @@ extern void *bpf_map_area_alloc(u64 size, int numa_node);
 struct empty_scmap_callback_ops *callback_ops;
 static DEFINE_SPINLOCK(callback_ops_lock);
 
+#if USE_CALLBACK_PARAM_COUNT == 1
+static int default_empty_scmap_callback(u64 param1)
+{
+	return 0;
+}
+#elif USE_CALLBACK_PARAM_COUNT == 5
 static int default_empty_scmap_callback(u64 param1, u64 param2, u64 param3,
 					u64 param4, u64 param5)
 {
 	return 0;
 }
+#else
+#error "Unsupported USE_CALLBACK_PARAM_COUNT"
+#endif
 DEFINE_STATIC_CALL_RET0(empty_scmap_callback, default_empty_scmap_callback);
 
 int empty_scmap_callback_register(struct empty_scmap_callback_ops *ops)
@@ -101,8 +110,14 @@ static void *empty_cb_lookup_elem(struct bpf_map *map, void *key)
 {
 	u64 *args = (u64 *)key;
 
+#if USE_CALLBACK_PARAM_COUNT == 1
+	static_call(empty_scmap_callback)(args[0]);
+#elif USE_CALLBACK_PARAM_COUNT == 5
 	static_call(empty_scmap_callback)(args[0], args[1], args[2], args[3],
 					  args[4]);
+#else
+#error "Unsupported USE_CALLBACK_PARAM_COUNT"
+#endif
 
 	return NULL;
 }

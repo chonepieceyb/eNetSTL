@@ -14,8 +14,14 @@ bpf_unreg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops);
 
 /* Same as `empty_scmap_callback_ops` */
 struct empty_scmap_struct_ops {
+#if USE_CALLBACK_PARAM_COUNT == 1
+	int (*callback)(u64 param1);
+#elif USE_CALLBACK_PARAM_COUNT == 5
 	int (*callback)(u64 param1, u64 param2, u64 param3, u64 param4,
 			u64 param5);
+#else
+#error "Unsupported USE_CALLBACK_PARAM_COUNT"
+#endif
 	struct module *owner;
 };
 

@@ -1,10 +1,14 @@
-obj-m += empty_scmap_with_callback.o
-obj-m += empty_scmap_struct_ops.o
-obj-m += empty_primitive.o
+USE_CALLBACK_PARAM_COUNT ?= 5
 
 #KDIR ?= /home/chonepieceyb/CODING/Src/linux-6.0
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
 KDIR ?= /lib/modules/$(shell uname -r)/build
+
+obj-m += empty_scmap_with_callback.o
+obj-m += empty_scmap_struct_ops.o
+obj-m += empty_primitive.o
+
+ccflags-y += -DUSE_CALLBACK_PARAM_COUNT=$(USE_CALLBACK_PARAM_COUNT)
 
 default:
 	bear -- make -C $(KDIR) M=$(PWD) modules
