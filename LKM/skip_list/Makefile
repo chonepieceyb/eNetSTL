@@ -5,7 +5,7 @@ obj-m := ${OBJ_NAME}.o
 
 #KDIR ?= /home/chonepieceyb/CODING/Src/linux-6.0
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
-KDIR ?= /lib/modules/6.6.0scmap/build
+KDIR ?= /lib/modules/$(shell uname -r)/build
 
 ifeq (${USE_DEBUG},1)
 	ccflags-y += -DUSE_DEBUG
