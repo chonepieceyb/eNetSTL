@@ -1,4 +1,3 @@
-#include "linux/err.h"
 #include <linux/bpf.h>
 #include <linux/btf.h>
 #include <linux/btf_ids.h>
@@ -25,7 +24,6 @@ struct node_base_percpu_fields {
 	struct node_base_meta meta;  //node meta
 	DECLARE_HASHTABLE(hash_elements, NODE_BASE_HASH_BITS);  //all hash elements is handling in node_list
 };
-
 struct node_base_map {
 	struct bpf_map map;
 	struct node_base_percpu_fields __percpu *percpu_fields;
@@ -249,9 +247,17 @@ static void set_default_static_funcs(void)
 	static_call_update(__static_update, default_update);
 	static_call_update(__static_delete, default_delete);
 	static_call_update(__static_manipulate, default_manipulate);
-	static_call_update(__static_manipulate_2, default_manipulate_2);
-	static_call_update(__static_manipulate_3, default_manipulate_3);
-	static_call_update(__static_manipulate_4, default_manipulate_4);
+	static_call_update(__static_manipulate_1_1, default_manipulate_1_1);
+	static_call_update(__static_manipulate_1_2, default_manipulate_1_2);
+	static_call_update(__static_manipulate_1_3, default_manipulate_1_3);
+	static_call_update(__static_manipulate_1_4, default_manipulate_1_4);
+	static_call_update(__static_manipulate_2_1, default_manipulate_2_1);
+	static_call_update(__static_manipulate_2_2, default_manipulate_2_2);
+	static_call_update(__static_manipulate_2_3, default_manipulate_2_3);
+	static_call_update(__static_manipulate_2_4, default_manipulate_2_4);
+	static_call_update(__static_manipulate_3_1, default_manipulate_3_1);
+	static_call_update(__static_manipulate_3_2, default_manipulate_3_2);
+	static_call_update(__static_manipulate_4_1, default_manipulate_4_1);
 }
 
 int reg_node_base_ext_ops(struct node_base_ext_ops *new_ext_ops) 
@@ -262,36 +268,114 @@ int reg_node_base_ext_ops(struct node_base_ext_ops *new_ext_ops)
 		res = -EEXIST;
 		goto error;
 	}
-	if (!bpf_try_module_get(new_ext_ops, new_ext_ops->owner)) {
+	//if (!bpf_try_module_get(new_ext_ops, new_ext_ops->owner)) {
+	if (!try_module_get(new_ext_ops->owner)) {
 		pr_err("failed to get bpf module");
 		goto error;
 	}
 	bpf_ops = new_ext_ops;
 	/* we have get bpf module now*/
-	if (new_ext_ops->lookup != NULL) {
-		static_call_update(__static_lookup, new_ext_ops->lookup);
-		pr_debug("node_base update lookup");
-	} 
-	if (new_ext_ops->update != NULL) {
-		static_call_update(__static_update, new_ext_ops->update);
-		pr_debug("mod_struct_ops_demo update update");
-	} 
+	// Update static_user_configure if a new implementation is provided
 	if (new_ext_ops->user_configure != NULL) {
-		static_call_update(__static_user_configure, new_ext_ops->user_configure);
-		pr_debug("mod_struct_ops_demo update user_configure");
-	} 
+	static_call_update(__static_user_configure, new_ext_ops->user_configure);
+	pr_debug("node_base update user_configure");
+	}
+
+	// Update static_init_meta if a new implementation is provided
 	if (new_ext_ops->init_meta != NULL) {
-		static_call_update(__static_init_meta, new_ext_ops->init_meta);
-		pr_debug("mod_struct_ops_demo update init_meta");
-	} 
+	static_call_update(__static_init_meta, new_ext_ops->init_meta);
+	pr_debug("node_base update init_meta");
+	}
+
+	// Update static_lookup if a new implementation is provided
+	if (new_ext_ops->lookup != NULL) {
+	static_call_update(__static_lookup, new_ext_ops->lookup);
+	pr_debug("node_base update lookup");
+	}
+
+	// Update static_update if a new implementation is provided
+	if (new_ext_ops->update != NULL) {
+	static_call_update(__static_update, new_ext_ops->update);
+	pr_debug("node_base update update");
+	}
+
+	// Update static_delete if a new implementation is provided
 	if (new_ext_ops->delete != NULL) {
-		static_call_update(__static_delete, new_ext_ops->delete);
-		pr_debug("mod_struct_ops_demo update delete");
-	} 
+	static_call_update(__static_delete, new_ext_ops->delete);
+	pr_debug("node_base update delete");
+	}
+
+	// Update static_manipulate if a new implementation is provided
 	if (new_ext_ops->manipulate != NULL) {
-		static_call_update(__static_manipulate, new_ext_ops->manipulate);
-		pr_debug("mod_struct_ops_demo update manipulate");
-	} 
+	static_call_update(__static_manipulate, new_ext_ops->manipulate);
+	pr_debug("node_base update manipulate");
+	}
+
+	// Update static_manipulate_1_1 if a new implementation is provided
+	if (new_ext_ops->manipulate_1_1 != NULL) {
+	static_call_update(__static_manipulate_1_1, new_ext_ops->manipulate_1_1);
+	pr_debug("node_base update manipulate_1_1");
+	}
+
+	// Update static_manipulate_1_2 if a new implementation is provided
+	if (new_ext_ops->manipulate_1_2 != NULL) {
+	static_call_update(__static_manipulate_1_2, new_ext_ops->manipulate_1_2);
+	pr_debug("node_base update manipulate_1_2");
+	}
+
+	// Update static_manipulate_1_3 if a new implementation is provided
+	if (new_ext_ops->manipulate_1_3 != NULL) {
+	static_call_update(__static_manipulate_1_3, new_ext_ops->manipulate_1_3);
+	pr_debug("node_base update manipulate_1_3");
+	}
+
+	// Update static_manipulate_1_4 if a new implementation is provided
+	if (new_ext_ops->manipulate_1_4 != NULL) {
+	static_call_update(__static_manipulate_1_4, new_ext_ops->manipulate_1_4);
+	pr_debug("node_base update manipulate_1_4");
+	}
+
+	// Update static_manipulate_2_1 if a new implementation is provided
+	if (new_ext_ops->manipulate_2_1 != NULL) {
+	static_call_update(__static_manipulate_2_1, new_ext_ops->manipulate_2_1);
+	pr_debug("node_base update manipulate_2_1");
+	}
+
+	// Update static_manipulate_2_2 if a new implementation is provided
+	if (new_ext_ops->manipulate_2_2 != NULL) {
+	static_call_update(__static_manipulate_2_2, new_ext_ops->manipulate_2_2);
+	pr_debug("node_base update manipulate_2_2");
+	}
+
+	// Update static_manipulate_2_3 if a new implementation is provided
+	if (new_ext_ops->manipulate_2_3 != NULL) {
+	static_call_update(__static_manipulate_2_3, new_ext_ops->manipulate_2_3);
+	pr_debug("node_base update manipulate_2_3");
+	}
+
+	// Update static_manipulate_2_4 if a new implementation is provided
+	if (new_ext_ops->manipulate_2_4 != NULL) {
+	static_call_update(__static_manipulate_2_4, new_ext_ops->manipulate_2_4);
+	pr_debug("node_base update manipulate_2_4");
+	}
+
+	// Update static_manipulate_3_1 if a new implementation is provided
+	if (new_ext_ops->manipulate_3_1 != NULL) {
+	static_call_update(__static_manipulate_3_1, new_ext_ops->manipulate_3_1);
+	pr_debug("node_base update manipulate_3_1");
+	}
+
+	// Update static_manipulate_3_2 if a new implementation is provided
+	if (new_ext_ops->manipulate_3_2 != NULL) {
+	static_call_update(__static_manipulate_3_2, new_ext_ops->manipulate_3_2);
+	pr_debug("node_base update manipulate_3_2");
+	}
+
+	// Update static_manipulate_4_1 if a new implementation is provided
+	if (new_ext_ops->manipulate_4_1 != NULL) {
+	static_call_update(__static_manipulate_4_1, new_ext_ops->manipulate_4_1);
+	pr_debug("node_base update manipulate_4_1");
+	}
 
 	spin_unlock(&static_ops_lock);
 	return 0;
@@ -305,7 +389,8 @@ void unreg_node_base_ext_ops(struct node_base_ext_ops *ops)
 {
 	spin_lock(&static_ops_lock);
 	if (bpf_ops != NULL) {
-		bpf_module_put(bpf_ops, bpf_ops->owner);
+		//bpf_module_put(bpf_ops, bpf_ops->owner);
+		module_put(bpf_ops->owner);
 		bpf_ops = NULL;
 		set_default_static_funcs();
 	}
@@ -387,6 +472,7 @@ static void __always_inline ____node_del_child(struct node_base_ctx *ctx, u32 ch
 //common pattern for single list add entry: assume, node2->child[0] == NULL
 //tmp = node1->child[0]; node1->child[0] = node2; node2->child[0] = tmp
 //node2->
+
 static int __always_inline  ____node_list_add_double_entry(struct node_base_ctx *ctx, u32 child_next, u32 child_prev, struct node_common *node1, struct node_common *node2) 
 {
 	struct node_common *node3 = node1->childs[child_next];
@@ -493,142 +579,6 @@ static int __always_inline  ____node_is_first(struct node_base_ctx *ctx, u32 chi
 	return head->childs[child_next] == node && node->childs[child_prev] == head;
 }	
 
-// //common pattern for single list add entry: assume, node2->child[0] == NULL
-// //tmp = node1->child[0]; node1->child[0] = node2; node2->child[0] = tmp
-// //node2->
-// static int __always_inline  ____node_list_add_double_entry(struct node_base_ctx *ctx, u32 child_next, u32 child_prev, struct node_common *node1, struct node_common *node2) 
-// {
-// 	struct node_common *node3 = node1->childs[child_next];
-// 	if (unlikely(!(node2->childs[child_next] == NULL && node2->childs[child_prev] == NULL)))
-// 		return -1;
-// 	if (node3 == NULL) {
-// 		node1->childs[child_next] = node2; 
-// 		node2->childs[child_prev] = node1;
-// 		node2->ref_cnt += 1;
-// 		node1->ref_cnt += 1;
-// 		return 0;
-// 	} else {
-// 		if (likely(node3->childs[child_prev] == node1)) {
-// 			node1->childs[child_next] = node2;
-// 			node2->childs[child_next] = node3;
-// 			node3->childs[child_prev] = node2;
-// 			node2->childs[child_prev] = node1;
-// 			node2->ref_cnt += 2;
-// 			return 0;
-// 		} else {
-// 			return -1;
-// 		}
-// 	}
-// }
-
-// static int __always_inline ____node_list_add_double_head(struct node_base_ctx *ctx, u32 child_next, u32 child_prev, struct node_common *node)
-// {
-// 	if (likely(node->childs[child_next] == NULL && node->childs[child_prev] == NULL))
-// 	{
-// 		struct node_common *node2 = *(ctx->pproot);
-// 		if (node2 == NULL) {
-// 			*(ctx->pproot) = node;  
-// 			//node->childs[prev] is NULL alwraedy 
-// 			//node->childs[next] is NULL alwraedy 
-// 			node->ref_cnt++;
-// 			return 0;
-// 		} else if (node2->childs[child_prev] == NULL) {
-// 			*(ctx->pproot) = node;
-// 			//node1->childs[child_prev] is NULL now 
-// 			node->childs[child_next] = node2;
-// 			node2->childs[child_prev] = node;
-// 			node->ref_cnt += 2;
-// 			return 0;
-// 		} else {
-// 			//not sasify 
-// 			return -1;
-// 		}
-// 	}
-// 	return -1;
-// }
-
-
-// static int __always_inline ____node_list_del_double_head(struct node_base_ctx *ctx, u32 child_next, u32 child_prev)
-// {
-// 	struct node_common *node; 
-// 	node = *(ctx->pproot);
-// 	if (node == NULL)
-// 		return 0; 
-// 	if (likely(node->childs[child_prev] == NULL)) {
-// 		struct node_common *node2 = node->childs[child_next];
-// 		if (node2 == NULL) {
-// 			*(ctx->pproot) = NULL;  
-// 			//node->childs[prev] is NULL alwraedy 
-// 			//node->childs[next] is NULL alwraedy 
-// 			if (--node->ref_cnt == 0)
-// 				add_to_freelist(ctx, node);
-// 			return 0;
-// 		} else if (node2->childs[child_prev] == node) {
-// 			*(ctx->pproot) = node2;  //node2 ref+1, node1 ref -1 
-// 			node2->childs[child_prev] = NULL; //node1 refcnt -1;
-// 			node->childs[child_next] = NULL; //node2 ref-1
-// 			//node1->childs[child_prev] is NULL now
-// 			node->ref_cnt -= 2;
-// 			if (node->ref_cnt == 0) 
-// 				add_to_freelist(ctx, node);
-// 			return 0;
-// 		} else {
-// 			//not sasify 
-// 			return -1;
-// 		}
-// 	}
-// 	return -1;
-// }
-
-// static int __always_inline ____node_list_del_double_entry(struct node_base_ctx *ctx,  u32 child_next, u32 child_prev, struct node_common *node2)
-// {	
-// 	struct node_common *node1, *node3;
-// 	node1 = node2->childs[child_prev];
-// 	node3 = node2->childs[child_next];
-// 	if (node1 == NULL && node3 == NULL) {
-// 		return 0;
-// 	} else if (node1 == NULL) {
-// 		//not head without root 
-// 		if (*(ctx->pproot) == node2) {
-// 			return ____node_list_del_double_head(ctx, child_next, child_prev);
-// 		} else {
-// 			//node 1 is NULL, not in root, node 2 3 is not NULL
-// 			node2->childs[child_next] = NULL;
-// 			node3->childs[child_prev] = NULL;
-// 			if (--node2->ref_cnt == 0) 
-// 				add_to_freelist(ctx, node1);
-// 			if (--node3->ref_cnt == 0) 
-// 				add_to_freelist(ctx, node2);
-// 			return 0; 
-// 		}
-// 	} else if (node3 == NULL) {
-// 		node1->childs[child_next] =  NULL;
-// 		node2->childs[child_prev] = NULL;
-// 		if (--node1->ref_cnt == 0) 
-// 			add_to_freelist(ctx, node1);
-// 		if (--node2->ref_cnt == 0) 
-// 			add_to_freelist(ctx, node2);
-// 		return 0;
-// 	} else {
-// 		//node1 != NULL node2 != NULL
-// 		if (likely(node1->childs[child_next] == node2 && node3->childs[child_prev] == node2)) {
-// 			node1->childs[child_next] = node3;
-// 			node3->childs[child_prev] = node1;
-// 			node2->childs[child_next] = NULL;
-// 			node2->childs[child_prev] = NULL;
-// 			node2->ref_cnt -= 2;
-// 			if (node2->ref_cnt == 0) 
-// 				add_to_freelist(ctx, node2);
-// 			return 0;
-// 		} else {
-// 			return -1;
-// 		}
-// 	}
-// }
-
-//< 0 error;
-//> 0 not NULL
-//= 0 NULL
 static int __always_inline ____node_check_child(struct node_common *node, u32 child_idx)
 {
 	return node->childs[child_idx] == NULL;
@@ -672,8 +622,10 @@ static __always_inline struct node_common*  ____alloc_new_node(struct node_base_
 	if (pnode == NULL) {
 		return pnode;
 	}
+	memset((void*)pnode, 0, map->total_size);
 	list_add(&pnode->list_node, &fields->node_list);
 	add_to_freelist(ctx, pnode);
+	pnode->in_hash = false;
 	fields->node_num++;     //释放的时候 减少节点数
 	return pnode;
 }
@@ -692,48 +644,42 @@ static int  __always_inline __alloc_new_node(struct node_base_ctx *ctx, int node
 	return 0;
 }
 
-static int __always_inline __update_to_hash(struct node_base_ctx *ctx, int node_idx, struct node_base_key_type *key)
+
+static void __always_inline __node_add_hash(struct node_base_ctx *ctx, struct node_common *node, u32 hash)
 {
-	struct node_common *pnode, *element;
 	struct node_base_map *map; 
 	struct node_base_percpu_fields *fields;
-	u32 hash;
 	map = ctx->map;
 	fields = this_cpu_ptr(map->percpu_fields);
-	node_idx &= (MAX_TMP_NUM - 1);
-	map = ctx->map;
-	
-	pnode = ctx->tmps[node_idx];
-	if (unlikely(pnode == NULL)) {
-		pr_debug("node in tmp %d is NULL", node_idx);
-		return -EINVAL;
-	}
-	hash = xxh32(key, map->map.key_size,0);
-	
-	hash_for_each_possible(fields->hash_elements, element, hnode ,hash) {
-		if (memcmp((void*)(element) + map->key_off, key, map->map.key_size) == 0) {
-			break;
-		}
-	}
-	if (element != NULL) 
-		return -EEXIST;
-	//udpate to hash
-	hash_add(fields->hash_elements, &pnode->hnode, hash);
+	//hash = hash = xxh32(key, map->map.key_size,0);
+	hash_add(fields->hash_elements, &node->hnode, hash);
+	node->in_hash = true;
+}
+
+static int __always_inline __node_hash_del(struct node_base_ctx *ctx, struct node_common *node)
+{
+	//del from hash hlist 
+	node->in_hash = false;
+	hash_del(&node->hnode);
 	return 0;
 }
 
+static u32 __always_inline __xxhash32_key(struct node_base_ctx *ctx)
+{
+	return xxh32(ctx->key, ctx->map->map.key_size,0);
+}
+
+
 //-1 not found
-static int __always_inline __get_node_by_hash(struct node_base_ctx *ctx, int node_idx)
+static int __always_inline __get_node_by_hash(struct node_base_ctx *ctx, u32 hash, int node_idx)
 {
 	struct node_common *element;
 	struct node_base_map *map; 
 	struct node_base_percpu_fields *fields;
-	u32 hash;
 	map = ctx->map;
 	fields = this_cpu_ptr(map->percpu_fields);
 	node_idx &= (MAX_TMP_NUM - 1);
 	map = ctx->map;
-	hash = xxh32(ctx->key, map->map.key_size,0);
 	hash_for_each_possible(fields->hash_elements, element, hnode ,hash) {
 		if (memcmp((void*)(element) + map->key_off, ctx->key, map->map.key_size) == 0) {
 			break;
@@ -826,6 +772,102 @@ static int __always_inline  __node_list_double_isempty_fast(struct node_base_ctx
 	return ____node_list_double_isempty(ctx, 0, 1, head);
 }
 
+static int __always_inline  __node_list_double_isempty(struct node_base_ctx *ctx, struct node_common *head, u32 head_next_idx) 
+{
+	u32 head_prev_idx = head_next_idx + 1;
+	u32 child_num = ctx->map->child_num;
+	if (unlikely(head_prev_idx >= child_num || head_next_idx >= child_num)) {
+		return -1;
+	}
+	return head->childs[head_next_idx] == head->childs[head_prev_idx] && head->childs[head_next_idx] == head;
+}
+
+static int __always_inline  __node_list_double_add(struct node_base_ctx *ctx, struct node_common *head, struct node_common *new_node, u32 head_next, u32 node_next) 
+{
+	u32 head_prev = head_next + 1;
+	u32 node_prev = node_next + 1;
+	u32 child_num = ctx->map->child_num;
+	if (unlikely(head_prev >= child_num || head_next >= child_num || node_prev >= child_num || node_next >= child_num )) {
+		return -1;
+	}
+	struct node_common *node3 = head->childs[head_next];
+	if (unlikely(!(new_node->childs[node_next] == NULL && new_node->childs[node_prev] == NULL) || node3 == NULL))
+		return -1;
+	if (node3 == head && head->childs[head_prev] == head) {
+		//we only have node1 
+		head->childs[head_next] = new_node;
+		head->childs[head_prev] = new_node;
+		new_node->childs[node_next] = head;
+		new_node->childs[node_prev] = head;
+		new_node->ref_cnt += 2;
+		return 0;
+	} else if (node3->childs[node_prev] == head && head->childs[head_next] == node3) {
+		//node3 and node1 are connected
+		head->childs[head_next] = new_node;
+		new_node->childs[node_next] = node3;
+		node3->childs[node_prev] = new_node;
+		new_node->childs[node_prev] = head;
+		new_node->ref_cnt += 2;
+		return 0;
+	} else {
+		return -1;
+	}
+}
+
+//return 0 success, return 1 if list is empty
+static int __always_inline  __node_list_double_del(struct node_base_ctx *ctx, struct node_common *head, u32 head_next, u32 node_next) 
+{
+	u32 head_prev = head_next + 1;
+	u32 node_prev = node_next + 1;
+	u32 child_num = ctx->map->child_num;
+	if (unlikely(head_prev >= child_num || head_next >= child_num || node_prev >= child_num || node_next >= child_num )) {
+		return -1;
+	}
+	struct node_common *node2 = head->childs[head_prev];
+	if (unlikely(node2 == NULL))
+		return -1;
+	if (head == node2)
+		return ____node_list_double_isempty(ctx, head_next, head_prev, head);
+	
+	struct node_common *node3 = node2->childs[node_next];
+	if (unlikely(node3 == NULL))
+		return -1;
+	
+	//prenode: head, node2, node3(nextnode)
+	if (head == node3) {
+		//have two node
+		//head -> node2
+		//we have node2->next=head, head->next=node2
+		if (node2->childs[node_prev] == head && head->childs[head_prev] == node2) {
+			//have two node, del node2 now
+			node2->childs[node_next] = NULL;
+			node2->childs[node_prev] = NULL;
+			head->childs[head_prev] = head;
+			head->childs[head_next] = head;
+			node2->ref_cnt-=2;
+			if (node2->ref_cnt == 0)
+				add_to_freelist(ctx, node2);
+			return 0;
+		} else {
+			return -1;
+		}
+		//three node ,and we have head->next = node2, node2->next = node3
+	} else if (node3->childs[node_prev] == node2 && node2->childs[node_prev] == head) {
+		//we have three node 
+		head->childs[head_next] = node3; 
+		node3->childs[node_prev] = node2;
+		node2->childs[node_prev] = NULL;
+		node2->childs[node_next] = NULL;
+		node2->ref_cnt-=2;
+		if (node2->ref_cnt == 0)
+			add_to_freelist(ctx, node2);
+		return 0;
+	} else {
+		return -1;
+	}
+}
+
+
 static int __always_inline  __node_destory_empty_list_fast(struct node_base_ctx *ctx,struct node_common *head) 
 {
 	return ____node_destory_empty_list(ctx, 0, 1, head);
@@ -835,6 +877,20 @@ static int __always_inline  __node_init_double_list_fast(struct node_base_ctx *c
 {
 	return ____node_init_double_list(ctx, 0, 1, head);
 }
+
+static int __always_inline  __node_init_double_list(struct node_base_ctx *ctx, struct node_common *head, u32 child_next, u32 child_prev) 
+{
+	if (unlikely(child_next >= ctx->map->child_num || child_prev >= ctx->map->child_num)) {
+		return -1;
+	}
+	return ____node_init_double_list(ctx, child_next, child_prev, head);
+}
+
+int node_init_double_list(struct node_base_ctx *ctx, struct node_common *head, u32 child_next, u32 child_prev) 
+{
+	return __node_init_double_list(ctx, head, child_next, child_prev);
+}
+EXPORT_SYMBOL(node_init_double_list);
 
 //1: last: 0: not last  
 static int __always_inline  __node_list_doule_is_last_fast(struct node_base_ctx *ctx, struct node_common *head, struct node_common *node) 
@@ -1158,15 +1214,15 @@ __bpf_kfunc int alloc_new_node(struct node_base_ctx *ctx, int node_idx)
 }
 EXPORT_SYMBOL_GPL(alloc_new_node);
 
-__bpf_kfunc int update_to_hash(struct node_base_ctx *ctx, int node_idx, struct node_base_key_type *key)
+__bpf_kfunc void node_add_hash(struct node_base_ctx *ctx, struct node_common* node, u32 hash)
 {
-    return __update_to_hash(ctx, node_idx, key);
+     __node_add_hash(ctx, node, hash);
 }
-EXPORT_SYMBOL_GPL(update_to_hash);
+EXPORT_SYMBOL_GPL(node_add_hash);
 
-__bpf_kfunc int get_node_by_hash(struct node_base_ctx *ctx, int node_idx)
+__bpf_kfunc int get_node_by_hash(struct node_base_ctx *ctx, u32 hash, int node_idx)
 {
-    return __get_node_by_hash(ctx, node_idx);
+    return __get_node_by_hash(ctx, hash, node_idx);
 }
 EXPORT_SYMBOL_GPL(get_node_by_hash);
 
@@ -1241,6 +1297,24 @@ __bpf_kfunc int node_list_doule_is_first_fast(struct node_base_ctx *ctx, struct 
     return __node_list_doule_is_first_fast(ctx, head, node);
 }
 EXPORT_SYMBOL_GPL(node_list_doule_is_first_fast);
+
+__bpf_kfunc int node_list_double_isempty(struct node_base_ctx *ctx, struct node_common *head, u32 head_next_idx) 
+{
+    return  __node_list_double_isempty(ctx, head, head_next_idx);
+}
+EXPORT_SYMBOL_GPL(node_list_double_isempty);
+
+__bpf_kfunc int node_list_double_add(struct node_base_ctx *ctx, struct node_common *head, struct node_common *new_node, u32 head_next, u32 node_next)
+{
+    return  __node_list_double_add(ctx, head, new_node, head_next, node_next);
+}
+EXPORT_SYMBOL_GPL(node_list_double_add);
+
+__bpf_kfunc int node_list_double_del(struct node_base_ctx *ctx, struct node_common *head,  u32 head_next, u32 node_next)
+{
+    return  __node_list_double_del(ctx, head, head_next, node_next);
+}
+EXPORT_SYMBOL_GPL(node_list_double_del);
 
 __bpf_kfunc int manipulate_node_1_1(struct node_base_ctx *ctx, u32 node_idx)
 {
@@ -1375,36 +1449,47 @@ __bpf_kfunc int node_check_child_fast(struct node_common *node)
 EXPORT_SYMBOL_GPL(node_check_child_fast);
 
 
+__bpf_kfunc void node_hash_del(struct node_base_ctx *ctx, struct node_common *node)
+{
+	__node_hash_del(ctx, node);
+}
+EXPORT_SYMBOL_GPL(node_hash_del);
+
+__bpf_kfunc u32  xxhash32_key(struct node_base_ctx *ctx) {
+	return __xxhash32_key(ctx);
+}
+EXPORT_SYMBOL_GPL(xxhash32_key);
+
 BTF_SET8_START(bpf_ptr_base_kfunc_ids)
 BTF_ID_FLAGS(func, alloc_new_node, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, update_to_hash, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, get_node_by_hash, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_setchild, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_list_add_entry, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_list_del_entry, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_del_child, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, manipulate_node, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_list_add_double_entry_fast, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_list_del_double_entry_fast, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_list_double_isempty_fast, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_init_double_list_fast, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_destory_empty_list_fast, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_list_doule_is_first_fast, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_list_doule_is_last_fast, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, manipulate_nodes_2, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, manipulate_node_3, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, manipulate_node_4, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_getchild, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_base_set_root, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_base_get_root, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_write_key, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_write_value, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_compare_key, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_get_val_u64, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_set_val_u64, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_check_child, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_check_child_fast, KF_TRUSTED_ARGS);
-BTF_ID_FLAGS(func, node_getchild_fast, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, update_to_hash, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, get_node_by_hash, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_setchild, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_list_add_entry, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_list_del_entry, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_del_child, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, manipulate_node, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_list_add_double_entry_fast, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_list_del_double_entry_fast, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_list_double_isempty_fast, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_init_double_list_fast, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_destory_empty_list_fast, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_list_doule_is_first_fast, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_list_doule_is_last_fast, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_list_double_isempty, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_list_double_add, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_list_double_del, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_getchild, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_base_set_root, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_base_get_root, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_write_key, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_write_value, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_compare_key, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_get_val_u64, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_set_val_u64, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_check_child, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_check_child_fast, KF_TRUSTED_ARGS);
+// BTF_ID_FLAGS(func, node_getchild_fast, KF_TRUSTED_ARGS);
 BTF_SET8_END(bpf_ptr_base_kfunc_ids)
 
 static const struct btf_kfunc_id_set bpf_ptr_base_kfunc_set = {
@@ -1552,7 +1637,7 @@ static void node_base_free(struct bpf_map *map) {
 	struct node_base_map *node_map = (struct node_base_map*)map;
 	__free_percpu_fields(node_map);
 	free_percpu(node_map->percpu_fields);
-	bpf_map_area_free(bmap);
+	bpf_map_area_free(map);
 }
 
 //key is always valid 

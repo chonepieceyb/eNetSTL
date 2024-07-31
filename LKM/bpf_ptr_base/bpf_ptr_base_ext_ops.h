@@ -89,4 +89,51 @@ struct node_base_ext_ops {
 	void (*manipulate_4_1)(struct node_base_ctx *ctx, struct node_common *node1, struct node_common *node2, struct node_common *node3, struct node_common *node4);
 	struct module *owner;
 };
+
+/*APIs*/
+
+int alloc_new_node(struct node_base_ctx *ctx, int node_idx);
+void node_add_hash(struct node_base_ctx *ctx, struct node_common* node, u32 hash);
+int get_node_by_hash(struct node_base_ctx *ctx, u32 hash, int node_idx);
+int node_setchild(struct node_base_ctx *ctx, struct node_common *node1, u32 child_idx, struct node_common *node2);
+int node_list_add_entry(struct node_base_ctx *ctx, u32 child_idx, struct node_common *node1, struct node_common *node2);
+int node_list_del_entry(struct node_base_ctx *ctx, u32 child_idx, struct node_common *node1, struct node_common *node2);
+int node_del_child(struct node_base_ctx *ctx, u32 child_idx, struct node_common *node);
+int manipulate_node(struct node_base_ctx *ctx, u32 node_idx);
+int node_list_add_double_entry_fast(struct node_base_ctx *ctx, struct node_common *node1, struct node_common *node2);
+int node_list_del_double_entry_fast(struct node_base_ctx *ctx, struct node_common *node2);
+int node_list_double_isempty_fast(struct node_base_ctx *ctx, struct node_common *head);
+int node_destory_empty_list_fast(struct node_base_ctx *ctx, struct node_common *head);
+int node_init_double_list_fast(struct node_base_ctx *ctx, struct node_common *head);
+int node_list_doule_is_last_fast(struct node_base_ctx *ctx, struct node_common *head, struct node_common *node);
+int node_list_doule_is_first_fast(struct node_base_ctx *ctx, struct node_common *head, struct node_common *node);
+int node_list_double_isempty(struct node_base_ctx *ctx, struct node_common *head, u32 head_next_idx);
+int node_list_double_add(struct node_base_ctx *ctx, struct node_common *head, struct node_common *new_node, u32 head_next, u32 node_next);
+int node_list_double_del(struct node_base_ctx *ctx, struct node_common *head, u32 head_next, u32 node_next);
+int manipulate_node_1_1(struct node_base_ctx *ctx, u32 node_idx);
+int manipulate_node_1_2(struct node_base_ctx *ctx, u32 node_idx);
+int manipulate_node_1_3(struct node_base_ctx *ctx, u32 node_idx);
+int manipulate_node_1_4(struct node_base_ctx *ctx, u32 node_idx);
+int manipulate_nodes_2_1(struct node_base_ctx *ctx, u32 node_idx1, u32 node_idx2);
+int manipulate_nodes_2_2(struct node_base_ctx *ctx, u32 node_idx1, u32 node_idx2);
+int manipulate_nodes_2_3(struct node_base_ctx *ctx, u32 node_idx1, u32 node_idx2);
+int manipulate_nodes_2_4(struct node_base_ctx *ctx, u32 node_idx1, u32 node_idx2);
+int manipulate_nodes_3_1(struct node_base_ctx *ctx, u32 node_idx1, u32 node_idx2, u32 node_idx3);
+int manipulate_nodes_3_2(struct node_base_ctx *ctx, u32 node_idx1, u32 node_idx2, u32 node_idx3);
+int manipulate_nodes_4_1(struct node_base_ctx *ctx, u32 node_idx1, u32 node_idx2, u32 node_idx3, u32 node_idx4);
+int node_getchild(struct node_base_ctx *ctx, u32 node_idx, u32 child_idx, u32 tmp_node_idx);
+int node_getchild_fast(struct node_base_ctx *ctx, u32 node_idx, u32 tmp_node_idx);
+int node_base_set_root(struct node_base_ctx *ctx, struct node_common *node);
+int node_base_get_root(struct node_base_ctx *ctx, u32 node_idx);
+void node_write_key(struct node_base_ctx *ctx, struct node_common *node);
+void node_write_value(struct node_base_ctx *ctx, struct node_common *node);
+int node_compare_key(struct node_base_ctx *ctx, struct node_common *node);
+void node_get_val_u64(struct node_base_ctx *ctx, struct node_common *node, u64* res);
+void node_set_val_u64(struct node_base_ctx *ctx, struct node_common *node, u64 val);
+int node_check_child(struct node_base_ctx *ctx, struct node_common *node, u32 child_idx);
+int node_check_child_fast(struct node_common *node);
+void node_hash_del(struct node_base_ctx *ctx, struct node_common *node);
+int node_init_double_list(struct node_base_ctx *ctx, struct node_common *head, u32 child_next, u32 child_prev);
+u32 xxhash32_key(struct node_base_ctx *ctx);
+
 #endif

@@ -1,0 +1,43 @@
+From b75c5dc0e081972ccada9cb57054d616ad7f2bc2 Mon Sep 17 00:00:00 2001
+From: chonepieceyb <1759315491@qq.com>
+Date: Wed, 31 Jul 2024 15:27:01 +0800
+Subject: [PATCH 3/3] export bpf dispatcher
+
+---
+ kernel/bpf/dispatcher.c | 2 ++
+ kernel/bpf/syscall.c    | 1 +
+ 2 files changed, 3 insertions(+)
+
+diff --git a/kernel/bpf/dispatcher.c b/kernel/bpf/dispatcher.c
+index fa3e9225aedc..157cfc71a27d 100644
+--- a/kernel/bpf/dispatcher.c
++++ b/kernel/bpf/dispatcher.c
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ /* Copyright(c) 2019 Intel Corporation. */
+ 
++#include "linux/export.h"
+ #include <linux/hash.h>
+ #include <linux/bpf.h>
+ #include <linux/filter.h>
+@@ -171,3 +172,4 @@ void bpf_dispatcher_change_prog(struct bpf_dispatcher *d, struct bpf_prog *from,
+ out:
+ 	mutex_unlock(&d->mutex);
+ }
++EXPORT_SYMBOL_GPL(bpf_dispatcher_change_prog);
+\ No newline at end of file
+diff --git a/kernel/bpf/syscall.c b/kernel/bpf/syscall.c
+index bc08ee4cc18b..2621ed7582d1 100644
+--- a/kernel/bpf/syscall.c
++++ b/kernel/bpf/syscall.c
+@@ -2369,6 +2369,7 @@ struct bpf_prog *bpf_prog_get(u32 ufd)
+ {
+ 	return __bpf_prog_get(ufd, NULL, false);
+ }
++EXPORT_SYMBOL_GPL(bpf_prog_get);
+ 
+ struct bpf_prog *bpf_prog_get_type_dev(u32 ufd, enum bpf_prog_type type,
+ 				       bool attach_drv)
+-- 
+2.34.1
+

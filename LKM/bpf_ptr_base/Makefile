@@ -1,6 +1,7 @@
 OBJ_NAME := bpf_ptr_base
 
 obj-m := ${OBJ_NAME}.o
+obj-m += ss_ext_test.o
 #lkm_example-y := x.o
 
 #KDIR ?= /home/chonepieceyb/CODING/Src/linux-6.0

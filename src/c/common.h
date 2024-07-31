@@ -73,6 +73,7 @@ clean:;                                                                      \
 		printf("faild to load, res %d %s\n", res, strerror(errno));                                        \
 		goto clean_stops;								\
 	}                                                                    \
+	printf("progfd of hello world %d\n", bpf_program__fd(skel->progs.bpf_hello_world));					\
 	void* bpf_link = bpf_map__attach_struct_ops(skel->maps._map);						\
 	if (bpf_link == NULL) { 		\
 		printf("failed to attach struct ops error: %d", errno);					\

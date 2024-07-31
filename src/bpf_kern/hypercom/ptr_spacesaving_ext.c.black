@@ -1,0 +1,482 @@
+/*
+ * @author chonepieceyb
+ * testing BPF_STRUCT_OP for my st_demo 
+ */
+#include "../common.h"
+#include <bpf/bpf_tracing.h>
+
+char _license[] SEC("license") = "GPL";
+
+#define SS_CAPACITY 100
+#define NODE_BASE_HASH_BITS 9
+#define NODE_BASE_HASH_SIZE (1 << 9)
+#define META_SIZE 64
+#define MAX_TMP_BITS 4
+#define MAX_TMP_NUM (1 << MAX_TMP_BITS)
+#define EVENT_GET_ROOT 1
+#define EVENT_GET_HASH 2
+#define EVENT_GET_CHILD 3
+#define EVENT_ALLOC 4
+#define EVENT_GET_ROOT_ALLOC 5
+
+struct node_base_user_config {
+	u32 child_num;
+	//u32 data_size;
+};
+
+//64 byte user-defined ctx for manipulating node 
+struct node_manipulate_ctx {
+	char data[META_SIZE];
+};
+
+
+struct node_base_meta {
+	char data[META_SIZE];
+};
+
+//64 byte common data 
+struct node_user_data {
+	char data[META_SIZE];
+};
+
+struct node_base_key_type {
+	char data[4];
+};
+
+struct node_base_value_type {
+	char data[4];
+};
+
+//lookup callback, < 0 error,  = 0 success
+struct node_lookup_res {
+	int node_idx; 
+};
+
+struct node_base_ctx {
+	struct node_common *tmps[MAX_TMP_NUM];
+	struct node_base_map *map;
+	struct node_common *free_list;
+	struct node_manipulate_ctx mctx;
+	struct node_common **pproot;
+	void *key;   //always null
+	void *value;  //could be null
+        int event;
+};
+
+struct node_base_ext_ops {
+   	void (*user_configure)(struct node_base_user_config *config);
+	void (*init_meta)(struct node_base_meta *meta);
+	int (*lookup)(struct node_base_ctx *node_ctx, struct node_base_meta *meta, struct node_lookup_res *res);
+	int (*update)(struct node_base_ctx *node_ctx, struct node_base_meta *meta);
+	int (*delete)(struct node_base_ctx *node_ctx, struct node_base_meta *meta);
+	void (*manipulate)(struct node_base_ctx *node_ctx, struct node_common *node);
+	void (*manipulate_1_1)(struct node_base_ctx *node_ctx, struct node_common *node);
+	void (*manipulate_1_2)(struct node_base_ctx *node_ctx, struct node_common *node);
+	void (*manipulate_1_3)(struct node_base_ctx *node_ctx, struct node_common *node);
+	void (*manipulate_1_4)(struct node_base_ctx *node_ctx, struct node_common *node);
+	void (*manipulate_2_1)(struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2);
+	void (*manipulate_2_2)(struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2);
+	void (*manipulate_2_3)(struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2);
+	void (*manipulate_2_4)(struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2);
+	void (*manipulate_3_1)(struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2, struct node_common *node3);
+	void (*manipulate_3_2)(struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2, struct node_common *node3);
+	void (*manipulate_4_1)(struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2, struct node_common *node3, struct node_common *node4);
+};
+
+int alloc_new_node(struct node_base_ctx *node_ctx, int node_idx) __ksym;
+int update_to_hash(struct node_base_ctx *node_ctx, int node_idx, struct node_base_key_type *key) __ksym;
+int get_node_by_hash(struct node_base_ctx *node_ctx, int node_idx) __ksym;
+int node_setchild(struct node_base_ctx *node_ctx, struct node_common *node1, u32 child_idx, struct node_common *node2) __ksym;
+int node_list_add_entry(struct node_base_ctx *node_ctx, u32 child_idx, struct node_common *node1, struct node_common *node2) __ksym;
+int node_list_del_entry(struct node_base_ctx *node_ctx, u32 child_idx, struct node_common *node1, struct node_common *node2) __ksym;
+int node_del_child(struct node_base_ctx *node_ctx, u32 child_idx, struct node_common *node) __ksym;
+int manipulate_node(struct node_base_ctx *node_ctx, u32 node_idx) __ksym;
+int node_list_add_double_entry_fast(struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2) __ksym;
+int node_list_del_double_entry_fast(struct node_base_ctx *node_ctx, struct node_common *node2) __ksym;
+int node_list_double_isempty_fast(struct node_base_ctx *node_ctx, struct node_common *head) __ksym;
+int node_destory_empty_list_fast(struct node_base_ctx *node_ctx, struct node_common *head) __ksym;
+int node_init_double_list_fast(struct node_base_ctx *node_ctx, struct node_common *head) __ksym;
+int node_list_doule_is_last_fast(struct node_base_ctx *node_ctx, struct node_common *head, struct node_common *node) __ksym;
+int node_list_doule_is_first_fast(struct node_base_ctx *node_ctx, struct node_common *head, struct node_common *node) __ksym;
+int manipulate_node_1_1(struct node_base_ctx *node_ctx, u32 node_idx) __ksym;
+int manipulate_node_1_2(struct node_base_ctx *node_ctx, u32 node_idx) __ksym;
+int manipulate_node_1_3(struct node_base_ctx *node_ctx, u32 node_idx) __ksym;
+int manipulate_node_1_4(struct node_base_ctx *node_ctx, u32 node_idx) __ksym;
+int manipulate_nodes_2_1(struct node_base_ctx *node_ctx, u32 node_idx1, u32 node_idx2) __ksym;
+int manipulate_nodes_2_2(struct node_base_ctx *node_ctx, u32 node_idx1, u32 node_idx2) __ksym;
+int manipulate_nodes_2_3(struct node_base_ctx *node_ctx, u32 node_idx1, u32 node_idx2) __ksym;
+int manipulate_nodes_2_4(struct node_base_ctx *node_ctx, u32 node_idx1, u32 node_idx2) __ksym;
+int manipulate_nodes_3_1(struct node_base_ctx *node_ctx, u32 node_idx1, u32 node_idx2, u32 node_idx3) __ksym;
+int manipulate_nodes_3_2(struct node_base_ctx *node_ctx, u32 node_idx1, u32 node_idx2, u32 node_idx3) __ksym;
+int manipulate_nodes_4_1(struct node_base_ctx *node_ctx, u32 node_idx1, u32 node_idx2, u32 node_idx3, u32 node_idx4) __ksym;
+int node_getchild(struct node_base_ctx *node_ctx, u32 node_idx, u32 child_idx, u32 tmp_node_idx) __ksym;
+int node_getchild_fast(struct node_base_ctx *node_ctx, u32 node_idx, u32 tmp_node_idx) __ksym;
+int node_base_set_root(struct node_base_ctx *node_ctx, struct node_common *node) __ksym;
+int node_base_get_root(struct node_base_ctx *node_ctx, u32 node_idx) __ksym;
+void node_write_key(struct node_base_ctx *node_ctx, struct node_common *node) __ksym;
+void node_write_value(struct node_base_ctx *node_ctx, struct node_common *node) __ksym;
+int node_compare_key(struct node_base_ctx *node_ctx, struct node_common *node) __ksym;
+void node_get_val_u64(struct node_base_ctx *node_ctx, struct node_common *node, u64* res) __ksym;
+void node_set_val_u64(struct node_base_ctx *node_ctx, struct node_common *node, u64 val) __ksym;
+int node_check_child(struct node_base_ctx *node_ctx, struct node_common *node, u32 child_idx) __ksym;
+int node_check_child_fast(struct node_common *node) __ksym;
+int node_list_double_isempty(struct node_base_ctx *ctx, struct node_common *head, u32 head_next_idx) __ksym;
+int node_list_double_add(struct node_base_ctx *ctx, struct node_common *head, struct node_common *new_node, u32 head_next, u32 node_next) __ksym;
+int node_list_double_del(struct node_base_ctx *ctx, struct node_common *head,  u32 head_next, u32 node_next) __ksym;
+
+struct ss_map_data {
+        u32 size; // current size of data 
+};
+
+#define CMD_ROUTE_BUCKET 0
+#define CMD_ROUTE_ELEM 1
+#define CMD_GET_BUCKET_LIST_HEAD 2 
+
+struct ss_tmp_context {
+        int cmd;
+        union {
+                struct {
+                        bool write_key;
+                } elem_ctx;
+                struct {
+                        u64 val; 
+                } bucket_ctx;
+        };
+};
+
+#define CMD2_IS_ISLAST 0
+
+struct ss_tmp_context2 {
+        int cmd;
+        bool is_last;
+};
+
+static __always_inline void bucket_default_cmd(struct ss_tmp_context *context) 
+{
+        context->cmd = CMD_ROUTE_BUCKET;
+}
+
+static __always_inline void elem_default_cmd(struct ss_tmp_context *context) 
+{
+        context->cmd = CMD_ROUTE_ELEM;
+        context->elem_ctx.write_key = false;
+}
+
+
+
+/* for bucket node 
+*       child 0 => next_bucket
+*       child 1 => previous_bucket 
+*       child 2 => first element 
+*  for element node 
+*       child 0 => next element 
+*       child 1 => previous element 
+*       child 2 => bucket
+*/
+
+#define BKT_NEXT 0
+#define BKT_PREV 1
+#define BKT_ELEM_NEXT 2
+#define BKT_ELEM_PREV 3
+#define ELEM_NEXT 0
+#define ELEM_PREV 1
+#define ELEM_BUCKET 2
+
+// update 函数转换
+#define BUCKETS_HEAD 0
+#define ELEMENT_IDX 1 //new element or hash found element 
+#define BUCKET_IDX 2
+#define NEW_BUCKET_IDX 3
+#define NEIGHBOR_BUCKET_IDX 4
+
+// For user_configure
+SEC("struct_ops/user_configure")
+void BPF_PROG(ss_user_configure, struct node_base_user_config *config)
+{
+    config->child_num = 4;
+}
+
+SEC("struct_ops/init_meta")
+void BPF_PROG(ss_init_meta, struct node_base_meta *meta)
+{
+}
+
+SEC("struct_ops/lookup")
+int BPF_PROG(ss_lookup, struct node_base_ctx *node_ctx, struct node_base_meta *meta, struct node_lookup_res *res)
+{
+    // Example implementation
+    return 0; // or some meaningful return value
+}
+
+SEC("struct_ops/update")
+int BPF_PROG(ss_update, struct node_base_ctx *node_ctx, struct node_base_meta *meta)
+{
+    int ret, hash_found;
+        struct ss_map_data *ss_map = (struct ss_map_data*)meta;
+        struct ss_tmp_context *context;
+        int bucket_idx = -1; 
+        int element_idx = -1; 
+        int new_bucket_idx = -1;
+        int neighbor_bucket_idx = -1; 
+
+        bool is_last_bucket = false;
+        context = (struct ss_tmp_context *)&node_ctx->mctx;
+        u64 value;  // value of current bucket
+        u64 neighbor_value; //value of neighbor_value
+        //id 0 means the first bucket
+
+        ret = node_base_get_root(node_ctx, BUCKETS_HEAD);
+        if (ret < 0) {
+                //should not happen
+                log_error("failed to get  or init root, ret %d", ret);
+                goto error;
+        }
+        hash_found = !get_node_by_hash(node_ctx, ELEMENT_IDX);
+        if (!hash_found) {
+                /* Step 1, case 2: Key not found and another element is replaced */
+                if (ss_map->size >= SS_CAPACITY) {
+                        log_debug( "replacing element as table is full and key is not found");
+                        //get first element in first bucket
+                        bucket_default_cmd(context);
+                        ret = node_getchild_fast(node_ctx, BUCKETS_HEAD, BUCKET_IDX);
+                        value = context->bucket_ctx.val;   //get value of this bucket
+                        bucket_idx = BUCKET_IDX;
+                        elem_default_cmd(context);
+                        context->elem_ctx.write_key = true;
+                        //if buckets exists, elements must exists!
+                        //get list head 
+                        ret = node_getchild(node_ctx, bucket_idx, BKT_ELEM_NEXT, ELEMENT_IDX);
+                        element_idx = ELEMENT_IDX;
+                        log_debug("replaced element key in bucket: ret %d", ret);
+                } else { /* Step 1, case 3: Key not found and a new element is created */
+                        log_debug("creating element as key is not found");  
+                        bucket_idx = -1;
+                        elem_default_cmd(context);
+                        ret = alloc_new_node(node_ctx, ELEMENT_IDX);  //key set by manipulate
+                        if (ret < 0) {
+                                log_error("failed to alloc new element");
+                                goto error;
+                        }
+                        element_idx = ELEMENT_IDX;
+                }
+        } else {
+                /*hash found set bucket */
+                element_idx = ELEMENT_IDX;
+                bucket_default_cmd(context);
+                ret = node_getchild(node_ctx, bucket_idx, ELEM_BUCKET, BUCKET_IDX);
+                // if (ret < 0) {
+                //         log_error("failed to get bucket from hash found element");
+                //         goto error;
+                // }
+                value = context->bucket_ctx.val;   //get the value of this bucket
+                bucket_idx = BUCKET_IDX;
+        }
+        /* Step 2: Find the new bucket; create if required */
+        if (bucket_idx >= 0) {
+                bool *is_last= (bool*)&node_ctx->mctx;
+                manipulate_nodes_2_1(node_ctx, BUCKETS_HEAD, bucket_idx);
+               if (!*is_last) {
+                       bucket_default_cmd(context);
+                       node_getchild_fast(node_ctx, bucket_idx, NEIGHBOR_BUCKET_IDX);
+                       neighbor_bucket_idx = NEIGHBOR_BUCKET_IDX;
+                       neighbor_value = context->bucket_ctx.val;
+               } 
+               log_debug("bucket value :%u, neighbor value %u", value, neighbor_value);
+        } else {
+                /* if the element is newly inserted, use the first bucket as "neighbor" (candidate of new bucket) */
+                if (ss_map->size != 0) {
+                        //the first bucket is neighbor bucket 
+                        bucket_default_cmd(context);
+                        node_getchild_fast(node_ctx, BUCKETS_HEAD, NEIGHBOR_BUCKET_IDX);
+                        neighbor_bucket_idx = NEIGHBOR_BUCKET_IDX;
+                        neighbor_value = context->bucket_ctx.val;
+                }
+                value = 0;   //new created value;
+        }
+
+        if (neighbor_bucket_idx >=0 && neighbor_value == value + 1) {
+               log_debug( "using existing neighbor bucket: neighbor_value = %d", neighbor_value);
+               new_bucket_idx = neighbor_bucket_idx;
+        } else {
+                log_debug("creating new bucket as the neighbor is not eligible: value %u, neighbor_idx %d, neighbor_value %u",
+                        value, neighbor_bucket_idx, neighbor_value);
+                //alloc new bucket
+                bucket_default_cmd(context);
+                context->bucket_ctx.val = value + 1;  //val set in manipulate
+                ret = alloc_new_node(node_ctx, NEW_BUCKET_IDX);
+                if (ret < 0) {
+                        log_debug("failed to allocate new bucket");
+			ret = -ENOMEM;
+			goto error;
+                }
+                new_bucket_idx = NEW_BUCKET_IDX;
+                //connect new bucket and old bucket
+                if (bucket_idx >= 0 ) {
+                        //add after bucket 
+                        manipulate_nodes_2_2(node_ctx, bucket_idx, new_bucket_idx);
+                } else {
+                         //add after bucket header
+                        manipulate_nodes_2_2(node_ctx, BUCKETS_HEAD, new_bucket_idx);
+                }
+                log_debug(
+		       "created new bucket\n");
+        }
+        /* Step 3: Move the element from the old bucket (if exist) to the new bucket */
+        if (bucket_idx >= 0) {
+              log_debug("remove element from bucket and add to new bucket");
+		       
+              //delete node from list 
+              //check list is empty if true delete bucket
+              manipulate_nodes_3_1(node_ctx, bucket_idx, new_bucket_idx, element_idx); 
+        } else {
+              log_debug("add to new bucket");
+              manipulate_nodes_2_3(node_ctx, new_bucket_idx, element_idx);
+        }
+        log_debug("adding element to bucket: element, new_bucket");
+        /* Step4: */
+        if (bucket_idx >= 0 ) {
+                /**/
+        }
+
+error:
+        log_error("error!");
+        return -1;
+}
+
+SEC("struct_ops/delete")
+int BPF_PROG(ss_delete, struct node_base_ctx *node_ctx, struct node_base_meta *meta)
+{
+    // Example implementation
+    return 0; // or some meaningful return value
+}
+
+SEC("struct_ops/manipulate")
+void BPF_PROG(ss_manipulate, struct node_base_ctx *node_ctx, struct node_common *node)
+{
+    struct ss_tmp_context *context = (struct ss_tmp_context *)&node_ctx->mctx;
+    if (node_ctx->event == EVENT_GET_ROOT_ALLOC) {
+        node_init_double_list_fast(node_ctx, node);
+        return; 
+    } else if (node_ctx->event == EVENT_GET_CHILD) {
+        if (context->cmd == CMD_ROUTE_BUCKET) {
+                u64 val = 0;
+                node_get_val_u64(node_ctx, node, &val);
+                context->bucket_ctx.val = val;
+        } else {
+                if (context->elem_ctx.write_key) {
+                        node_write_key(node_ctx, node);
+                }
+        }
+    } else if (node_ctx->event == EVENT_ALLOC) {
+        if (context->cmd == CMD_ROUTE_ELEM) {
+                node_write_key(node_ctx, node);
+        } else {
+                // alloc a new bucket 
+                node_set_val_u64(node_ctx, node, context->bucket_ctx.val);
+        }
+    }
+}
+
+SEC("struct_ops/manipulate_1_1")
+void BPF_PROG(ss_manipulate_1_1, struct node_base_ctx *node_ctx, struct node_common *node)
+{
+    // Example implementation
+}
+
+SEC("struct_ops/manipulate_1_2")
+void BPF_PROG(ss_manipulate_1_2, struct node_base_ctx *node_ctx, struct node_common *node)
+{
+    // Example implementation
+}
+
+SEC("struct_ops/manipulate_1_3")
+void BPF_PROG(ss_manipulate_1_3, struct node_base_ctx *node_ctx, struct node_common *node)
+{
+    // Example implementation
+}
+
+SEC("struct_ops/manipulate_1_4")
+void BPF_PROG(ss_manipulate_1_4, struct node_base_ctx *node_ctx, struct node_common *node)
+{
+    // Example implementation
+}
+
+SEC("struct_ops/manipulate_2_1")
+void BPF_PROG(ss_manipulate_2_1, struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2)
+{
+        //check bucket is last
+        bool *is_last= (bool*)&node_ctx->mctx;
+        *is_last = node_list_doule_is_last_fast(node_ctx, node1, node2);
+}
+
+SEC("struct_ops/manipulate_2_2")
+void BPF_PROG(ss_manipulate_2_2, struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2)
+{
+    //add new bucket 
+    node_list_add_double_entry_fast(node_ctx, node1, node2);
+}
+
+SEC("struct_ops/manipulate_2_3")
+void BPF_PROG(ss_manipulate_2_3, struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2)
+{
+        //add elem to bucket, bucket, elem 
+        node_list_double_add(node_ctx, node1, node2, BKT_ELEM_NEXT, ELEM_NEXT);
+        //set element->parent = new_bucket;
+        node_setchild(node_ctx, node2, ELEM_BUCKET, node1);
+}
+
+SEC("struct_ops/manipulate_2_4")
+void BPF_PROG(ss_manipulate_2_4, struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2)
+{
+    // Example implementation
+}
+
+SEC("struct_ops/manipulate_3_1")
+void BPF_PROG(ss_manipulate_3_1, struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2, struct node_common *node3)
+{
+        //bucket_idx, new_bucket_idx, element_idx
+        //1. delete element from bucket_idx
+        //2. check if bucket_idx is empty 
+        //3. add to new_bucket 
+        int is_empty;
+        is_empty =  node_list_double_del(node_ctx, node1, BKT_ELEM_NEXT, ELEM_NEXT);
+        if (is_empty) {
+                node_list_del_double_entry_fast(node_ctx, node1);
+        }
+        node_list_double_add(node_ctx, node2, node3, BKT_ELEM_NEXT, ELEM_NEXT);
+        //element->parent = new_bucket;
+        node_setchild(node_ctx, node3, ELEM_BUCKET, node2);
+}
+
+SEC("struct_ops/manipulate_3_2")
+void BPF_PROG(ss_manipulate_3_2, struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2, struct node_common *node3)
+{
+    // Example implementation
+}
+
+SEC("struct_ops/manipulate_4_1")
+void BPF_PROG(ss_manipulate_4_1, struct node_base_ctx *node_ctx, struct node_common *node1, struct node_common *node2, struct node_common *node3, struct node_common *node4)
+{
+    // Example implementation
+}
+
+// Structure definition
+struct node_base_ext_ops ss_ops = {
+    .user_configure = (void *)ss_user_configure,
+    .init_meta = (void *)ss_init_meta,
+    .lookup = (void *)ss_lookup,
+    .update = (void *)ss_update,
+    .delete = (void *)ss_delete,
+    .manipulate = (void *)ss_manipulate,
+    .manipulate_1_1 = (void *)ss_manipulate_1_1,
+    .manipulate_1_2 = (void *)ss_manipulate_1_2,
+    .manipulate_1_3 = (void *)ss_manipulate_1_3,
+    .manipulate_1_4 = (void *)ss_manipulate_1_4,
+    .manipulate_2_1 = (void *)ss_manipulate_2_1,
+    .manipulate_2_2 = (void *)ss_manipulate_2_2,
+    .manipulate_2_3 = (void *)ss_manipulate_2_3,
+    .manipulate_2_4 = (void *)ss_manipulate_2_4,
+    .manipulate_3_1 = (void *)ss_manipulate_3_1,
+    .manipulate_3_2 = (void *)ss_manipulate_3_2,
+    .manipulate_4_1 = (void *)ss_manipulate_4_1,
+};
