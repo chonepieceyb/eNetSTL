@@ -96,13 +96,13 @@ clean_stops:;                                                               \
 		       -(__skel##_map_fd), strerror(errno));                     \
 		goto __skel##_clear_struct_ops_done;                             \
 	}                                                                        \
-	if (bpf_map_delete_elem(__skel##_map_fd, &(__skel##_zero)) != 0) {       \
-		printf("failed to delete struct ops element: %d %s; ignoring\n", \
+	if (remove("/sys/fs/bpf/" module_name)) {                                \
+		printf("failed to remove pinned map: %d %s; ignoring\n",         \
 		       errno, strerror(errno));                                  \
 		goto __skel##_clear_struct_ops_done;                             \
 	}                                                                        \
-	if (remove("/sys/fs/bpf/" module_name)) {                                \
-		printf("failed to remove pinned map: %d %s; ignoring\n",         \
+	if (bpf_map_delete_elem(__skel##_map_fd, &(__skel##_zero)) != 0) {       \
+		printf("failed to delete struct ops element: %d %s; ignoring\n", \
 		       errno, strerror(errno));                                  \
 		goto __skel##_clear_struct_ops_done;                             \
 	}                                                                        \

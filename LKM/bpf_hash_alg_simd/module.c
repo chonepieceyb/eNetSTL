@@ -82,7 +82,7 @@ int hash_callback_register(struct hash_callback_ops *ops, u32 prog_fd)
 		goto err;
 	}
 
-	spin_lock(&callback_ops_lock);
+	// spin_lock(&callback_ops_lock);
 
 	if (callback_ops) {
 		pr_err("bpf_hash_alg_simd: callback already registered\n");
@@ -102,13 +102,14 @@ int hash_callback_register(struct hash_callback_ops *ops, u32 prog_fd)
 		ret = PTR_ERR(prog);
 		goto err_unlock;
 	}
+	bpf_prog_put(prog);
 	hash_callback_update(callback_prog, prog);
 	callback_prog = prog;
 
 	callback_ops = ops;
 
 err_unlock:
-	spin_unlock(&callback_ops_lock);
+	// spin_unlock(&callback_ops_lock);
 err:
 	return ret;
 }
@@ -121,7 +122,7 @@ void hash_callback_unregister(struct hash_callback_ops *ops)
 		return;
 	}
 
-	spin_lock(&callback_ops_lock);
+	// spin_lock(&callback_ops_lock);
 
 	callback_ops = NULL;
 
@@ -130,7 +131,7 @@ void hash_callback_unregister(struct hash_callback_ops *ops)
 
 	bpf_module_put(ops, ops->owner);
 
-	spin_unlock(&callback_ops_lock);
+	// spin_unlock(&callback_ops_lock);
 }
 EXPORT_SYMBOL_GPL(hash_callback_unregister);
 
