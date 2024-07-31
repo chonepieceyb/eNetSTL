@@ -5,6 +5,6 @@ struct hash_callback_ops {
 	struct module *owner;
 };
 
-extern int hash_callback_register(struct hash_callback_ops *ops);
+extern int hash_callback_register(struct hash_callback_ops *ops, u32 prog_fd);
 
 extern void hash_callback_unregister(struct hash_callback_ops *ops);
