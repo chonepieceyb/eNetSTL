@@ -53,14 +53,14 @@ int xdp_main(struct xdp_md *ctx) {
 	}
 
 	// 在这里修改读写比例，当前为写/读 = 1/32
-	// int rw_ratio = 32;
-	// if(current_count->rx_count % rw_ratio == 0) {
-	// 	bpf_map_update_elem(&htss_struct_op_map, &pkt, &zero, BPF_ANY);
-	// } else {
-	// 	bpf_map_lookup_elem(&htss_struct_op_map, &pkt);
-	// }
+	int rw_ratio = 2;
+	if(current_count->rx_count % rw_ratio == 0) {
+		bpf_map_update_elem(&htss_struct_op_map, &pkt, &zero, BPF_ANY);
+	} else {
+		bpf_map_lookup_elem(&htss_struct_op_map, &pkt);
+	}
 	// 纯读
-	bpf_map_lookup_elem(&htss_struct_op_map, &pkt);
+	// bpf_map_lookup_elem(&htss_struct_op_map, &pkt);
 
 	current_count->rx_count = current_count->rx_count + 1;
 finish:

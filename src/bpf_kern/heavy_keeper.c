@@ -43,6 +43,14 @@ struct {
 	__uint(max_entries, 1);
 } countmin SEC(".maps");
 
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, __u32);
+	__type(value, struct pkt_count);
+	__uint(max_entries, 40);
+	__uint(pinning, 1);
+} count_map SEC(".maps");
+
 /* 实现指数下降的概率；返回 1 代表成功 */
 static inline int prob_action(u32 count)
 {
@@ -130,8 +138,17 @@ SEC("xdp") int xdp_main(struct xdp_md *ctx)
 		goto out;
 	}
 
-	heavy_keeper_add(cm, &pkt, sizeof(pkt));
 
+	u32 cpu_id = bpf_get_smp_processor_id();
+	struct pkt_count *current_count = bpf_map_lookup_elem(&count_map, &cpu_id);
+	if (current_count == NULL) {
+		log_debug("current_count is null");
+		goto out;
+	}
+	current_count->rx_count = current_count->rx_count + 1;
+
+
+	heavy_keeper_add(cm, &pkt, sizeof(pkt));
 out:
 	return XDP_DROP;
 }

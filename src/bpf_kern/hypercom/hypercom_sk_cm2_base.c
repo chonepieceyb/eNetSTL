@@ -12,6 +12,14 @@
 _Static_assert((COLUMNS & (COLUMNS - 1)) == 0,
 	       "COLUMNS must be a power of two");
 
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, __u32);
+	__type(value, struct pkt_count);
+	__uint(max_entries, 40);
+	__uint(pinning, 1);
+} count_map SEC(".maps");
+
 static __u32 seeds[] = {
 	0xec5853,  0xec5859,  0xec5861,	 0xec587f,  0xec58a7,  0xec58b3,
 	0xec58c7,  0xec58d1,  0xec58531, 0xec58592, 0xec58613, 0xec587f4,
@@ -47,7 +55,7 @@ static void __always_inline countmin_add(struct countmin *cm, void *element,
 					 __u64 len)
 {
 #if HASHFN_N == 2
-	bpf_crc32c_sse_batch2_with_callback(element, seeds, (u8 *)cm);
+	bpf_crc32c_sse_batch2_with_callback(element, sizeof(struct pkt_5tuple), seeds, (u8 *)cm);
 #elif HASHFN_N == 8
 	bpf_fasthash32_alt_avx2_pkt5_with_callback(element, seeds, (u8 *)cm);
 #else
@@ -75,6 +83,14 @@ SEC("xdp") int xdp_main(struct xdp_md *ctx)
 		log_error(" invalid entry in the countmin sketch");
 		goto out;
 	}
+
+	u32 cpu_id = bpf_get_smp_processor_id();
+	struct pkt_count *current_count = bpf_map_lookup_elem(&count_map, &cpu_id);
+	if (current_count == NULL) {
+		log_debug("current_count is null");
+		goto out;
+	}
+	current_count->rx_count = current_count->rx_count + 1;
 
 	countmin_add(cm, &pkt, sizeof(pkt));
 

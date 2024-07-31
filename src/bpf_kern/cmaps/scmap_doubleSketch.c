@@ -35,15 +35,16 @@ struct {
 	__type(value, u32);
 } sketch_map SEC(".maps");
 
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, __u32);
+	__type(value, struct pkt_count);
+	__uint(max_entries, 40);
+	__uint(pinning, 1);
+} count_map SEC(".maps");
 
 SEC("xdp") int xdp_main(struct xdp_md *ctx)
 {
-	//随机采样
-	u32 random_number = bpf_get_prandom_u32() % 10;
-	if (random_number != 1) {
-		return XDP_PASS;
-	}
-
 	struct hdr_cursor nh;
 	void *data_end;
 	struct pkt_5tuple_with_pad pkt;
@@ -64,9 +65,19 @@ SEC("xdp") int xdp_main(struct xdp_md *ctx)
 			pkt.pkt.dst_port, pkt.pkt.proto);
 	}
 
+	u32 cpu_id = bpf_get_smp_processor_id();
+	struct pkt_count *current_count = bpf_map_lookup_elem(&count_map, &cpu_id);
+	if (current_count == NULL) {
+		log_debug("current_count is null");
+		goto out;
+	}
+	current_count->rx_count = current_count->rx_count + 1;
+
 	bpf_map_update_elem(&sketch_map, &pkt, &v, BPF_ANY);
+	// bpf_map_lookup_elem(&sketch_map, &pkt);
+
 out:
-	return XDP_PASS;
+	return XDP_DROP;
 }
 
 
@@ -74,9 +85,6 @@ SEC("xdp") int xdp_test(struct xdp_md *ctx)
 {
 	//随机采样
 	u32 random_number = bpf_get_prandom_u32() % 10;
-	if (random_number != 1) {
-		return XDP_PASS;
-	}
 
 	struct hdr_cursor nh;
 	void *data_end;
@@ -99,5 +107,5 @@ SEC("xdp") int xdp_test(struct xdp_md *ctx)
 		bpf_map_update_elem(&sketch_map, &pkt, &v, BPF_ANY);
 	}
 out:
-	return XDP_PASS;
+	return XDP_DROP;
 }
