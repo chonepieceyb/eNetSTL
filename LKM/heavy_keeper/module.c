@@ -34,7 +34,8 @@ static __u32 seeds[] = {
 };
 
 #define SKETCH_DEPTH 8
-#define SKETCH_WIDTH 256
+// 256 will cause no memmory error
+#define SKETCH_WIDTH 128
 #define SKETCH_KEY_SIZE sizeof(sketch_key)
 #define BLOOMSIZE 32
 
@@ -79,13 +80,11 @@ static struct bpf_map *heavy_keeper_alloc(union bpf_attr *attr)
 	struct static_heavy_keeper_map *hk_map;
 	void *res_ptr;
 	int cpu;
-
 	hk_map = bpf_map_area_alloc(sizeof(struct static_heavy_keeper_map),
 				    NUMA_NO_NODE);
 	if (hk_map == NULL) {
 		return ERR_PTR(-ENOMEM);
 	}
-
 	hk_map->tbl = __alloc_percpu_gfp(sizeof(struct sketch),
 					 __alignof__(u64),
 					 GFP_USER | __GFP_NOWARN);

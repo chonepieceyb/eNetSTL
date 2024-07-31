@@ -3,7 +3,7 @@
 #include "../bpf_skel/hypercom_heavy_keeper_ext.skel.h"
 #include "../test_helpers.h"
 
-#define XDP_IF "ens4np0"
+#define XDP_IF "ens2f0"
 
 struct hypercom_heavy_keeper_ext *load_st_ops(void)
 {

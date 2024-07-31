@@ -3,7 +3,7 @@
 #include "../bpf_skel/hypercom_sk_cm2_ext.skel.h"
 #include "../test_helpers.h"
 
-#define XDP_IF "ens4np0"
+#define XDP_IF "ens2f0"
 
 struct hypercom_sk_cm2_ext *load_st_ops(void)
 {

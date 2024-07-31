@@ -20,10 +20,11 @@
 
 typedef u16 ss_count_t;
 
-#define SS_CAPACITY 8
+// default is 100
+#define SS_CAPACITY 100
 #define SS_KEY_SIZE 16
 #define SS_COUNT_SIZE sizeof(ss_count_t)
-#define SS_HASH_BITS 3
+#define SS_HASH_BITS 8
 #define SS_HASH_SEED 0xdeadbeef
 
 struct ss_bucket;

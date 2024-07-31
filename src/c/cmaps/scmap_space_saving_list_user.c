@@ -1,7 +1,7 @@
 #include "../common.h"
 #include "../bpf_skel/scmap_space_saving_list.skel.h"
 
-#define XDP_IF "ens4np0"
+#define XDP_IF "ens2f0"
 
 int main()
 {
