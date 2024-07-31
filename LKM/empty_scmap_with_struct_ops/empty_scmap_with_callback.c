@@ -16,7 +16,8 @@ extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 #if USE_CALLBACK_WORKAROUND == 1
 struct empty_scmap_callback_bpf_ctx {
-#if USE_CALLBACK_PARAM_COUNT == 1
+#if USE_CALLBACK_PARAM_COUNT == 0
+#elif USE_CALLBACK_PARAM_COUNT == 1
 	u64 param1;
 #elif USE_CALLBACK_PARAM_COUNT == 5
 	u64 param1;
@@ -37,11 +38,13 @@ static struct bpf_prog *callback_prog = NULL;
 DEFINE_BPF_DISPATCHER(empty_scmap_callback)
 #endif
 
-#if USE_CALLBACK_PARAM_COUNT == 1
-static int default_empty_scmap_callback(u64 param1)
+#if USE_CALLBACK_PARAM_COUNT == 0
+int default_empty_scmap_callback(void)
+#elif USE_CALLBACK_PARAM_COUNT == 1
+int default_empty_scmap_callback(u64 param1)
 #elif USE_CALLBACK_PARAM_COUNT == 5
-static int default_empty_scmap_callback(u64 param1, u64 param2, u64 param3,
-					u64 param4, u64 param5)
+int default_empty_scmap_callback(u64 param1, u64 param2, u64 param3, u64 param4,
+				 u64 param5)
 #else
 #error "Unsupported USE_CALLBACK_PARAM_COUNT"
 #endif
@@ -144,6 +147,14 @@ struct static_empty_cb_map {
 
 int empty_cb_alloc_check(union bpf_attr *attr)
 {
+	/* Allow any key size of expected "key size" is 0 */
+	if (USE_CALLBACK_PARAM_COUNT > 0 &&
+	    attr->key_size != sizeof(u64) * USE_CALLBACK_PARAM_COUNT) {
+		pr_err("empty_scmap_with_callback: invalid key_size %u\n",
+		       attr->key_size);
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -171,7 +182,9 @@ static void *empty_cb_lookup_elem(struct bpf_map *map, void *key)
 	__bpf_prog_run(callback_prog, args,
 		       BPF_DISPATCHER_FUNC(empty_scmap_callback));
 #else
-#if USE_CALLBACK_PARAM_COUNT == 1
+#if USE_CALLBACK_PARAM_COUNT == 0
+	static_call(empty_scmap_callback)();
+#elif USE_CALLBACK_PARAM_COUNT == 1
 	static_call(empty_scmap_callback)(args[0]);
 #elif USE_CALLBACK_PARAM_COUNT == 5
 	static_call(empty_scmap_callback)(args[0], args[1], args[2], args[3],

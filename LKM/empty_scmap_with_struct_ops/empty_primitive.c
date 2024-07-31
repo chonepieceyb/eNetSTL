@@ -3,7 +3,12 @@
 #include <linux/btf.h>
 #include <linux/btf_ids.h>
 
-#if USE_CALLBACK_PARAM_COUNT == 1
+#if USE_CALLBACK_PARAM_COUNT == 0
+__bpf_kfunc int empty_primitive(void)
+{
+	return 0;
+}
+#elif USE_CALLBACK_PARAM_COUNT == 1
 __bpf_kfunc int empty_primitive(u64 param1)
 {
 	return 0;
