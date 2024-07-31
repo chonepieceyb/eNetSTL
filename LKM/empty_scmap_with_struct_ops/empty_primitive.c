@@ -36,8 +36,9 @@ static const struct btf_kfunc_id_set empty_primitive_kfunc_set = {
 static int register_kfuncs(void)
 {
 	int ret;
-	if ((ret = register_btf_kfunc_id_set(
-		     BPF_PROG_TYPE_XDP, &empty_primitive_kfunc_set)) != 0) {
+	if ((ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_STRUCT_OPS,
+					     &empty_primitive_kfunc_set)) !=
+	    0) {
 		return ret;
 	}
 
