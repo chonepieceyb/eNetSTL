@@ -4,6 +4,7 @@
 #include <linux/btf.h>
 #include <linux/btf_ids.h>
 #include <linux/module.h>
+#include <linux/filter.h>
 
 #include "crc.h"
 #include "fasthash_simd.h"
@@ -34,29 +35,46 @@ struct countmin {
 };
 #endif
 
+struct hash_callback_bpf_ctx {
+	void *ctx;
+	int i;
+	u32 hash;
+};
+
 extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 				     const struct btf_kfunc_id_set *kset);
 
 static struct hash_callback_ops *callback_ops;
 static DEFINE_SPINLOCK(callback_ops_lock);
+static struct bpf_prog *callback_prog = NULL;
 
-static int empty_callback(void *ctx, int i, u32 hash)
-{
-	return 0;
-}
-DEFINE_STATIC_CALL_RET0(bpf_hash_alg_simd_callback, empty_callback);
+DEFINE_BPF_DISPATCHER(hash_callback)
 
 static inline int callback(void *ctx, int i, u32 hash)
 {
 #if defined(ADAPT_COUNTMIN) && ADAPT_COUNTMIN == 1
 	ctx = ((struct countmin *)ctx)->elements[i] + (hash & (COLUMNS - 1));
 #endif
-	return static_call(bpf_hash_alg_simd_callback)(ctx, i, hash);
+	struct hash_callback_bpf_ctx bpf_ctx = {
+		.ctx = ctx,
+		.i = i,
+		.hash = hash,
+	};
+	return __bpf_prog_run(callback_prog, &bpf_ctx,
+			      BPF_DISPATCHER_FUNC(hash_callback));
 }
 
-int hash_callback_register(struct hash_callback_ops *ops)
+static inline void hash_callback_update(struct bpf_prog *prev_prog,
+					struct bpf_prog *prog)
+{
+	bpf_dispatcher_change_prog(BPF_DISPATCHER_PTR(hash_callback), prev_prog,
+				   prog);
+}
+
+int hash_callback_register(struct hash_callback_ops *ops, u32 prog_fd)
 {
 	int ret = 0;
+	struct bpf_prog *prog;
 
 	if (ops == NULL || ops->owner == NULL || ops->callback == NULL) {
 		pr_err("bpf_hash_alg_simd: invalid ops, owner or callback\n");
@@ -76,7 +94,17 @@ int hash_callback_register(struct hash_callback_ops *ops)
 		ret = -ENODEV;
 		goto err_unlock;
 	}
-	static_call_update(bpf_hash_alg_simd_callback, ops->callback);
+
+	prog = bpf_prog_get(prog_fd);
+	if (IS_ERR_OR_NULL(prog)) {
+		pr_err("bpf_hash_alg_simd: failed to get BPF program with fd %d\n",
+		       prog_fd);
+		ret = PTR_ERR(prog);
+		goto err_unlock;
+	}
+	hash_callback_update(callback_prog, prog);
+	callback_prog = prog;
+
 	callback_ops = ops;
 
 err_unlock:
@@ -96,7 +124,10 @@ void hash_callback_unregister(struct hash_callback_ops *ops)
 	spin_lock(&callback_ops_lock);
 
 	callback_ops = NULL;
-	static_call_update(bpf_hash_alg_simd_callback, empty_callback);
+
+	hash_callback_update(callback_prog, NULL);
+	callback_prog = NULL;
+
 	bpf_module_put(ops, ops->owner);
 
 	spin_unlock(&callback_ops_lock);

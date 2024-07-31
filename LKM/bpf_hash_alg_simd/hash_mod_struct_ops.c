@@ -36,6 +36,7 @@ struct hash_mod_struct_ops {
 
 static const struct btf_type *ctx_type;
 static u32 ctx_type_id;
+static u32 callback_prog_fd = 0;
 
 static int hash_mod_struct_ops_init(struct btf *btf)
 {
@@ -90,15 +91,21 @@ static int hash_mod_struct_ops_init_member(const struct btf_type *t,
 
 func_member:
 	prog_fd = (int)(*(unsigned long *)(udata + moff));
-	if (!prog_fd)
+	if (!prog_fd) {
 		return -EINVAL;
+	} else {
+		/* It works because the callback is the only function member for now */
+		pr_info("hash_mod_struct_ops: got callback fd %d\n", prog_fd);
+		callback_prog_fd = prog_fd;
+	}
 
 	return 0;
 }
 
 static int hash_mod_struct_ops_reg(void *kdata)
 {
-	return hash_callback_register((struct hash_callback_ops *)kdata);
+	return hash_callback_register((struct hash_callback_ops *)kdata,
+				      callback_prog_fd);
 }
 
 static void hash_mod_struct_ops_unreg(void *kdata)
