@@ -81,7 +81,7 @@ int empty_scmap_callback_register(struct empty_scmap_callback_ops *ops)
 		goto err;
 	}
 
-	spin_lock(&callback_ops_lock);
+	// spin_lock(&callback_ops_lock);
 
 	if (callback_ops) {
 		pr_err("empty_scmap_with_callback: callback already registered\n");
@@ -102,6 +102,7 @@ int empty_scmap_callback_register(struct empty_scmap_callback_ops *ops)
 		ret = PTR_ERR(prog);
 		goto err_unlock;
 	}
+	bpf_prog_put(prog);
 	empty_scmap_callback_update(callback_prog, prog);
 	callback_prog = prog;
 #else
@@ -111,7 +112,7 @@ int empty_scmap_callback_register(struct empty_scmap_callback_ops *ops)
 	callback_ops = ops;
 
 err_unlock:
-	spin_unlock(&callback_ops_lock);
+	// spin_unlock(&callback_ops_lock);
 err:
 	return ret;
 }
@@ -124,7 +125,7 @@ void empty_scmap_callback_unregister(struct empty_scmap_callback_ops *ops)
 		return;
 	}
 
-	spin_lock(&callback_ops_lock);
+	// spin_lock(&callback_ops_lock);
 
 	callback_ops = NULL;
 
@@ -137,7 +138,7 @@ void empty_scmap_callback_unregister(struct empty_scmap_callback_ops *ops)
 
 	bpf_module_put(ops, ops->owner);
 
-	spin_unlock(&callback_ops_lock);
+	// spin_unlock(&callback_ops_lock);
 }
 EXPORT_SYMBOL_GPL(empty_scmap_callback_unregister);
 
