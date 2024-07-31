@@ -32,7 +32,7 @@ struct empty_scmap_callback_bpf_ctx {
 #endif
 
 struct empty_scmap_callback_ops *callback_ops;
-static DEFINE_SPINLOCK(callback_ops_lock);
+// static DEFINE_SPINLOCK(callback_ops_lock);
 #if USE_CALLBACK_WORKAROUND == 1
 static struct bpf_prog *callback_prog = NULL;
 DEFINE_BPF_DISPATCHER(empty_scmap_callback)
