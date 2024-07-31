@@ -1,0 +1,25 @@
+From 461977b36456a9196d91a11c9e939ff03804f109 Mon Sep 17 00:00:00 2001
+From: chonepieceyb <1759315491@qq.com>
+Date: Tue, 30 Jul 2024 09:18:10 +0800
+Subject: [PATCH 2/2] fix bug
+
+---
+ tools/lib/bpf/libbpf.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tools/lib/bpf/libbpf.c b/tools/lib/bpf/libbpf.c
+index ea34993a7cf3..0ad2f30028b5 100644
+--- a/tools/lib/bpf/libbpf.c
++++ b/tools/lib/bpf/libbpf.c
+@@ -1163,7 +1163,7 @@ static int bpf_object__init_kern_struct_ops_maps(struct bpf_object *obj)
+ 		if (!bpf_map__is_struct_ops(map))
+ 			continue;
+ 		st_ops = map->st_ops;
+-		if (st_ops->module_name) {
++		if (st_ops->module_name[0] != '\0') {
+ 			mod_btf = find_module_btf(obj, st_ops->module_name);
+ 			if (mod_btf == NULL)
+ 				return -EINVAL;
+-- 
+2.34.1
+

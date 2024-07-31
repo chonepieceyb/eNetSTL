@@ -2,7 +2,6 @@
 #include <linux/bpf.h>
 #include <linux/btf.h>
 #include <linux/bpf_verifier.h>
-
 #include "mod_struct_ops_demo.h"
 
 extern const struct bpf_func_proto *
@@ -16,7 +15,7 @@ extern bool default_mod_stops_is_valid_access(int off, int size, enum bpf_access
 extern int bpf_reg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops);
 extern int bpf_unreg_module_struct_ops(struct bpf_module_struct_ops *mod_struct_ops);
 
-extern int reg_cmap_ext_demo_ops(struct mod_struct_ops_demo *new_ext_ops);
+extern int reg_cmap_ext_demo_ops(struct mod_struct_ops_demo *new_ext_ops , int hw_prog_fd);
 extern void unreg_cmap_ext_demo_ops(struct mod_struct_ops_demo *ops);
 
 #define BPF_MOD_STRUCT_OPS_TYPES(fn)	\
@@ -35,6 +34,8 @@ fn(mod_struct_ops_demo)					\
 
 static const struct btf_type *ctx_type;
 static u32 ctx_type_id;
+
+static int hw_prog_fd = 0;
 
 static int mod_struct_ops_demo_init(struct btf *btf)
 {
@@ -78,6 +79,8 @@ static int mod_struct_ops_demo_init_member(const struct btf_type *t,
 	switch (moff) {
         /*check function member */
 	case offsetof(struct mod_struct_ops_demo, hello_world):
+		pr_info("hello world prog fd %d\n", (int)(*(unsigned long *)(udata + moff)));
+		hw_prog_fd = (int)(*(unsigned long *)(udata + moff));
 		goto func_member;
 	default:
 		return -EINVAL;
@@ -94,7 +97,7 @@ func_member:
 
 static int  mod_struct_ops_demo_reg(void *kdata)
 {
-	return reg_cmap_ext_demo_ops(kdata);
+	return reg_cmap_ext_demo_ops(kdata, hw_prog_fd);
 }
 
 static void mod_struct_ops_demo_unreg(void *kdata) 
