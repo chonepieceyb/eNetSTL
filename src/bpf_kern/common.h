@@ -91,6 +91,25 @@
 		__idx = (idx) & (SHIFT_TO_SIZE(shift) - 1); \
 	})
 
+#define COUNT_MAP                                 \
+	struct {                                  \
+		__uint(type, BPF_MAP_TYPE_ARRAY); \
+		__type(key, __u32);               \
+		__type(value, struct pkt_count);  \
+		__uint(max_entries, 40);          \
+		__uint(pinning, 1);               \
+	} count_map SEC(".maps")
+
+#define COUNT_MAP_INCREMENT                               \
+	u32 cpu_id = bpf_get_smp_processor_id();          \
+	struct pkt_count *current_count =                 \
+		bpf_map_lookup_elem(&count_map, &cpu_id); \
+	if (current_count == NULL) {                      \
+		log_debug("current_count is null");       \
+		goto out;                                 \
+	}                                                 \
+	current_count->rx_count = current_count->rx_count + 1
+
 /* linux __ffs software implementation*/
 static __always_inline __u64 __ffs64(__u64 word)
 {

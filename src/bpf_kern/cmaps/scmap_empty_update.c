@@ -17,6 +17,8 @@ struct {
 	__uint(max_entries, 1);
 } cmap SEC(".maps");
 
+COUNT_MAP;
+
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx)
 {
@@ -29,5 +31,8 @@ int xdp_main(struct xdp_md *ctx)
 		return XDP_DROP;
 	}
 
+	COUNT_MAP_INCREMENT;
+
+out:
 	return XDP_DROP;
 }

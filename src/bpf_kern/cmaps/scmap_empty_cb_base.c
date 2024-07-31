@@ -15,6 +15,8 @@ struct {
 	__uint(max_entries, 1);
 } scmap_empty_cb SEC(".maps");
 
+COUNT_MAP;
+
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx)
 {
@@ -32,5 +34,7 @@ int xdp_main(struct xdp_md *ctx)
 #endif
 	};
 	bpf_map_lookup_elem(&scmap_empty_cb, &key);
+	COUNT_MAP_INCREMENT;
+out:
 	return XDP_DROP;
 }
