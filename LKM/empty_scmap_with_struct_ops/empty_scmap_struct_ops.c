@@ -36,6 +36,10 @@ struct empty_scmap_struct_ops {
  * 7. set verifier_ops
  */
 
+#if USE_CALLBACK_WORKAROUND == 1
+static u32 callback_prog_fd = 0;
+#endif
+
 static int empty_scmap_struct_ops_init(struct btf *btf)
 {
 	return 0;
@@ -83,14 +87,26 @@ func_member:
 	prog_fd = (int)(*(unsigned long *)(udata + moff));
 	if (!prog_fd)
 		return -EINVAL;
+#if USE_CALLBACK_WORKAROUND == 1
+	else {
+		/* It works because the callback is the only function member for now */
+		pr_info("hash_mod_struct_ops: got callback fd %d\n", prog_fd);
+		callback_prog_fd = prog_fd;
+	}
+#endif
 
 	return 0;
 }
 
 static int empty_scmap_struct_ops_reg(void *kdata)
 {
+#if USE_CALLBACK_WORKAROUND == 1
+	return empty_scmap_callback_register(
+		(struct empty_scmap_callback_ops *)kdata, callback_prog_fd);
+#else
 	return empty_scmap_callback_register(
 		(struct empty_scmap_callback_ops *)kdata);
+#endif
 }
 
 static void empty_scmap_struct_ops_unreg(void *kdata)

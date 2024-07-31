@@ -1,4 +1,5 @@
 USE_CALLBACK_PARAM_COUNT ?= 5
+USE_CALLBACK_WORKAROUND ?= 1
 
 #KDIR ?= /home/chonepieceyb/CODING/Src/linux-6.0
 KDIR_DBG ?= /mnt/disk1/yangbin/CODING/WorkSpace/linux_testbed/linux
@@ -9,6 +10,7 @@ obj-m += empty_scmap_struct_ops.o
 obj-m += empty_primitive.o
 
 ccflags-y += -DUSE_CALLBACK_PARAM_COUNT=$(USE_CALLBACK_PARAM_COUNT)
+ccflags-y += -DUSE_CALLBACK_WORKAROUND=$(USE_CALLBACK_WORKAROUND)
 
 default:
 	bear -- make -C $(KDIR) M=$(PWD) modules

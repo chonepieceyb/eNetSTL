@@ -12,7 +12,12 @@ struct empty_scmap_callback_ops {
 	struct module *owner;
 };
 
+#if USE_CALLBACK_WORKAROUND == 1
+extern int empty_scmap_callback_register(struct empty_scmap_callback_ops *ops,
+					 u32 prog_fd);
+#else
 extern int empty_scmap_callback_register(struct empty_scmap_callback_ops *ops);
+#endif
 
 extern void
 empty_scmap_callback_unregister(struct empty_scmap_callback_ops *ops);
