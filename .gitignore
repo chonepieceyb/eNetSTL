@@ -71,3 +71,4 @@ pcap/
 *.tar
 *.gz
 log
+*vmlinux.h
