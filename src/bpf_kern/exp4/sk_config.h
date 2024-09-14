@@ -1,0 +1,22 @@
+#pragma once
+
+#define _CS_ROWS 8
+#define _CS_COLUMNS 256
+#define _ACTION_DROP 1
+#define _SEED_HASHFN 0x2d31e867
+#define DROP_ACTION XDP_DROP
+#define HASHFN_N _CS_ROWS
+#define COLUMNS _CS_COLUMNS
+#define _NM_LAYERS 32
+#define _HEAP_SIZE 32
+#define MAX_GEOSAMPLING_SIZE 1024
+#define USE_CRC 1
+#define USE_XXHASH 1
+#define PRINT_TIME 0
+#define SIMD_CACHE_PKTS 64
+#define _COUNT_PACKETS 1
+#define _COUNT_BYTES 1
+#define RECORD 0
+#define RANDOM_PORT_OVERRIDE 0
+#define RANDOM_PORT_MASK_BITS 16
+#define COUNTMIN_ELEMENT_SIZE 8
