@@ -1,0 +1,73 @@
+# Prerequisites
+*.d
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Linker output
+*.ilk
+*.map
+*.exp
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+linux
+build
+bin
+install
+src/bpf_kern/vmlinux.h
+scripts/DPDK/config
+.cache/
+src/python/__pycache__/
+*.DS_Store
+*__pycache__/
+results
+src/c/bpf_skel/
+*compile_commands.json
+testing
+traces/
+pcap/
+*skel.h
+*.csv
+*.tar
+*.gz
+log
