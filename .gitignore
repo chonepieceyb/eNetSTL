@@ -66,6 +66,7 @@ src/c/bpf_skel/
 testing
 traces/
 pcap/
+resources/
 *skel.h
 *.csv
 *.tar
