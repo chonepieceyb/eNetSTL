@@ -72,3 +72,4 @@ resources/
 *.tar
 *.gz
 log
+*vmlinux.h
