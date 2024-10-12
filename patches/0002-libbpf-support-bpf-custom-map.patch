@@ -1,0 +1,39 @@
+From 79e3da87a88ab1b75e1cb473f0f765393108219a Mon Sep 17 00:00:00 2001
+From: chonepieceyb <1759315491@qq.com>
+Date: Tue, 26 Dec 2023 10:53:59 +0800
+Subject: [PATCH 2/3] libbpf support bpf custom map
+
+---
+ tools/include/uapi/linux/bpf.h | 2 ++
+ tools/lib/bpf/libbpf.c         | 2 ++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/tools/include/uapi/linux/bpf.h b/tools/include/uapi/linux/bpf.h
+index 0448700890f7..38487d40bdd1 100644
+--- a/tools/include/uapi/linux/bpf.h
++++ b/tools/include/uapi/linux/bpf.h
+@@ -944,6 +944,8 @@ enum bpf_map_type {
+ 	BPF_MAP_TYPE_BLOOM_FILTER,
+ 	BPF_MAP_TYPE_USER_RINGBUF,
+ 	BPF_MAP_TYPE_CGRP_STORAGE,
++	BPF_MAP_TYPE_CUSTOM_MAP,
++	BPF_MAP_TYPE_STATIC_CUSTOM_MAP,
+ };
+ 
+ /* Note that tracing related programs such as
+diff --git a/tools/lib/bpf/libbpf.c b/tools/lib/bpf/libbpf.c
+index 96ff1aa4bf6a..48031efd0b71 100644
+--- a/tools/lib/bpf/libbpf.c
++++ b/tools/lib/bpf/libbpf.c
+@@ -173,6 +173,8 @@ static const char * const map_type_name[] = {
+ 	[BPF_MAP_TYPE_BLOOM_FILTER]		= "bloom_filter",
+ 	[BPF_MAP_TYPE_USER_RINGBUF]             = "user_ringbuf",
+ 	[BPF_MAP_TYPE_CGRP_STORAGE]		= "cgrp_storage",
++	[BPF_MAP_TYPE_CUSTOM_MAP]		= "custom_map",
++	[BPF_MAP_TYPE_STATIC_CUSTOM_MAP]	= "static_cmap",
+ };
+ 
+ static const char * const prog_type_name[] = {
+-- 
+2.34.1
+

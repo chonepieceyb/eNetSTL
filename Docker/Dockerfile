@@ -8,6 +8,7 @@ ARG KERNEL_VERSION
 RUN apt update && apt install -y python3 vim git curl wget net-tools ethtool iproute2 iputils-ping gcc clang-15 llvm-15 clang-14 llvm-14 kmod bear meson cmake pkgconf libcap-dev libbfd-dev  build-essential libelf-dev libz-dev binutils-dev libcap-ng-dev m4 libpcap-dev pahole
 
 COPY ./tmp/bpftool-libbpf-v7.3.0-sources /root/bpfdev/bpftool-libbpf-v7.3.0-sources
+COPY ./tmp/v3.03 /root/trex/v3.03
 
 #compile
 WORKDIR /root/bpfdev
@@ -35,4 +36,9 @@ RUN /root/.cargo/bin/rustup install 1.71.1 && \
     /root/.cargo/bin/rustup override set 1.71.1-x86_64-unknown-linux-gnu && \
     /root/.cargo/bin/rustup component add rust-src
 
-RUN ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/asm
+RUN apt install -y lld-14 lld-15 python3-pip && \
+    pip3 install numpy && \
+    ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/asm && \
+    ln /usr/bin/clang-14 /usr/bin/clang && \
+    ln /usr/bin/ld.lld-14 /usr/bin/ld.lld && \
+    ln /usr/bin/llvm-objcopy-14 /usr/bin/llvm-objcopy

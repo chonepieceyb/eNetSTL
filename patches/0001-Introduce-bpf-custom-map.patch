@@ -1,0 +1,936 @@
+From 639edaec5a02533d07d45dad157398d3f920f4b0 Mon Sep 17 00:00:00 2001
+From: chonepieceyb <1759315491@qq.com>
+Date: Mon, 20 Feb 2023 17:33:19 +0800
+Subject: [PATCH 1/3] Introduce bpf custom map
+
+---
+ include/linux/bpf_custom_map.h |  49 +++
+ include/linux/bpf_types.h      |   5 +
+ include/uapi/linux/bpf.h       |   2 +
+ kernel/bpf/Kconfig             |   6 +
+ kernel/bpf/Makefile            |   2 +
+ kernel/bpf/custom_map.c        | 625 +++++++++++++++++++++++++++++++++
+ kernel/bpf/memalloc.c          |  11 +
+ kernel/bpf/syscall.c           |   9 +
+ kernel/bpf/verifier.c          |   7 +-
+ 9 files changed, 714 insertions(+), 2 deletions(-)
+ create mode 100644 include/linux/bpf_custom_map.h
+ create mode 100644 kernel/bpf/custom_map.c
+
+diff --git a/include/linux/bpf_custom_map.h b/include/linux/bpf_custom_map.h
+new file mode 100644
+index 000000000000..26adb123af66
+--- /dev/null
++++ b/include/linux/bpf_custom_map.h
+@@ -0,0 +1,49 @@
++#ifndef _LINUX_BPF_CUSTOM_MAP_H
++#define _LINUX_BPF_CUSTOM_MAP_H 1
++
++#include <linux/types.h>
++#include <linux/bpf.h>
++#include <linux/module.h>
++
++#define BPF_CUSTOM_MAP_NAME_MAX 16
++#define BPF_CUSTOM_MAP_ID_MIN 1
++
++#define BPF_CUSTOM_MAP_GET_ID(attr)		\
++({						\
++	u32 __cmap_id;				\
++	__cmap_id = (attr)->map_extra >> 32;	\
++})
++
++struct bpf_custom_map_ops {
++	/* bpf_map_ops */
++	int (*cmap_alloc_check)(union bpf_attr *attr);
++
++	void* (*cmap_alloc)(union bpf_attr *attr);
++
++	void (*cmap_free)(void *map);
++
++	int (*cmap_update_elem)(void *map, void *key, void *value, u64 flags);
++
++	int (*cmap_delete_elem)(void *map, void *key);
++
++	void* (*cmap_lookup_elem)(void *map, void *key);
++
++	u64 (*cmap_mem_usage)(const void *map);
++	
++	/*info for management */
++	u32			id;		/*unique id alloc by IDA*/
++	char			name[BPF_CUSTOM_MAP_NAME_MAX];
++	struct list_head	list;		/*bpf_custom_map_ops_list  */
++	struct module		*owner;
++};
++
++struct bpf_custom_map {
++	struct bpf_map map;
++
++	/*should estimate the access performance (cache aligned?)*/
++	struct bpf_custom_map_ops 	*cmap_ops ____cacheline_aligned;
++
++	/* user alloc area, should be freed by user*/
++	void 			*cmap_data;
++};
++#endif
+diff --git a/include/linux/bpf_types.h b/include/linux/bpf_types.h
+index fc0d6f32c687..cd3181b78485 100644
+--- a/include/linux/bpf_types.h
++++ b/include/linux/bpf_types.h
+@@ -132,6 +132,11 @@ BPF_MAP_TYPE(BPF_MAP_TYPE_STRUCT_OPS, bpf_struct_ops_map_ops)
+ BPF_MAP_TYPE(BPF_MAP_TYPE_RINGBUF, ringbuf_map_ops)
+ BPF_MAP_TYPE(BPF_MAP_TYPE_BLOOM_FILTER, bloom_filter_map_ops)
+ BPF_MAP_TYPE(BPF_MAP_TYPE_USER_RINGBUF, user_ringbuf_map_ops)
++#if defined(CONFIG_BPF_CUSTOM_MAP)
++#include <linux/bpf_custom_map.h>
++BPF_MAP_TYPE(BPF_MAP_TYPE_CUSTOM_MAP, custom_map_ops)
++BPF_MAP_TYPE(BPF_MAP_TYPE_STATIC_CUSTOM_MAP, static_cmap_ops)
++#endif
+ 
+ BPF_LINK_TYPE(BPF_LINK_TYPE_RAW_TRACEPOINT, raw_tracepoint)
+ BPF_LINK_TYPE(BPF_LINK_TYPE_TRACING, tracing)
+diff --git a/include/uapi/linux/bpf.h b/include/uapi/linux/bpf.h
+index 0448700890f7..38487d40bdd1 100644
+--- a/include/uapi/linux/bpf.h
++++ b/include/uapi/linux/bpf.h
+@@ -944,6 +944,8 @@ enum bpf_map_type {
+ 	BPF_MAP_TYPE_BLOOM_FILTER,
+ 	BPF_MAP_TYPE_USER_RINGBUF,
+ 	BPF_MAP_TYPE_CGRP_STORAGE,
++	BPF_MAP_TYPE_CUSTOM_MAP,
++	BPF_MAP_TYPE_STATIC_CUSTOM_MAP,
+ };
+ 
+ /* Note that tracing related programs such as
+diff --git a/kernel/bpf/Kconfig b/kernel/bpf/Kconfig
+index 6a906ff93006..cb2654c20cdb 100644
+--- a/kernel/bpf/Kconfig
++++ b/kernel/bpf/Kconfig
+@@ -100,4 +100,10 @@ config BPF_LSM
+ 
+ 	  If you are unsure how to answer this question, answer N.
+ 
++config BPF_CUSTOM_MAP
++	bool "Enable BPF custom map"
++	default y
++	help
++	    Enables BPF custom map
++
+ endmenu # "BPF subsystem"
+diff --git a/kernel/bpf/Makefile b/kernel/bpf/Makefile
+index f526b7573e97..5f34d3351a56 100644
+--- a/kernel/bpf/Makefile
++++ b/kernel/bpf/Makefile
+@@ -46,3 +46,5 @@ obj-$(CONFIG_BPF_PRELOAD) += preload/
+ obj-$(CONFIG_BPF_SYSCALL) += relo_core.o
+ $(obj)/relo_core.o: $(srctree)/tools/lib/bpf/relo_core.c FORCE
+ 	$(call if_changed_rule,cc_o_c)
++
++obj-$(CONFIG_BPF_CUSTOM_MAP) += custom_map.o
+diff --git a/kernel/bpf/custom_map.c b/kernel/bpf/custom_map.c
+new file mode 100644
+index 000000000000..70c4ead30329
+--- /dev/null
++++ b/kernel/bpf/custom_map.c
+@@ -0,0 +1,625 @@
++/*
++ * chonepieceyb 2023-2-20
++ * supported for ebpf custom map
++ */
++
++#include "linux/static_call.h"
++#include "asm-generic/bug.h"
++#include "asm-generic/errno-base.h"
++#include "linux/err.h"
++#include "linux/module.h"
++#include <linux/list.h>
++#include <linux/rculist.h>
++#include <linux/printk.h>
++#include <linux/btf_ids.h>
++#include <linux/bpf_custom_map.h>
++#include <linux/static_call.h>
++
++static DEFINE_SPINLOCK(bpf_custom_map_list_lock);
++static LIST_HEAD(bpf_custom_map_list);
++
++/*
++ * get custom_map by key
++ */
++
++static inline struct bpf_custom_map_ops *bpf_custom_map_get_key(u32 key) {
++	struct bpf_custom_map_ops *map, *e;
++
++	rcu_read_lock();
++	list_for_each_entry_rcu(e, &bpf_custom_map_list, list) {
++		if (e->id == key) {
++			/*find the map*/
++			map = rcu_dereference(e);
++			rcu_read_unlock();
++			return map;
++		}
++	}
++	rcu_read_unlock();
++	return NULL;
++}
++
++static inline struct bpf_custom_map_ops *__bpf_custom_map_get_key(u32 key) {
++	struct bpf_custom_map_ops *e;
++	list_for_each_entry(e, &bpf_custom_map_list, list) {
++		if (e->id == key) {
++			/*find the map*/
++			return e;
++		}
++	}
++	return NULL;
++}
++/*
++ * add custom_map to bpf_custom_map_list
++ * 1. alloc id
++ * 2. add to list
++ */
++
++/**
++ * bpf_register_custom_map() - register a custom_map
++ * @cmap_ops: provided BPF_CUSTOM_MAP
++ *
++ * Return: If success return allocated map id > 0, used in bpf_map.extras
++ * if failed return -EINVAL or -ENOMEM
++ */
++
++int bpf_register_custom_map(struct bpf_custom_map_ops *cmap_ops) {
++	int id;
++
++	/* codes for check cmap */
++	if (!cmap_ops->cmap_alloc || !cmap_ops->cmap_free || !cmap_ops->cmap_mem_usage ||
++		!(cmap_ops->cmap_update_elem || cmap_ops->cmap_lookup_elem || cmap_ops->cmap_delete_elem)) {
++		pr_err("custom map %s does not implement required op!\n", cmap_ops->name);
++		return -EINVAL;
++	}
++
++	if (!cmap_ops->owner) {
++		pr_err("custom map %s does not set owner!\n", cmap_ops->name);
++		return -EINVAL;
++	}
++
++	spin_lock(&bpf_custom_map_list_lock);
++	id = cmap_ops->id;
++
++	if (!id || __bpf_custom_map_get_key(id)) {
++		spin_unlock(&bpf_custom_map_list_lock);
++		pr_err("custom map %s with id:%d exist!\n", cmap_ops->name, id);
++		return -EINVAL;
++	}
++
++	list_add_tail_rcu(&cmap_ops->list, &bpf_custom_map_list);
++
++	spin_unlock(&bpf_custom_map_list_lock);
++
++	pr_debug("register custom map %s with id %d\n", cmap_ops->name, id);
++	/* return id */
++	return 0;
++}
++EXPORT_SYMBOL_GPL(bpf_register_custom_map);
++
++void bpf_unregister_custom_map(struct bpf_custom_map_ops *cmap_ops) {
++	spin_lock(&bpf_custom_map_list_lock);
++	list_del_rcu(&cmap_ops->list);
++	spin_unlock(&bpf_custom_map_list_lock);
++	pr_debug("unregister custom map %s with id %d\n", cmap_ops->name, cmap_ops->id);
++}
++EXPORT_SYMBOL_GPL(bpf_unregister_custom_map);
++
++/***********************************************************
++ * *****************some helper functions*******************
++ * ********************************************************/
++
++
++/************************************************************
++ *******************bpf map related ops**********************
++ ************************************************************/
++
++/*
++* custom map alloc check
++* 1. parse custom map id from map.extra
++* 2. get custom_map using id
++* 3. hold module
++* 4. call bpf_custom_map_ops->alloc_check
++* 5. free module
++* 6. check other attrs
++*/
++
++static int custom_map_alloc_check(union bpf_attr *attr)
++{
++
++	int ret;
++	u32 id;
++	struct bpf_custom_map_ops *cmap_ops;
++
++	BUG_ON(attr->map_type != BPF_MAP_TYPE_CUSTOM_MAP);
++
++        ret = 0;
++	id = BPF_CUSTOM_MAP_GET_ID(attr);
++
++	if (id == 0 || !(cmap_ops = bpf_custom_map_get_key(id))) {
++		pr_err("id == 0 or failed to find custom map with id %d\n", id);
++		return -EINVAL;
++	}
++
++	if (!try_module_get(cmap_ops->owner)) {
++		pr_err("custome map have been removed during alloc check!\n");
++		return -ENODEV;
++	}
++
++	if (cmap_ops->cmap_alloc_check)
++		ret = cmap_ops->cmap_alloc_check(attr);
++
++	module_put(cmap_ops->owner);
++
++	/* should add memory barrier here? */
++
++	pr_debug("custom_map %s with id %d alloc check finish, ret %d\n", cmap_ops->name, id, ret);
++
++	return ret;
++}
++
++/*
++ * custom map alloc
++ * 1. hold module
++ * 2. alloc bpf_custom_map
++ * 3. call cmap_ops->alloc
++ *
++ * Resources:
++ * 	module, cmap, cmap_data
++ */
++static struct bpf_map *custom_map_alloc(union bpf_attr *attr)
++{
++	u32 id;
++	struct bpf_custom_map *cmap;
++	struct bpf_custom_map_ops *cmap_ops;
++	void *cmap_data;
++
++	id = BPF_CUSTOM_MAP_GET_ID(attr);
++
++	if (id == 0 || !(cmap_ops = bpf_custom_map_get_key(id))) {
++		pr_err("id == 0 or failed to find custom map with id %d\n", id);
++		return ERR_PTR(-EINVAL);
++	}
++
++	/*1. hold module*/
++	if (!try_module_get(cmap_ops->owner)) {
++		pr_err("custome map have been removed during alloc!\n");
++		return ERR_PTR(-ENODEV);
++	}
++
++	/*2. bpf_custom_map alloc */
++	cmap = bpf_map_area_alloc(sizeof(struct bpf_custom_map), NUMA_NO_NODE);
++	if (!cmap) {
++		cmap = ERR_PTR(-ENOMEM);
++		goto free_module;
++	}
++
++	/*3. cmap alloc */
++	cmap_data = cmap_ops->cmap_alloc(attr);
++
++	if (IS_ERR(cmap_data)) {
++		goto free_cmap_module;
++	}
++
++	/* other attributes */
++	cmap->cmap_ops = cmap_ops;
++	cmap->cmap_data = cmap_data;
++	/* init map attributes eg key_size value_size*/
++	bpf_map_init_from_attr(&cmap->map, attr);
++
++	pr_debug("custom_map %s with id %d alloc finished", cmap_ops->name, cmap_ops->id);
++	return &cmap->map;
++
++free_module:
++	module_put(cmap_ops->owner);
++	return (struct bpf_map*)cmap;
++
++free_cmap_module:
++	bpf_map_area_free(cmap);
++	module_put(cmap_ops->owner);
++	return (struct bpf_map*)cmap_data;
++}
++
++/*
++ * custom map free
++ * 1. free cmap_data
++ * 2. free module
++ * 3. free cmap
++ */
++static void custom_map_free(struct bpf_map *map)
++{
++	struct bpf_custom_map *cmap = container_of(map, struct bpf_custom_map, map);
++	struct bpf_custom_map_ops *cmap_ops = cmap->cmap_ops;
++	cmap_ops->cmap_free(cmap->cmap_data);
++        module_put(cmap_ops->owner);
++	bpf_map_area_free(cmap);
++	pr_debug("custom_map %s with id %d free finished", cmap_ops->name, cmap_ops->id);
++}
++
++/*
++ * custome map update
++ * 1. set context
++ * 2. call cmap_ops->cmap_update_elem
++ */
++static long custom_map_update_elem(struct bpf_map *map, void *key, void *value, u64 map_flags)
++{
++	struct bpf_custom_map *cmap = container_of(map, struct bpf_custom_map, map);
++	struct bpf_custom_map_ops *cmap_ops = cmap->cmap_ops;
++
++	if (unlikely(!cmap_ops->cmap_update_elem)) {
++		return -EINVAL;
++	}
++
++	pr_debug("custom_map %s with id %d update elem finished", cmap_ops->name, cmap_ops->id);
++	return cmap_ops->cmap_update_elem(cmap->cmap_data, key, value, map_flags);
++}
++
++/*
++ * custome map lookoup
++ * 1. set context
++ * 2. call cmap_ops->cmap_lookup_elem
++ */
++static void* custom_map_lookup_elem(struct bpf_map *map, void *key)
++{
++	struct bpf_custom_map *cmap = container_of(map, struct bpf_custom_map, map);
++	struct bpf_custom_map_ops *cmap_ops = cmap->cmap_ops;
++
++	if (unlikely(!cmap_ops->cmap_lookup_elem)) {
++		return ERR_PTR(-EINVAL);
++	}
++
++	pr_debug("custom_map %s with id %d lookup elem finished", cmap_ops->name, cmap_ops->id);
++	return cmap_ops->cmap_lookup_elem(cmap->cmap_data, key);
++}
++
++/*
++ * custom map delete
++ */
++
++static long custom_map_delete_elem(struct bpf_map *map, void *key)
++{
++	struct bpf_custom_map *cmap = container_of(map, struct bpf_custom_map, map);
++	struct bpf_custom_map_ops *cmap_ops = cmap->cmap_ops;
++
++	if (unlikely(!cmap_ops->cmap_delete_elem)) {
++		return -EINVAL;
++	}
++
++	pr_debug("custom_map %s with id %d delete elem finished", cmap_ops->name, cmap_ops->id);
++	return cmap_ops->cmap_delete_elem(cmap->cmap_data, key);
++}
++
++/*
++ * custom map alloc check
++ */
++
++static int custom_map_check_btf(const struct bpf_map *map,
++				const struct btf *btf,
++				const struct btf_type *key_type,
++				const struct btf_type *value_type)
++{
++
++	/* should check the key_type and custome defined key type is the same in the feature*/
++	struct bpf_custom_map *cmap = container_of(map, struct bpf_custom_map, map);
++	struct bpf_custom_map_ops *cmap_ops = cmap->cmap_ops;
++	pr_debug("custom map %s with id %d check btf finished\n", cmap_ops->name, cmap_ops->id);
++	return 0;
++}
++
++
++static u64 custom_map_mem_usage(const struct bpf_map *map) 
++{
++	struct bpf_custom_map *cmap = container_of(map, struct bpf_custom_map, map);
++	struct bpf_custom_map_ops *cmap_ops = cmap->cmap_ops;
++	pr_debug("custom map %s with id %d mem usage finished\n", cmap_ops->name, cmap_ops->id);
++	return cmap_ops->cmap_mem_usage(cmap->cmap_data);
++}
++
++BTF_ID_LIST_SINGLE(custom_map_btf_ids, struct, bpf_custom_map)
++const struct bpf_map_ops custom_map_ops = {
++	.map_alloc_check = custom_map_alloc_check,
++        .map_alloc = custom_map_alloc,
++	.map_free = custom_map_free,
++	.map_lookup_elem = custom_map_lookup_elem,
++	.map_delete_elem = custom_map_delete_elem,
++	.map_update_elem = custom_map_update_elem,
++	.map_check_btf = custom_map_check_btf,
++	.map_mem_usage = custom_map_mem_usage,
++	.map_btf_id = &custom_map_btf_ids[0],
++};
++
++/********************static custom map*****************/
++
++static struct bpf_map_ops *static_cmap_curr_ops = NULL; 
++static struct module *static_cmap_curr_onwer = NULL;
++static DEFINE_SPINLOCK(static_cmap_lock);
++
++static int empty_cmap_alloc_check(union bpf_attr *attr)
++{
++	return -ENOENT;
++}
++
++static struct bpf_map *empty_cmap_alloc(union bpf_attr *attr)
++{
++	return ERR_PTR(-ENOENT);
++}
++
++static void empty_cmap_free(struct bpf_map *map)
++{
++	pr_warn("static cmap not provide free implementation");
++	return;
++}
++
++static long empty_cmap_update_elem(struct bpf_map *map, void *key, void *value, u64 map_flags)
++{
++	return -ENOENT;
++}
++
++static long empty_cmap_delete_elem(struct bpf_map *map, void *key)
++{
++	return -ENOENT;
++}
++
++static void* empty_cmap_lookup_elem(struct bpf_map *map, void *key)
++{
++	return ERR_PTR(-ENOENT);
++}
++
++static long empty_cmap_push_elem(struct bpf_map *map, void *value, u64 flags)
++{
++	return -ENOENT;
++}
++
++static long empty_cmap_pop_elem(struct bpf_map *map, void *value) {
++	return -ENOENT;
++}
++
++static long empty_cmap_peek_elem(struct bpf_map *map, void *value)
++{
++	return -ENOENT;
++}
++
++static int empty_cmap_check_btf(const struct bpf_map *map,
++				const struct btf *btf,
++				const struct btf_type *key_type,
++				const struct btf_type *value_type)
++{
++	return 0;
++}
++
++static u64 empty_cmap_mem_usage(const struct bpf_map *map) 
++{
++	return 0;
++}
++
++DEFINE_STATIC_CALL_RET0(__static_cmap_alloc_check, empty_cmap_alloc_check);
++DEFINE_STATIC_CALL_RET0(__static_cmap_alloc, empty_cmap_alloc);
++DEFINE_STATIC_CALL_NULL(__static_cmap_free, empty_cmap_free);
++DEFINE_STATIC_CALL_RET0(__static_cmap_update_elem, empty_cmap_update_elem);
++DEFINE_STATIC_CALL_RET0(__static_cmap_delete_elem, empty_cmap_delete_elem);
++DEFINE_STATIC_CALL_RET0(__static_cmap_lookup_elem, empty_cmap_lookup_elem);
++DEFINE_STATIC_CALL_RET0(__static_cmap_push_elem, empty_cmap_push_elem);
++DEFINE_STATIC_CALL_RET0(__static_cmap_pop_elem, empty_cmap_pop_elem);
++DEFINE_STATIC_CALL_RET0(__static_cmap_peek_elem, empty_cmap_peek_elem);
++DEFINE_STATIC_CALL_RET0(__static_cmap_check_btf, empty_cmap_check_btf);
++DEFINE_STATIC_CALL_RET0(__static_cmap_mem_usage, empty_cmap_mem_usage);
++
++static int static_cmap_alloc_check(union bpf_attr *attr)
++{	
++	int res;
++	spin_lock(&static_cmap_lock);
++	if (static_cmap_curr_onwer == NULL) {
++		spin_unlock(&static_cmap_lock);
++		pr_err("static_cmap_alloc_check static cmap has not been registered");
++		return -ENODEV;
++	}
++	if (!try_module_get(static_cmap_curr_onwer)) {
++		spin_unlock(&static_cmap_lock);
++		pr_err("static_cmap_alloc_check static cmap failed to get owner");
++		return -ENODEV;
++	}
++	spin_unlock(&static_cmap_lock);
++	res =  static_call(__static_cmap_alloc_check)(attr);
++
++	/*if owner is get, curr_onwer will not be set NULL*/
++	module_put(static_cmap_curr_onwer);   /*if owner is get, curr_onwer will not be set NULL*/
++
++	return res;
++}
++
++static struct bpf_map *static_cmap_alloc(union bpf_attr *attr)
++{
++	spin_lock(&static_cmap_lock);
++	if (static_cmap_curr_onwer == NULL) {
++		spin_unlock(&static_cmap_lock);
++		pr_err("static_cmap_alloc static cmap has not been registered");
++		return ERR_PTR(-ENODEV);
++	}
++	if (!try_module_get(static_cmap_curr_onwer)) {
++		spin_unlock(&static_cmap_lock);
++		pr_err("static_cmap_alloc static cmap failed to get owner");
++		return ERR_PTR(-ENODEV);
++	}
++	spin_unlock(&static_cmap_lock);
++
++	struct bpf_map *map = static_call(__static_cmap_alloc)(attr);
++	if (!IS_ERR_OR_NULL(map)) {
++		bpf_map_init_from_attr(map, attr);
++	}
++	return map;
++}
++
++static void static_cmap_free(struct bpf_map *map)
++{
++	module_put(static_cmap_curr_onwer);
++	static_call(__static_cmap_free)(map);
++}
++
++static long static_cmap_update_elem(struct bpf_map *map, void *key, void *value, u64 map_flags)
++{
++	return static_call(__static_cmap_update_elem)(map, key, value, map_flags);
++}
++
++
++/*
++ * custome map lookoup
++ * 1. set context
++ * 2. call cmap_ops->cmap_lookup_elem
++ */
++static void* static_cmap_lookup_elem(struct bpf_map *map, void *key)
++{
++	return static_call(__static_cmap_lookup_elem)(map, key);
++}
++
++/*
++ * custom map delete
++ */
++
++static long static_cmap_delete_elem(struct bpf_map *map, void *key)
++{
++	return static_call(__static_cmap_delete_elem)(map, key);
++}
++
++static long static_cmap_push_elem(struct bpf_map *map, void *value, u64 flags)
++{
++	return static_call(__static_cmap_push_elem)(map, value, flags);
++}
++
++static long static_cmap_pop_elem(struct bpf_map *map, void *value) {
++	return static_call(__static_cmap_pop_elem)(map, value);
++}
++
++static long static_cmap_peek_elem(struct bpf_map *map, void *value)
++{
++	return static_call(__static_cmap_peek_elem)(map, value);
++}
++
++/*
++ * custom map alloc check
++ */
++
++static int static_cmap_check_btf(const struct bpf_map *map,
++				const struct btf *btf,
++				const struct btf_type *key_type,
++				const struct btf_type *value_type)
++{
++	return static_call(__static_cmap_check_btf)(map, btf, key_type, value_type);
++}
++
++static u64 static_cmap_mem_usage(const struct bpf_map *map) 
++{
++	return static_call(__static_cmap_mem_usage)(map);
++}
++
++const struct bpf_map_ops static_cmap_ops = {
++	.map_alloc_check = static_cmap_alloc_check,
++        .map_alloc = static_cmap_alloc,
++	.map_free = static_cmap_free,
++	.map_lookup_elem = static_cmap_lookup_elem,
++	.map_delete_elem = static_cmap_delete_elem,
++	.map_update_elem = static_cmap_update_elem,
++	.map_push_elem = static_cmap_push_elem,
++	.map_pop_elem = static_cmap_pop_elem,
++	.map_peek_elem = static_cmap_peek_elem,
++	.map_check_btf = static_cmap_check_btf,
++	.map_mem_usage = static_cmap_mem_usage,
++};
++
++int bpf_register_static_cmap(struct bpf_map_ops *map, struct module *onwer) {
++	/*check map ops*/
++	if (onwer == NULL) {
++		pr_err("static map does not provide owner!");
++		return -EINVAL;
++	}
++
++	if (!map->map_alloc || !map->map_free || !map->map_mem_usage || 
++		!(map->map_update_elem || map->map_lookup_elem || map->map_delete_elem ||
++			map->map_push_elem || map->map_pop_elem || map->map_peek_elem)) {
++		pr_err("static map %s does not implement required op!", onwer->name);
++		return -EINVAL;
++	}
++
++	spin_lock(&static_cmap_lock);
++	if (static_cmap_curr_onwer != NULL) {
++		pr_err("failed to register static cmap because curr onwer %s is not NULL", static_cmap_curr_onwer->name);
++		spin_unlock(&static_cmap_lock);
++		return -EEXIST;
++	}
++	static_cmap_curr_onwer = onwer;
++	static_cmap_curr_ops = map;
++	/* onwer is NULL can set static key*/
++	if (map->map_alloc_check != NULL) {
++		static_call_update(__static_cmap_alloc_check, map->map_alloc_check);
++		pr_debug("static cmap %s update map_alloc_check", onwer->name);
++	}
++	if (map->map_alloc != NULL) {
++		static_call_update(__static_cmap_alloc, map->map_alloc);
++		pr_debug("static cmap %s update map_alloc", onwer->name);
++	}
++	if (map->map_free != NULL) {
++		static_call_update(__static_cmap_free, map->map_free);
++		pr_debug("static cmap %s update map_alloc", onwer->name);
++	}
++	if (map->map_update_elem != NULL) {
++		static_call_update(__static_cmap_update_elem, map->map_update_elem);
++		pr_debug("static cmap %s update map_update_elem", onwer->name);
++	}
++	if (map->map_delete_elem != NULL) {
++		static_call_update(__static_cmap_delete_elem, map->map_delete_elem);
++		pr_debug("static cmap %s update map_delete_elem", onwer->name);
++	}
++	if (map->map_lookup_elem != NULL) {
++		static_call_update(__static_cmap_lookup_elem, map->map_lookup_elem);
++		pr_debug("static cmap %s update map_lookup_elem", onwer->name);
++	}
++	if (map->map_push_elem != NULL) {
++		static_call_update(__static_cmap_push_elem, map->map_push_elem);
++		pr_debug("static cmap %s update map_push_elem", onwer->name);
++	}
++	if (map->map_pop_elem != NULL) {
++		static_call_update(__static_cmap_pop_elem, map->map_pop_elem);
++		pr_debug("static cmap %s update map_pop_elem", onwer->name);
++	}
++	if (map->map_peek_elem != NULL) {
++		static_call_update(__static_cmap_peek_elem, map->map_peek_elem);
++		pr_debug("static cmap %s update map_peek_elem", onwer->name);
++	}
++	if (map->map_check_btf != NULL) {
++		static_call_update(__static_cmap_check_btf, map->map_check_btf);
++		pr_debug("static cmap %s update map_check_btf", onwer->name);
++	}
++	if (map->map_mem_usage != NULL) {
++		static_call_update(__static_cmap_mem_usage, map->map_mem_usage);
++		pr_debug("static cmap %s update mem_usage", onwer->name);
++	}
++	spin_unlock(&static_cmap_lock);
++	pr_debug("register static cmap %s", onwer->name);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(bpf_register_static_cmap);
++
++void bpf_unregister_static_cmap(struct module *onwer) {
++	WARN_ON(onwer==NULL);
++	spin_lock(&static_cmap_lock);
++	if (onwer != static_cmap_curr_onwer) {
++		pr_warn("invalid onwer %s call unregister", onwer->name);
++		spin_unlock(&static_cmap_lock);
++		return;
++	}
++	static_call_update(__static_cmap_alloc_check, empty_cmap_alloc_check);
++	static_call_update(__static_cmap_alloc, empty_cmap_alloc);	
++	static_call_update(__static_cmap_free, empty_cmap_free);
++	static_call_update(__static_cmap_update_elem, empty_cmap_update_elem);
++	static_call_update(__static_cmap_delete_elem, empty_cmap_delete_elem);
++	static_call_update(__static_cmap_lookup_elem, empty_cmap_lookup_elem);
++	static_call_update(__static_cmap_push_elem, empty_cmap_push_elem);
++	static_call_update(__static_cmap_pop_elem, empty_cmap_pop_elem);
++	static_call_update(__static_cmap_peek_elem, empty_cmap_peek_elem);
++	static_call_update(__static_cmap_check_btf, empty_cmap_check_btf);
++	static_call_update(__static_cmap_mem_usage, empty_cmap_mem_usage);
++	
++	static_cmap_curr_onwer = NULL;
++	static_cmap_curr_ops = NULL;
++	spin_unlock(&static_cmap_lock);
++	pr_debug("unregister static cmap %s", onwer->name);
++}
++EXPORT_SYMBOL_GPL(bpf_unregister_static_cmap);
+\ No newline at end of file
+diff --git a/kernel/bpf/memalloc.c b/kernel/bpf/memalloc.c
+index d93ddac283d4..680dcbb3114c 100644
+--- a/kernel/bpf/memalloc.c
++++ b/kernel/bpf/memalloc.c
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ /* Copyright (c) 2022 Meta Platforms, Inc. and affiliates. */
++#include "linux/export.h"
+ #include <linux/mm.h>
+ #include <linux/llist.h>
+ #include <linux/bpf.h>
+@@ -598,6 +599,7 @@ int bpf_mem_alloc_init(struct bpf_mem_alloc *ma, int size, bool percpu)
+ 		bpf_mem_alloc_destroy(ma);
+ 	return err;
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_alloc_init);
+ 
+ static void drain_mem_cache(struct bpf_mem_cache *c)
+ {
+@@ -753,6 +755,7 @@ void bpf_mem_alloc_destroy(struct bpf_mem_alloc *ma)
+ 		destroy_mem_alloc(ma, rcu_in_progress);
+ 	}
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_alloc_destroy);
+ 
+ /* notrace is necessary here and in other functions to make sure
+  * bpf programs cannot attach to them and cause llist corruptions.
+@@ -869,6 +872,7 @@ void notrace *bpf_mem_alloc(struct bpf_mem_alloc *ma, size_t size)
+ 	ret = unit_alloc(this_cpu_ptr(ma->caches)->cache + idx);
+ 	return !ret ? NULL : ret + LLIST_NODE_SZ;
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_alloc);
+ 
+ void notrace bpf_mem_free(struct bpf_mem_alloc *ma, void *ptr)
+ {
+@@ -883,6 +887,7 @@ void notrace bpf_mem_free(struct bpf_mem_alloc *ma, void *ptr)
+ 
+ 	unit_free(this_cpu_ptr(ma->caches)->cache + idx, ptr);
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_free);
+ 
+ void notrace bpf_mem_free_rcu(struct bpf_mem_alloc *ma, void *ptr)
+ {
+@@ -897,6 +902,7 @@ void notrace bpf_mem_free_rcu(struct bpf_mem_alloc *ma, void *ptr)
+ 
+ 	unit_free_rcu(this_cpu_ptr(ma->caches)->cache + idx, ptr);
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_free_rcu);
+ 
+ void notrace *bpf_mem_cache_alloc(struct bpf_mem_alloc *ma)
+ {
+@@ -905,6 +911,7 @@ void notrace *bpf_mem_cache_alloc(struct bpf_mem_alloc *ma)
+ 	ret = unit_alloc(this_cpu_ptr(ma->cache));
+ 	return !ret ? NULL : ret + LLIST_NODE_SZ;
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_cache_alloc);
+ 
+ void notrace bpf_mem_cache_free(struct bpf_mem_alloc *ma, void *ptr)
+ {
+@@ -913,6 +920,7 @@ void notrace bpf_mem_cache_free(struct bpf_mem_alloc *ma, void *ptr)
+ 
+ 	unit_free(this_cpu_ptr(ma->cache), ptr);
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_cache_free);
+ 
+ void notrace bpf_mem_cache_free_rcu(struct bpf_mem_alloc *ma, void *ptr)
+ {
+@@ -921,6 +929,7 @@ void notrace bpf_mem_cache_free_rcu(struct bpf_mem_alloc *ma, void *ptr)
+ 
+ 	unit_free_rcu(this_cpu_ptr(ma->cache), ptr);
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_cache_free_rcu);
+ 
+ /* Directly does a kfree() without putting 'ptr' back to the free_llist
+  * for reuse and without waiting for a rcu_tasks_trace gp.
+@@ -939,6 +948,7 @@ void bpf_mem_cache_raw_free(void *ptr)
+ 
+ 	kfree(ptr - LLIST_NODE_SZ);
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_cache_raw_free);
+ 
+ /* When flags == GFP_KERNEL, it signals that the caller will not cause
+  * deadlock when using kmalloc. bpf_mem_cache_alloc_flags() will use
+@@ -964,6 +974,7 @@ void notrace *bpf_mem_cache_alloc_flags(struct bpf_mem_alloc *ma, gfp_t flags)
+ 
+ 	return !ret ? NULL : ret + LLIST_NODE_SZ;
+ }
++EXPORT_SYMBOL_GPL(bpf_mem_cache_alloc_flags);
+ 
+ static __init int bpf_mem_cache_adjust_size(void)
+ {
+diff --git a/kernel/bpf/syscall.c b/kernel/bpf/syscall.c
+index d77b2f8b9364..6e5da58be7d3 100644
+--- a/kernel/bpf/syscall.c
++++ b/kernel/bpf/syscall.c
+@@ -1,6 +1,8 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ /* Copyright (c) 2011-2014 PLUMgrid, http://plumgrid.com
+  */
++#include "linux/bpf.h"
++#include "linux/export.h"
+ #include <linux/bpf.h>
+ #include <linux/bpf-cgroup.h>
+ #include <linux/bpf_trace.h>
+@@ -313,16 +315,19 @@ void *bpf_map_area_alloc(u64 size, int numa_node)
+ {
+ 	return __bpf_map_area_alloc(size, numa_node, false);
+ }
++EXPORT_SYMBOL_GPL(bpf_map_area_alloc);
+ 
+ void *bpf_map_area_mmapable_alloc(u64 size, int numa_node)
+ {
+ 	return __bpf_map_area_alloc(size, numa_node, true);
+ }
++EXPORT_SYMBOL_GPL(bpf_map_area_mmapable_alloc);
+ 
+ void bpf_map_area_free(void *area)
+ {
+ 	kvfree(area);
+ }
++EXPORT_SYMBOL_GPL(bpf_map_area_free);
+ 
+ static u32 bpf_map_flags_retain_permanent(u32 flags)
+ {
+@@ -1117,6 +1122,8 @@ static int map_create(union bpf_attr *attr)
+ 	}
+ 
+ 	if (attr->map_type != BPF_MAP_TYPE_BLOOM_FILTER &&
++	    attr->map_type != BPF_MAP_TYPE_CUSTOM_MAP &&
++	    attr->map_type != BPF_MAP_TYPE_STATIC_CUSTOM_MAP &&
+ 	    attr->map_extra != 0)
+ 		return -EINVAL;
+ 
+@@ -1196,6 +1203,8 @@ static int map_create(union bpf_attr *attr)
+ 	case BPF_MAP_TYPE_DEVMAP:
+ 	case BPF_MAP_TYPE_DEVMAP_HASH:
+ 	case BPF_MAP_TYPE_XSKMAP:
++	case BPF_MAP_TYPE_CUSTOM_MAP:
++	case BPF_MAP_TYPE_STATIC_CUSTOM_MAP:
+ 		if (!capable(CAP_NET_ADMIN))
+ 			return -EPERM;
+ 		break;
+diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
+index 873ade146f3d..afab31f87048 100644
+--- a/kernel/bpf/verifier.c
++++ b/kernel/bpf/verifier.c
+@@ -3,6 +3,7 @@
+  * Copyright (c) 2016 Facebook
+  * Copyright (c) 2018 Covalent IO, Inc. http://covalent.io
+  */
++#include "linux/bpf.h"
+ #include <uapi/linux/btf.h>
+ #include <linux/bpf-cgroup.h>
+ #include <linux/kernel.h>
+@@ -8625,14 +8626,16 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
+ 		break;
+ 	case BPF_FUNC_map_pop_elem:
+ 		if (map->map_type != BPF_MAP_TYPE_QUEUE &&
+-		    map->map_type != BPF_MAP_TYPE_STACK)
++		    map->map_type != BPF_MAP_TYPE_STACK &&
++		    map->map_type != BPF_MAP_TYPE_STATIC_CUSTOM_MAP)
+ 			goto error;
+ 		break;
+ 	case BPF_FUNC_map_peek_elem:
+ 	case BPF_FUNC_map_push_elem:
+ 		if (map->map_type != BPF_MAP_TYPE_QUEUE &&
+ 		    map->map_type != BPF_MAP_TYPE_STACK &&
+-		    map->map_type != BPF_MAP_TYPE_BLOOM_FILTER)
++		    map->map_type != BPF_MAP_TYPE_BLOOM_FILTER &&
++		    map->map_type != BPF_MAP_TYPE_STATIC_CUSTOM_MAP)
+ 			goto error;
+ 		break;
+ 	case BPF_FUNC_map_lookup_percpu_elem:
+-- 
+2.34.1
+

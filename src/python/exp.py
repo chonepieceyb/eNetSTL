@@ -23,9 +23,9 @@ import subprocess
 import os
 from exp_config import *
 
-sys.path.insert(0, '/mnt/disk1/zhaolunqi/trex_v3.03/automation/trex_control_plane/interactive')
-sys.path.insert(0, '/mnt/disk1/zhaolunqi/trex_v3.03/automation/trex_control_plane/interactive/trex/examples/stl')
-sys.path.insert(0, '/mnt/disk1/zhaolunqi/trex_v3.03/external_libs')
+sys.path.insert(0, '/root/trex/v3.03/automation/trex_control_plane/interactive')
+sys.path.insert(0, '/root/trex/v3.03/automation/trex_control_plane/interactive/trex/examples/stl')
+sys.path.insert(0, '/root/trex/v3.03/external_libs')
 from trex.stl.api import *
 from trex.utils.text_opts import format_text
 

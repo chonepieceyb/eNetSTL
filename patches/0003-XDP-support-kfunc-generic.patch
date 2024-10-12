@@ -1,0 +1,24 @@
+From 24bdf3c0cf6cc1310a96c9e8d5d4d7bee5b2ed31 Mon Sep 17 00:00:00 2001
+From: chonepieceyb <1759315491@qq.com>
+Date: Mon, 25 Dec 2023 14:51:20 +0800
+Subject: [PATCH 3/3] XDP support kfunc generic
+
+---
+ kernel/bpf/helpers.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/kernel/bpf/helpers.c b/kernel/bpf/helpers.c
+index 8bd3812fb8df..17f1d62d7b14 100644
+--- a/kernel/bpf/helpers.c
++++ b/kernel/bpf/helpers.c
+@@ -2518,6 +2518,7 @@ static int __init kfunc_init(void)
+ 
+ 	ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_TRACING, &generic_kfunc_set);
+ 	ret = ret ?: register_btf_kfunc_id_set(BPF_PROG_TYPE_SCHED_CLS, &generic_kfunc_set);
++	ret = ret ?: register_btf_kfunc_id_set(BPF_PROG_TYPE_XDP, &generic_kfunc_set);
+ 	ret = ret ?: register_btf_kfunc_id_set(BPF_PROG_TYPE_STRUCT_OPS, &generic_kfunc_set);
+ 	ret = ret ?: register_btf_id_dtor_kfuncs(generic_dtors,
+ 						  ARRAY_SIZE(generic_dtors),
+-- 
+2.34.1
+

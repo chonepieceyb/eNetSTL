@@ -7,7 +7,8 @@ if [ ! -d "$RESDIR/tmp/" ]; then
 fi
 tar xzvf $RESDIR/bpftool-libbpf-v7.3.0-sources-custom.tar.gz  -C  $RESDIR/tmp && \
 tar xzvf $RESDIR/tools.tar.gz  -C $RESDIR/tmp && \
+tar xzvf $RESDIR/v3.03.tar.gz -C $RESDIR/tmp
 
-sudo docker build --network=host --build-arg KERNEL_VERSION="$(uname -r)" -t enetstl:v0.1 -f $(pwd)/Dockerfile $RESDIR 
+sudo docker build --network=host --build-arg KERNEL_VERSION="$(uname -r)" -t chonepieceyb/enetstl:v0.1 -f $(pwd)/Dockerfile $RESDIR 
 
 rm -rf ${RESDIR}/tmp
