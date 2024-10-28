@@ -44,13 +44,44 @@ __bpf_kfunc u32 bpf_find_u16_avx(const u16 *arr, u16 val)
 EXPORT_SYMBOL_GPL(bpf_find_u16_avx);
 
 /*library of hashes*/
-__bpf_kfunc void bpf_hash_smid_cnt_u32(const struct pkt_5tuple *buf, void *mem,
-				       u64 size__sz, u32 column_shift)
-
+__bpf_kfunc void bpf_fasthash32_cnt32(const void *input, size_t input__sz,
+				      void *table, size_t table__sz,
+				      uint32_t column_shift)
 {
-	return hash_smid_cnt_u32(buf, (u32 *)mem, size__sz, column_shift);
+	return fasthash32_cnt32(input, input__sz, (uint32_t *)table, table__sz,
+				column_shift);
 }
-EXPORT_SYMBOL_GPL(bpf_hash_smid_cnt_u32);
+EXPORT_SYMBOL_GPL(bpf_fasthash32_cnt32);
+
+/*library of hashes*/
+__bpf_kfunc void bpf_fasthash32_pkt_cnt32(const struct pkt_5tuple *input,
+					  void *table, size_t table__sz,
+					  uint32_t column_shift)
+{
+	return fasthash32_pkt_cnt32(input, (uint32_t *)table, table__sz,
+				    column_shift);
+}
+EXPORT_SYMBOL_GPL(bpf_fasthash32_pkt_cnt32);
+
+/*library of hashes*/
+__bpf_kfunc void bpf_xxh32_cnt32(const void *input, size_t input__sz,
+				 void *table, size_t table__sz,
+				 uint32_t column_shift)
+{
+	return xxh32_cnt32(input, input__sz, (uint32_t *)table, table__sz,
+			   column_shift);
+}
+EXPORT_SYMBOL_GPL(bpf_xxh32_cnt32);
+
+/*library of hashes*/
+__bpf_kfunc void bpf_xxh32_pkt_cnt32(const struct pkt_5tuple *input,
+				     void *table, size_t table__sz,
+				     uint32_t column_shift)
+{
+	return xxh32_pkt_cnt32(input, (uint32_t *)table, table__sz,
+			       column_shift);
+}
+EXPORT_SYMBOL_GPL(bpf_xxh32_pkt_cnt32);
 
 /*library of hashes*/
 __bpf_kfunc uint32_t bpf_crc32c_sse(const void *data, uint32_t data__sz,
@@ -94,7 +125,6 @@ struct bpf_bkt_list {
 
 __bpf_kfunc struct bpf_bkt_list *bpf_bktlist_new(void)
 {
-	
 	return (struct bpf_bkt_list *)bktlist_new();
 }
 EXPORT_SYMBOL_GPL(bpf_bktlist_new);
@@ -112,26 +142,26 @@ __bpf_kfunc void bpf_bktlist_free(struct bpf_bkt_list *bktlist)
 }
 EXPORT_SYMBOL_GPL(bpf_bktlist_free);
 
-__bpf_kfunc int bpf_bktlist_pop_front(int fd, void *val,
-				      size_t size__szk, size_t slot)
+__bpf_kfunc int bpf_bktlist_pop_front(int fd, void *val, size_t size__szk,
+				      size_t slot)
 {
-	return bktlist_pop_front(fd, val, size__szk,
-				 slot);
+	return bktlist_pop_front(fd, val, size__szk, slot);
 }
 EXPORT_SYMBOL_GPL(bpf_bktlist_pop_front);
 
-__bpf_kfunc int bpf_bktlist_push_back(int fd,
-				      const void *val, size_t size__szk,
+__bpf_kfunc int bpf_bktlist_push_back(int fd, const void *val, size_t size__szk,
 				      size_t slot)
 {
-	return bktlist_push_back(fd, val, size__szk,
-				 slot);
+	return bktlist_push_back(fd, val, size__szk, slot);
 }
 EXPORT_SYMBOL_GPL(bpf_bktlist_push_back);
 
 BTF_SET8_START(eNetSTL_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_crc32c_sse)
-BTF_ID_FLAGS(func, bpf_hash_smid_cnt_u32)
+BTF_ID_FLAGS(func, bpf_fasthash32_cnt32)
+BTF_ID_FLAGS(func, bpf_fasthash32_pkt_cnt32)
+BTF_ID_FLAGS(func, bpf_xxh32_cnt32)
+BTF_ID_FLAGS(func, bpf_xxh32_pkt_cnt32)
 BTF_ID_FLAGS(func, bpf_k16_cmp_eq)
 BTF_ID_FLAGS(func, bpf__find_mask_u16_avx)
 BTF_ID_FLAGS(func, bpf_find_u16_avx)
@@ -172,8 +202,8 @@ static int register_kfuncs(void)
 
 static int initialize_hashes(void)
 {
-	xxh_init();
-	hash_post_init();
+	// xxh_init();
+	// hash_post_init();
 	return 0;
 }
 
@@ -223,9 +253,9 @@ static int __init eNetSTL_init(void)
 	} else {
 		pr_info("eNetSTL: initialized geo sampling\n");
 	}
-	
+
 	return 0;
-	
+
 cleanup_bktlist:
 	free_bktlist_module();
 	return ret;

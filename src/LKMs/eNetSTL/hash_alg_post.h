@@ -1,10 +1,15 @@
-#pragma once 
+#ifndef HASH_ALG_POST_H
+#define HASH_ALG_POST_H
 
 #include "common.h"
-#include "linux/printk.h"
+
+#include <linux/xxhash.h>
+
+#include "fasthash.h"
+#include "fasthash_simd.h"
 #include "xxhash_simd.h"
 
-static const u32 seeds[] = {
+static const uint32_t _HASH_ALG_POST_SEEDS_DATA[] = {
 	0xec5853, 0xec5859, 0xec5861, 0xec587f, 0xec58a7, 0xec58b3, 0xec58c7,
 	0xec58d1, 0xec5853, 0xec5859, 0xec5861, 0xec587f, 0xec58a7, 0xec58b3,
 	0xec58c7, 0xec58d1, 0xec5853, 0xec5859, 0xec5861, 0xec587f, 0xec58a7,
@@ -17,32 +22,151 @@ static const u32 seeds[] = {
 	0xec58d1,
 };
 
-static __m256i SEEDS_VEC;
-
-#define NO_TEAR_ADD(x, val) WRITE_ONCE((x), READ_ONCE(x) + (val))
-
-static inline __attribute__((always_inline)) void hash_post_init(void)
+static __always_inline void fasthash32_cnt32(const void *input,
+					     const size_t len, uint32_t *table,
+					     const size_t table_size,
+					     const uint32_t column_shift)
 {
-        SEEDS_VEC = _mm256_loadu_si256((const __m256i_u *)seeds);
-}
+	uint32_t _column_shift, column_count;
+	uint32_t hash_count, *hashes, hash;
+	__m128i hashes_vec;
+	uint32_t i = 0, target_index;
 
-static inline __attribute__((always_inline)) void
-hash_smid_cnt_u32(const struct pkt_5tuple *buf, u32 *values, u64 size,
-		  u32 column_shift)
-{
-        column_shift = column_shift & 0x1F;
-        u32 colunms = (1 << column_shift);
-	u32 hash_num = (size >> column_shift >> 2);
-	if (hash_num > 8) {
-		pr_err("hash num > 8");
-		return;
+	_column_shift = column_shift & 0x1f;
+	column_count = 1 << _column_shift;
+	hash_count = table_size >> _column_shift >> 2;
+
+	for (; i + 4 <= hash_count; i += 4) {
+		hashes_vec = __fasthash32_4hashes(
+			input, len,
+			_mm_loadu_si128((
+				__m128i_u *)((uint32_t *)
+						     _HASH_ALG_POST_SEEDS_DATA +
+					     i)));
+		hashes = (uint32_t *)&hashes_vec;
+		for (int j = 0; j < 4; j++) {
+			target_index = hashes[j] & (column_count - 1);
+			*(table + (i + j) * column_count + target_index) += 1;
+		}
 	}
 
-	const __m256i hashes_vec = xxh32_avx2_pkt5(buf, &SEEDS_VEC);
-	const u32 *hashes = (const u32 *)&hashes_vec;
-
-	for (u32 i = 0; i < hash_num; i++) {
-		u32 target_idx = hashes[i] & (colunms - 1);
-		NO_TEAR_ADD(*(values + i * colunms + target_idx), 1);
+	for (; i < hash_count; i++) {
+		hash = fasthash32(input, len,
+				  *((uint32_t *)_HASH_ALG_POST_SEEDS_DATA + i));
+		target_index = hash & (column_count - 1);
+		*(table + i * column_count + target_index) += 1;
 	}
 }
+
+#define fasthash32_pkt(input, seed) fasthash32(input, 13, seed)
+
+static __always_inline void fasthash32_pkt_cnt32(const void *input,
+						 uint32_t *table,
+						 const size_t table_size,
+						 const uint32_t column_shift)
+{
+	uint32_t _column_shift, column_count;
+	uint32_t hash_count, *hashes, hash;
+	__m128i hashes_vec;
+	uint32_t i = 0, target_index;
+
+	_column_shift = column_shift & 0x1f;
+	column_count = 1 << _column_shift;
+	hash_count = table_size >> _column_shift >> 2;
+
+	for (; i + 4 <= hash_count; i += 4) {
+		hashes_vec = __fasthash32_pkt_4hashes(
+			input,
+			_mm_loadu_si128((
+				__m128i_u *)((uint32_t *)
+						     _HASH_ALG_POST_SEEDS_DATA +
+					     i)));
+		hashes = (uint32_t *)&hashes_vec;
+		for (int j = 0; j < 4; j++) {
+			target_index = hashes[j] & (column_count - 1);
+			*(table + (i + j) * column_count + target_index) += 1;
+		}
+	}
+
+	for (; i < hash_count; i++) {
+		hash = fasthash32_pkt(
+			input, *((uint32_t *)_HASH_ALG_POST_SEEDS_DATA + i));
+		target_index = hash & (column_count - 1);
+		*(table + i * column_count + target_index) += 1;
+	}
+}
+
+static __always_inline void xxh32_cnt32(const void *input, const size_t len,
+					uint32_t *table,
+					const size_t table_size,
+					const uint32_t column_shift)
+{
+	uint32_t _column_shift, column_count;
+	uint32_t hash_count, *hashes, hash;
+	__m256i hashes_vec;
+	uint32_t i = 0, target_index;
+
+	_column_shift = column_shift & 0x1f;
+	column_count = 1 << _column_shift;
+	hash_count = table_size >> _column_shift >> 2;
+
+	for (; i + 8 <= hash_count; i += 8) {
+		hashes_vec = __xxh32_8hashes(
+			input, len,
+			_mm256_loadu_si256((
+				__m256i_u *)((uint32_t *)
+						     _HASH_ALG_POST_SEEDS_DATA +
+					     i)));
+		hashes = (uint32_t *)&hashes_vec;
+		for (int j = 0; j < 8; j++) {
+			target_index = hashes[j] & (column_count - 1);
+			*(table + (i + j) * column_count + target_index) += 1;
+		}
+	}
+
+	for (; i < hash_count; i++) {
+		hash = xxh32(input, len,
+			     *((uint32_t *)_HASH_ALG_POST_SEEDS_DATA + i));
+		target_index = hash & (column_count - 1);
+		*(table + i * column_count + target_index) += 1;
+	}
+}
+
+#define xxh32_pkt(input, seed) xxh32(input, 13, seed)
+
+static __always_inline void xxh32_pkt_cnt32(const void *input, uint32_t *table,
+					    const size_t table_size,
+					    const uint32_t column_shift)
+{
+	uint32_t _column_shift, column_count;
+	uint32_t hash_count, *hashes, hash;
+	__m256i hashes_vec;
+	uint32_t i = 0, target_index;
+
+	_column_shift = column_shift & 0x1f;
+	column_count = 1 << _column_shift;
+	hash_count = table_size >> _column_shift >> 2;
+
+	for (; i + 8 <= hash_count; i += 8) {
+		hashes_vec = __xxh32_pkt_8hashes(
+			input,
+			_mm256_loadu_si256((
+				__m256i_u *)((uint32_t *)
+						     _HASH_ALG_POST_SEEDS_DATA +
+					     i)));
+		hashes = (uint32_t *)&hashes_vec;
+		for (int j = 0; j < 8; j++) {
+			target_index = hashes[j] & (column_count - 1);
+			*(table + (i + j) * column_count + target_index) += 1;
+		}
+	}
+
+	for (; i < hash_count; i++) {
+		hash = xxh32_pkt(input,
+				 *((uint32_t *)_HASH_ALG_POST_SEEDS_DATA + i));
+		target_index = hash & (column_count - 1);
+		*(table + i * column_count + target_index) += 1;
+	}
+}
+
+#endif /* HASH_ALG_POST_H */
