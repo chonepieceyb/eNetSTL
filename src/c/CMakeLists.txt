@@ -1,7 +1,3 @@
-cmake_minimum_required(VERSION 3.10)
-
-project(eurosys_ae VERSION 1.0)
-
 set(EXECUTABLE_OUTPUT_PATH "${BIN_TARGETS}")
 
 # Get blacklist from parent scope or use default

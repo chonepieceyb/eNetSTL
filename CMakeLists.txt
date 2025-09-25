@@ -1,9 +1,13 @@
 cmake_minimum_required(VERSION 3.15)
 
+# Project configuration
+set(PROJECT_NAME eurosys_ae)
+set(PROJECT_VERSION 0.1)
+
 set(CMAKE_C_COMPILER "/usr/bin/clang-15")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-project(eurosys_ae VERSION 0.1)
+project(${PROJECT_NAME} VERSION ${PROJECT_VERSION})
 
 set(CMAKE_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/install")
 set(BIN_TARGETS "${PROJECT_SOURCE_DIR}/bin")
@@ -93,8 +97,8 @@ add_custom_target(build_info ALL
 )
 
 # Make build_info depend on BPF library
-if(TARGET eurosys_ae)
-    add_dependencies(build_info eurosys_ae)
+if(TARGET ${PROJECT_NAME})
+    add_dependencies(build_info ${PROJECT_NAME})
 endif()
 
 # Add dependencies for all generated executables

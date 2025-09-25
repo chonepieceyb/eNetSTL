@@ -1,7 +1,3 @@
-cmake_minimum_required(VERSION 3.10)
-
-project(eurosys_ae VERSION 0.1)
-
 # Get blacklist from parent scope or use default
 if(NOT DEFINED BPF_BLACKLIST)
     set(BPF_BLACKLIST "")
@@ -55,12 +51,12 @@ foreach(folder ${EXP_FOLDERS})
 endforeach()
 
 #compile all .o files
-add_library(eurosys_ae OBJECT ${BPF_SRC_LIST})
+add_library(${PROJECT_NAME} OBJECT ${BPF_SRC_LIST})
 
 # Add custom Linux headers and bpftool support
 if(USE_CUSTOM_LINUX AND LINUX_PATH AND NOT "${LINUX_PATH}" STREQUAL "NONE")
     # Add custom Linux headers include path using target_include_directories
-    target_include_directories(eurosys_ae PRIVATE "${LINUX_PATH}/tools/lib")
+    target_include_directories(${PROJECT_NAME} PRIVATE "${LINUX_PATH}/tools/lib")
     message(STATUS "Using custom Linux headers from: ${LINUX_PATH}/tools/lib")
 
     # Set custom bpftool path
@@ -72,10 +68,10 @@ else()
     message(STATUS "Using system bpftool")
 endif()
 
-#install(FILES $<TARGET_OBJECTS:eurosys_ae> DESTINATION "${BPF_KERN_TARGETS}")
+#install(FILES $<TARGET_OBJECTS:${PROJECT_NAME}> DESTINATION "${BPF_KERN_TARGETS}")
 add_custom_target(bpf_copy ALL
     COMMAND "${CMAKE_COMMAND}"
-          -DTARGET_OBJS="$<TARGET_OBJECTS:eurosys_ae>"
+          -DTARGET_OBJS="$<TARGET_OBJECTS:${PROJECT_NAME}>"
           -DTARGET_DEST="${BPF_KERN_TARGETS}"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/copy_bpf_objs.cmake"
 )
@@ -90,7 +86,7 @@ add_custom_target(bpf_skel ALL
 
 add_custom_target(bpf_install
     COMMAND "${CMAKE_COMMAND}"
-          -DTARGET_OBJS="$<TARGET_OBJECTS:eurosys_ae>"
+          -DTARGET_OBJS="$<TARGET_OBJECTS:${PROJECT_NAME}>"
           -DTARGET_DEST="${BPF_KERN_TARGETS}"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/copy_bpf_objs.cmake"
     COMMAND "${CMAKE_COMMAND}"
@@ -100,7 +96,7 @@ add_custom_target(bpf_install
           -P "${CMAKE_CURRENT_SOURCE_DIR}/skeleton.cmake"
 )
 
-add_dependencies(bpf_copy eurosys_ae)
+add_dependencies(bpf_copy ${PROJECT_NAME})
 add_dependencies(bpf_skel bpf_copy)
 
 set(CMAKE_C_FLAGS
