@@ -88,8 +88,16 @@ foreach(folder ${EXP_FOLDERS})
     endforeach()
 endforeach()
 
-# Remove target files from source list to avoid duplication
+# Remove target files and files with main functions from source list to avoid duplication
 list(REMOVE_ITEM SRC_LIST ${TARGET_LIST})
+
+# Also exclude files that match target patterns ( *_user.c ) from source list
+foreach(source ${SRC_LIST})
+    get_filename_component(source_name "${source}" NAME)
+    if("${source_name}" MATCHES "_user\\.c$")
+        list(REMOVE_ITEM SRC_LIST "${source}")
+    endif()
+endforeach()
 
 foreach(TF ${TARGET_LIST})
     get_filename_component(TN ${TF} NAME_WE)
