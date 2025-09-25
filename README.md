@@ -14,7 +14,7 @@
 │        ├── eNetSTL                  # SIMD Parallel Hash Basic Library
 │        └── expN           # Kernel Modules used for each experiment
 ├── build                   # eBPF Network Function Build Directory
-└── log                     # Experiment Data Directory
+└── log                     # Experiment Data Dcd irectory
 ```
 
 ## 2. Build and Usage

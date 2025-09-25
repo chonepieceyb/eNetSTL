@@ -1,3 +1,4 @@
+#TDOO: if copy failed, stop compile process
 function(rename_and_copy OBJS DEST)
     if (NOT EXISTS ${DEST})
         file(MAKE_DIRECTORY ${DEST})

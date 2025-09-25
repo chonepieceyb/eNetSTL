@@ -2,44 +2,75 @@ cmake_minimum_required(VERSION 3.10)
 
 project(eurosys_ae VERSION 0.1)
 
-#exp1-2
-aux_source_directory("${BPF_KERN_SRC_FILES}/exp1-2" BPF_SRC_LIST_EXP1_2)
-set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_EXP1_2}")
+# Get blacklist from parent scope or use default
+if(NOT DEFINED BPF_BLACKLIST)
+    set(BPF_BLACKLIST "")
+endif()
 
-#exp3
-aux_source_directory("${BPF_KERN_SRC_FILES}/exp3" BPF_SRC_LIST_EXP3)
-set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_EXP3}")
+# Function to check if path is blacklisted
+function(is_blacklisted path blacklist result)
+    set(${result} FALSE PARENT_SCOPE)
+    foreach(blacklisted_item ${blacklist})
+        if("${path}" MATCHES "${blacklisted_item}")
+            set(${result} TRUE PARENT_SCOPE)
+            break()
+        endif()
+    endforeach()
+endfunction()
 
-#exp4
-aux_source_directory("${BPF_KERN_SRC_FILES}/exp4" BPF_SRC_LIST_EXP4)
-set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_EXP4}")
+# Auto-detect all subfolders and compile source files with blacklist support
+file(GLOB EXP_FOLDERS RELATIVE "${BPF_KERN_SRC_FILES}" "${BPF_KERN_SRC_FILES}/*")
+set(BPF_SRC_LIST "")
 
-#exp5
-aux_source_directory("${BPF_KERN_SRC_FILES}/exp5" BPF_SRC_LIST_EXP5)
-set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_EXP5}")
+foreach(folder ${EXP_FOLDERS})
+    set(folder_path "${BPF_KERN_SRC_FILES}/${folder}")
 
-#exp6
-aux_source_directory("${BPF_KERN_SRC_FILES}/exp6" BPF_SRC_LIST_EXP6)
-set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_EXP6}")
+    # Skip if not a directory
+    if(NOT IS_DIRECTORY "${folder_path}")
+        continue()
+    endif()
 
-#exp7
-aux_source_directory("${BPF_KERN_SRC_FILES}/exp7" BPF_SRC_LIST_EXP7)
-set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_EXP7}")
+    # Check if folder is blacklisted
+    is_blacklisted("${folder}" "${BPF_BLACKLIST}" is_excluded)
+    if(is_excluded)
+        message(STATUS "Excluding BPF folder: ${folder}")
+        continue()
+    endif()
 
-#exp8
-aux_source_directory("${BPF_KERN_SRC_FILES}/exp8" BPF_SRC_LIST_EXP8)
-set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_EXP8}")
+    message(STATUS "Including BPF folder: ${folder}")
 
-#exp9
-aux_source_directory("${BPF_KERN_SRC_FILES}/exp9" BPF_SRC_LIST_EXP9)
-set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_EXP9}")
+    # Get all .c files in the folder
+    file(GLOB folder_sources "${folder_path}/*.c")
 
-#utils
-aux_source_directory("${BPF_KERN_SRC_FILES}/utils" BPF_SRC_LIST_UTILS)
-set(BPF_SRC_LIST "${BPF_SRC_LIST};${BPF_SRC_LIST_UTILS}")
+    # Filter out blacklisted individual files
+    foreach(source ${folder_sources})
+        get_filename_component(source_name "${source}" NAME)
+        is_blacklisted("${folder}/${source_name}" "${BPF_BLACKLIST}" file_excluded)
+        if(NOT file_excluded)
+            list(APPEND BPF_SRC_LIST "${source}")
+        else()
+            message(STATUS "Excluding BPF file: ${folder}/${source_name}")
+        endif()
+    endforeach()
+endforeach()
 
 #compile all .o files
 add_library(eurosys_ae OBJECT ${BPF_SRC_LIST})
+
+# Add custom Linux headers and bpftool support
+if(USE_CUSTOM_LINUX AND LINUX_PATH AND NOT "${LINUX_PATH}" STREQUAL "NONE")
+    # Add custom Linux headers include path using target_include_directories
+    target_include_directories(eurosys_ae PRIVATE "${LINUX_PATH}/tools/lib")
+    message(STATUS "Using custom Linux headers from: ${LINUX_PATH}/tools/lib")
+
+    # Set custom bpftool path
+    set(BPF_TOOL "${LINUX_PATH}/tools/bpf/bpftool/bpftool")
+    message(STATUS "Using custom bpftool: ${BPF_TOOL}")
+else()
+    # Use system bpftool
+    set(BPF_TOOL "bpftool")
+    message(STATUS "Using system bpftool")
+endif()
 
 #install(FILES $<TARGET_OBJECTS:eurosys_ae> DESTINATION "${BPF_KERN_TARGETS}")
 add_custom_target(bpf_copy ALL

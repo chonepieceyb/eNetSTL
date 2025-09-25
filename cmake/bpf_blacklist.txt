@@ -1,0 +1,15 @@
+# BPF Blacklist Configuration File
+# This file contains folders and files to exclude from BPF compilation
+# Each line should be a relative path from src/bpf_kern
+# Lines starting with # are comments and ignored
+# Empty lines are ignored
+
+# Example: exclude specific experiment folders
+# exp9/
+# exp8/
+
+# Example: exclude specific files
+# utils/debug.c
+# exp1-2/unused_skiplist.c
+
+# Currently empty - all BPF files will be compiled

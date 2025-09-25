@@ -4,64 +4,95 @@ project(eurosys_ae VERSION 1.0)
 
 set(EXECUTABLE_OUTPUT_PATH "${BIN_TARGETS}")
 
+# Get blacklist from parent scope or use default
+if(NOT DEFINED C_BLACKLIST)
+    set(C_BLACKLIST "")
+endif()
+
+
+# Add custom libbpf search path support
 if(${USE_STATIC})
     set(CMAKE_FIND_LIBRARY_SUFFIXES ".a;.so")
     find_library(LIBELF NAMES elf z HINTS "/usr/lib/x86_64-linux-gnu" REQUIRED)
     find_library(LIBZ NAMES z HINTS "/usr/lib/x86_64-linux-gnu" REQUIRED)
 endif()
 
+# Search for libbpf in custom Linux path or system paths
+if(USE_CUSTOM_LINUX AND LINUX_PATH AND NOT "${LINUX_PATH}" STREQUAL "NONE")
+    # Try to find libbpf in custom Linux path first
+    find_library(LIBBPF NAMES bpf
+        HINTS
+            "${LINUX_PATH}/tools/lib/bpf"
+        REQUIRED
+    )
+    message(STATUS "Looking for libbpf in: ${LINUX_PATH}/tools/lib/bpf")
+else()
+    # Use system libbpf
+    find_library(LIBBPF NAMES bpf HINTS "/usr/lib64" REQUIRED)
+    message(STATUS "Using system libbpf")
+endif()
 
-find_library(LIBBPF NAMES bpf HINTS "/usr/lib64" REQUIRED)
+# Function to check if path is blacklisted
+function(is_blacklisted path blacklist result)
+    set(${result} FALSE PARENT_SCOPE)
+    foreach(blacklisted_item ${blacklist})
+        if("${path}" MATCHES "${blacklisted_item}")
+            set(${result} TRUE PARENT_SCOPE)
+            break()
+        endif()
+    endforeach()
+endfunction()
 
+# Auto-detect all subfolders and compile source files with blacklist support
+file(GLOB EXP_FOLDERS RELATIVE "${C_FILES}" "${C_FILES}/*")
+set(SRC_LIST "")
+set(TARGET_LIST "")
 
-#exp1-2
-aux_source_directory("${C_FILES}/exp1-2" SRC_LIST_EXP1_2)
-file(GLOB TARGET_LIST_EXP1_2 "${C_FILES}/exp1-2/*_user.c")
-set(SRC_LIST "${SRC_LIST};${SRC_LIST_EXP1_2}")
-set(TARGET_LIST "${TARGET_LIST};${TARGET_LIST_EXP1_2}")
+foreach(folder ${EXP_FOLDERS})
+    set(folder_path "${C_FILES}/${folder}")
 
-#exp3
-aux_source_directory("${C_FILES}/exp3" SRC_LIST_EXP3)
-file(GLOB TARGET_LIST_EXP3 "${C_FILES}/exp3/*_user.c")
-set(SRC_LIST "${SRC_LIST};${SRC_LIST_EXP3}")
-set(TARGET_LIST "${TARGET_LIST};${TARGET_LIST_EXP3}")
+    # Skip if not a directory
+    if(NOT IS_DIRECTORY "${folder_path}")
+        continue()
+    endif()
 
-#exp4
-aux_source_directory("${C_FILES}/exp4" SRC_LIST_EXP4)
-file(GLOB TARGET_LIST_EXP4 "${C_FILES}/exp4/*_user.c")
-set(SRC_LIST "${SRC_LIST};${SRC_LIST_EXP4}")
-set(TARGET_LIST "${TARGET_LIST};${TARGET_LIST_EXP4}")
+    # Check if folder is blacklisted
+    is_blacklisted("${folder}" "${C_BLACKLIST}" is_excluded)
+    if(is_excluded)
+        message(STATUS "Excluding C folder: ${folder}")
+        continue()
+    endif()
 
-#exp5
-aux_source_directory("${C_FILES}/exp5" SRC_LIST_EXP5)
-file(GLOB TARGET_LIST_EXP5 "${C_FILES}/exp5/*_user.c")
-set(SRC_LIST "${SRC_LIST};${SRC_LIST_EXP5}")
-set(TARGET_LIST "${TARGET_LIST};${TARGET_LIST_EXP5}")
+    message(STATUS "Including C folder: ${folder}")
 
-# #exp6
-aux_source_directory("${C_FILES}/exp6" SRC_LIST_EXP6)
-file(GLOB TARGET_LIST_EXP6 "${C_FILES}/exp6/*_user.c")
-set(SRC_LIST "${SRC_LIST};${SRC_LIST_EXP6}")
-set(TARGET_LIST "${TARGET_LIST};${TARGET_LIST_EXP6}")
+    # Get all .c files in the folder
+    file(GLOB folder_sources "${folder_path}/*.c")
+    file(GLOB user_targets "${folder_path}/*_user.c")
 
-#exp7
-aux_source_directory("${C_FILES}/exp7" SRC_LIST_EXP7)
-file(GLOB TARGET_LIST_EXP7 "${C_FILES}/exp7/*_user.c")
-set(SRC_LIST "${SRC_LIST};${SRC_LIST_EXP7}")
-set(TARGET_LIST "${TARGET_LIST};${TARGET_LIST_EXP7}")
+    # Filter out blacklisted individual files from sources
+    foreach(source ${folder_sources})
+        get_filename_component(source_name "${source}" NAME)
+        is_blacklisted("${folder}/${source_name}" "${C_BLACKLIST}" file_excluded)
+        if(NOT file_excluded)
+            list(APPEND SRC_LIST "${source}")
+        else()
+            message(STATUS "Excluding C source file: ${folder}/${source_name}")
+        endif()
+    endforeach()
 
-#exp8
-aux_source_directory("${C_FILES}/exp8" SRC_LIST_EXP8)
-file(GLOB TARGET_LIST_EXP8 "${C_FILES}/exp8/*_user.c")
-set(SRC_LIST "${SRC_LIST};${SRC_LIST_EXP8}")
-set(TARGET_LIST "${TARGET_LIST};${TARGET_LIST_EXP8}")
+    # Filter out blacklisted individual files from targets
+    foreach(target ${user_targets})
+        get_filename_component(target_name "${target}" NAME)
+        is_blacklisted("${folder}/${target_name}" "${C_BLACKLIST}" target_excluded)
+        if(NOT target_excluded)
+            list(APPEND TARGET_LIST "${target}")
+        else()
+            message(STATUS "Excluding C target file: ${folder}/${target_name}")
+        endif()
+    endforeach()
+endforeach()
 
-#exp9
-aux_source_directory("${C_FILES}/exp9" SRC_LIST_EXP9)
-file(GLOB TARGET_LIST_EXP9 "${C_FILES}/exp9/*_user.c")
-set(SRC_LIST "${SRC_LIST};${SRC_LIST_EXP9}")
-set(TARGET_LIST "${TARGET_LIST};${TARGET_LIST_EXP9}")
-
+# Remove target files from source list to avoid duplication
 list(REMOVE_ITEM SRC_LIST ${TARGET_LIST})
 
 foreach(TF ${TARGET_LIST})
