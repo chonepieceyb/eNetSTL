@@ -6,7 +6,6 @@
 #define CUCKOO_HASH_LOOKUP_ONLY
 
 char LICENSE[] SEC("license") = "GPL";
-__u32 dummy;
 
 // BPF map definitions
 struct {
@@ -23,22 +22,27 @@ struct {
 	__type(value, struct __cuckoo_hash_bfs_queue);
 } __cuckoo_hash_bfs_queue_map SEC(".maps");
 
+
+u32 lookup_value = 0;
+u32 update_value = 0;
+struct pkt_5tuple_with_pad update_pkt_key = {0};
+
 PACKET_COUNT_MAP_DEFINE
 
 SEC("xdp")
 int xdp_main(struct xdp_md *ctx)
 {
-	LATENCY_START_TIMESTAMP_DEFINE
-
 	int zero = 0;
 	struct cuckoo_hash_parameters params;
 	struct cuckoo_hash *h;
 	struct __cuckoo_hash_bfs_queue *bfs_queue;
 	struct pkt_5tuple_with_pad pkt = { 0 };
-	u32 *curr_count, count;
+	u32 *value;
 	void *data, *data_end;
 	struct hdr_cursor nh;
 	int ret;
+
+	cuckoo_log(debug, "xdp_main: starting packet processing");
 
 	// Get hash table using new API
 	h = get_cuckoo_hash(&cuckoo_hash_map);
@@ -46,6 +50,7 @@ int xdp_main(struct xdp_md *ctx)
 		cuckoo_log(error, "cannot get cuckoo hash");
 		goto err;
 	}
+	cuckoo_log(debug, "xdp_main: got hash table at %p, initialized=%d", h, h->initialized);
 
 	// Get BFS queue from map
 	bfs_queue = bpf_map_lookup_elem(&__cuckoo_hash_bfs_queue_map, &zero);
@@ -53,6 +58,7 @@ int xdp_main(struct xdp_md *ctx)
 		cuckoo_log(error, "cannot get bfs queue");
 		goto err;
 	}
+	cuckoo_log(debug, "xdp_main: got bfs queue at %p", bfs_queue);
 
 	// Set up parameters
 	params.hash_table = h;
@@ -70,44 +76,36 @@ int xdp_main(struct xdp_md *ctx)
 			"pkt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x",
 			pkt.pkt.src_ip, pkt.pkt.src_port, pkt.pkt.dst_ip,
 			pkt.pkt.dst_port, pkt.pkt.proto);
+		cuckoo_log(debug, "xdp_main: parsed packet key: 0x%08x...", *((u32*)&pkt));
 	}
 
-	ret = cuckoo_hash_lookup_elem(&params, &pkt, &curr_count);
+	ret = cuckoo_hash_lookup_elem(&params, &pkt, &value);
+	cuckoo_log(debug, "lookup attempt: src_ip=0x%08x src_port=0x%04x dst_ip=0x%08x dst_port=0x%04x proto=0x%02x, ret=%d",
+		pkt.pkt.src_ip, pkt.pkt.src_port, pkt.pkt.dst_ip, pkt.pkt.dst_port, pkt.pkt.proto, ret);
 	if (likely(ret == 0)) {
-		cuckoo_log(debug, "found packet: %d", *curr_count);
-#ifdef CUCKOO_HASH_LOOKUP_ONLY
-		cuckoo_log(debug, "lookup only");
-		dummy = *curr_count;
-#else
-		*curr_count = *curr_count + 1;
-		cuckoo_log(debug, "updated packet in place");
-#endif
-		goto out;
+		cuckoo_log(debug, "found packet: %d", *value);
+		if (lookup_value != 0 && *value != lookup_value) {
+			cuckoo_log(error, "lookup value mismatch: expected %d, got %d", lookup_value, *value);
+			goto err;
+		}
+		cuckoo_log(debug, "xdp_main: lookup successful, value=%d", *value);
 	} else {
 		cuckoo_log(debug, "cannot find packet: %d", ret);
-		count = 1;
+		cuckoo_log(debug, "xdp_main: lookup failed with ret=%d", ret);
+		goto err;
 	}
 
-#ifdef CUCKOO_HASH_LOOKUP_ONLY
-	cuckoo_log(debug, "lookup only");
-#else
-	ret = cuckoo_hash_update_elem(&params, &pkt, &count);
+	ret = cuckoo_hash_update_elem(&params, &update_pkt_key, &update_value);
 	if (unlikely(ret != 0)) {
 		cuckoo_log(error, "cannot update packet: %d", ret);
 		goto err;
 	} else {
 		cuckoo_log(debug, "updated packet");
 	}
-#endif
-
 out:
-
-	PACKET_COUNT_MAP_UPDATE
-
-#ifdef LATENCY_EXP
-	SWAP_MAC_AND_RETURN_XDP_TX(ctx)
-#endif
+	return XDP_PASS;
 
 err:
+	cuckoo_log(debug, "xdp_main: error path, dropping packet");
 	return XDP_DROP;
 }

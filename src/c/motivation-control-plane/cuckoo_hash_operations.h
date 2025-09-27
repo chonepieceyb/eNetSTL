@@ -8,6 +8,8 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <linux/types.h>
+#include <features.h>
+#include "crc.h"
 
 /* Define unlikely macro for non-GCC compatibility */
 #ifndef unlikely
@@ -20,6 +22,9 @@
 #endif
 #ifndef ENOENT
 #define ENOENT 2
+#endif
+#ifndef EINVAL
+#define EINVAL 22
 #endif
 
 /* Type definitions for C compatibility */
@@ -79,23 +84,6 @@ typedef int32_t s32;
     })
 
 #define SHIFT_TO_SIZE(shift) (1 << (shift))
-
-/* Simple CRC32C implementation - compatible with eBPF version */
-static inline u32 crc32c(u32 crc, const void *data, size_t length) {
-    const u8 *bytes = (const u8 *)data;
-    size_t i;
-
-    crc = crc ^ 0xFFFFFFFF;
-
-    for (i = 0; i < length; i++) {
-        crc ^= bytes[i];
-        for (int j = 0; j < 8; j++) {
-            crc = (crc >> 1) ^ (0x82F63B78 * (crc & 1));
-        }
-    }
-
-    return crc ^ 0xFFFFFFFF;
-}
 
 /* Data types */
 struct pkt_5tuple {
@@ -264,7 +252,9 @@ get_cuckoo_hash(void *cuckoo_hash_map)
 static inline cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h,
                                        const cuckoo_hash_key_t *key)
 {
-    return crc32c(CUCKOO_HASH_SEED, key, CUCKOO_HASH_KEY_SIZE);
+    // Use the kernel's CRC32C implementation for consistent hashing
+    // Must use the same seed as eBPF program (CUCKOO_HASH_SEED)
+    return crc32c(key, CUCKOO_HASH_KEY_SIZE, CUCKOO_HASH_SEED);
 }
 
 static inline u16 __cuckoo_hash_get_short_sig(const cuckoo_hash_sig_t hash)

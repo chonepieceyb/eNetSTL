@@ -183,6 +183,8 @@ get_cuckoo_hash(void *cuckoo_hash_map)
 	int zero = 0, i;
 	struct cuckoo_hash *h;
 
+	cuckoo_log(debug, "get_cuckoo_hash: called with map=%p", cuckoo_hash_map);
+
 	if (cuckoo_hash_map == NULL) {
 		cuckoo_log(error, "invalid cuckoo_hash_map parameter");
 		return NULL;
@@ -194,11 +196,15 @@ get_cuckoo_hash(void *cuckoo_hash_map)
 		return NULL;
 	}
 
+	cuckoo_log(debug, "get_cuckoo_hash: found hash table at %p, initialized=%d", h, h->initialized);
+
 	if (!h->initialized) {
+		cuckoo_log(debug, "get_cuckoo_hash: initializing hash table, key_slots=%d", CUCKOO_HASH_KEY_SLOTS);
 		for (i = 1; i < CUCKOO_HASH_KEY_SLOTS; i++) {
 			__cuckoo_hash_enqueue_slot_back(h, i);
 		}
 		h->initialized = 1;
+		cuckoo_log(debug, "get_cuckoo_hash: hash table initialization completed");
 	}
 
 	return h;
@@ -213,7 +219,9 @@ static inline u32 __cuckoo_hash_crc32c(u32 crc, const void *data, size_t length)
 static inline cuckoo_hash_sig_t __cuckoo_hash_hash(struct cuckoo_hash *h,
 						   const cuckoo_hash_key_t *key)
 {
-	return __cuckoo_hash_crc32c(CUCKOO_HASH_SEED, key, CUCKOO_HASH_KEY_SIZE);
+	cuckoo_hash_sig_t hash = __cuckoo_hash_crc32c(CUCKOO_HASH_SEED, key, CUCKOO_HASH_KEY_SIZE);
+	cuckoo_log(debug, "__cuckoo_hash_hash: key=0x%08x... hash=0x%08x", *((u32*)key), hash);
+	return hash;
 }
 
 static inline u16 __cuckoo_hash_get_short_sig(const cuckoo_hash_sig_t hash)
@@ -540,6 +548,8 @@ static int32_t __cuckoo_hash_search_one_bucket(struct cuckoo_hash *h,
 	__cuckoo_hash_key_idx_t key_idx;
 	struct __cuckoo_hash_key *k = NULL, *keys = h->key_store;
 
+	cuckoo_log(debug, "__cuckoo_hash_search_one_bucket: searching bucket with sig=0x%04x", sig);
+
 #if defined(CUCKOO_FORCE_COMPARISON_COUNT) && CUCKOO_FORCE_COMPARISON_COUNT > 0
 #if CUCKOO_FORCE_COMPARISON_COUNT > 16
 #error CUCKOO_FORCE_COMPARISON_COUNT must be <= 16
@@ -615,20 +625,28 @@ static inline int32_t __cuckoo_hash_lookup_with_hash(
 	sec_bucket_idx = __cuckoo_hash_get_alt_bucket_index(h, prim_bucket_idx,
 							    short_sig);
 
+	cuckoo_log(debug, "__cuckoo_hash_lookup_with_hash: hash=0x%08x, short_sig=0x%04x, prim_bkt=%d, sec_bkt=%d",
+		   sig, short_sig, prim_bucket_idx, sec_bucket_idx);
+
 	bkt = &h->buckets[prim_bucket_idx];
+	cuckoo_log(debug, "__cuckoo_hash_lookup_with_hash: searching primary bucket %d", prim_bucket_idx);
 
 	ret = __cuckoo_hash_search_one_bucket(h, key, short_sig, data, bkt);
 	if (ret != -1) {
+		cuckoo_log(debug, "__cuckoo_hash_lookup_with_hash: found in primary bucket");
 		return ret;
 	}
 
 	bkt = &h->buckets[sec_bucket_idx];
+	cuckoo_log(debug, "__cuckoo_hash_lookup_with_hash: searching secondary bucket %d", sec_bucket_idx);
 
 	ret = __cuckoo_hash_search_one_bucket(h, key, short_sig, data, bkt);
 	if (ret != -1) {
+		cuckoo_log(debug, "__cuckoo_hash_lookup_with_hash: found in secondary bucket");
 		return ret;
 	}
 
+	cuckoo_log(debug, "__cuckoo_hash_lookup_with_hash: key not found in either bucket");
 	return -ENOENT;
 }
 
@@ -637,14 +655,19 @@ static inline int32_t cuckoo_hash_lookup_elem(struct cuckoo_hash_parameters *par
 					      cuckoo_hash_value_t **data)
 {
 	int32_t ret;
+	cuckoo_hash_sig_t hash;
 
 	RETURN_IF_TRUE(((params == NULL) || (params->hash_table == NULL) || (key == NULL)), -EINVAL);
 
-	ret = __cuckoo_hash_lookup_with_hash(params->hash_table, key, __cuckoo_hash_hash(params->hash_table, key),
-					     data);
+	hash = __cuckoo_hash_hash(params->hash_table, key);
+	cuckoo_log(debug, "cuckoo_hash_lookup_elem: key=0x%08x... hash=0x%08x", *((u32*)key), hash);
+
+	ret = __cuckoo_hash_lookup_with_hash(params->hash_table, key, hash, data);
 	if (ret >= 0) {
+		cuckoo_log(debug, "cuckoo_hash_lookup_elem: found key at slot %d, value=%d", ret, *data ? **data : 0);
 		return 0;
 	} else {
+		cuckoo_log(debug, "cuckoo_hash_lookup_elem: key not found, ret=%d", ret);
 		return ret;
 	}
 }
