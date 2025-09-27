@@ -297,8 +297,11 @@ static __always_inline int32_t parse_pkt_5tuple(struct hdr_cursor *nh,
 	struct iphdr *ip;
 	struct __ports *ports;
 
+	log_debug("parse_pkt_5tuple: start parsing, data_pos=%p, data_end=%p", nh->pos, data_end);
+
 	eth = nh->pos;
 	CHECK_BOUND(eth, data_end);
+	log_debug("parse_pkt_5tuple: eth header bound check passed, proto=%d", eth->h_proto);
 	if (unlikely(eth->h_proto != bpf_htons(ETH_P_IP))) {
 		log_debug(
 			" cannot parse pkt_5tuple: unsupported protocol in Ethernet header: %d (!= %d)",
@@ -306,9 +309,11 @@ static __always_inline int32_t parse_pkt_5tuple(struct hdr_cursor *nh,
 		goto unsupported;
 	}
 	nh->pos += sizeof(*eth);
+	log_debug("parse_pkt_5tuple: moved past eth header, new pos=%p", nh->pos);
 
 	ip = nh->pos;
 	CHECK_BOUND(ip, data_end);
+	log_debug("parse_pkt_5tuple: ip header bound check passed, protocol=%d", ip->protocol);
 	if (unlikely(ip->protocol != IPPROTO_TCP &&
 		     ip->protocol != IPPROTO_UDP)) {
 		log_debug(
@@ -317,19 +322,25 @@ static __always_inline int32_t parse_pkt_5tuple(struct hdr_cursor *nh,
 		goto unsupported;
 	}
 	nh->pos += sizeof(*ip);
+	log_debug("parse_pkt_5tuple: moved past ip header, new pos=%p", nh->pos);
 
 	ports = nh->pos;
 	CHECK_BOUND(ports, data_end);
+	log_debug("parse_pkt_5tuple: ports bound check passed, src_port=%d, dst_port=%d", ports->src_port, ports->dst_port);
 
-	pkt->src_ip = ip->saddr;
-	pkt->dst_ip = ip->daddr;
+	pkt->src_ip = bpf_ntohl(ip->saddr);
+	pkt->dst_ip = bpf_ntohl(ip->daddr);
 	pkt->proto = ip->protocol;
-	pkt->src_port = ports->src_port;
-	pkt->dst_port = ports->dst_port;
+	pkt->src_port = bpf_ntohs(ports->src_port);
+	pkt->dst_port = bpf_ntohs(ports->dst_port);
 
+	log_debug("parse_pkt_5tuple: successfully parsed, src_ip=%x, dst_ip=%x, proto=%d, src_port=%d, dst_port=%d",
+		pkt->src_ip, pkt->dst_ip, pkt->proto, pkt->src_port, pkt->dst_port);
 	return 0;
 
 out_of_bound:
+	log_debug("parse_pkt_5tuple: out_of_bound error at pos=%p", nh->pos);
+	return -EINVAL;
 unsupported:
 	return -EINVAL;
 }

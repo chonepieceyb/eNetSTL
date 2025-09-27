@@ -1,5 +1,16 @@
 cmake_minimum_required(VERSION 3.15)
 
+# eNetSTL CMake Configuration
+#
+# Available clean targets:
+# - make cmake_clean     : Standard CMake clean (removes build artifacts only)
+# - make clean_all       : Complete clean (removes bin, build, install, and bpf_skel directories)
+#
+# Build commands:
+# - cmake -B build -S .  : Configure build
+# - cmake --build build  : Build project
+# - make test_cuckoo_cp_dp_user : Build specific target
+
 # Project configuration
 set(PROJECT_NAME eurosys_ae)
 set(PROJECT_VERSION 0.1)
@@ -108,3 +119,20 @@ foreach(TARGET_NAME ${TARGET_LIST})
         add_dependencies(build_info ${TARGET_NAME})
     endif()
 endforeach()
+
+# Add custom clean target that removes all generated files
+add_custom_target(clean_all
+    COMMAND ${CMAKE_COMMAND} -E echo "Cleaning all generated files..."
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "${PROJECT_SOURCE_DIR}/bin"
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "${PROJECT_SOURCE_DIR}/build"
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "${PROJECT_SOURCE_DIR}/install"
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "${PROJECT_SOURCE_DIR}/src/c/bpf_skel"
+    COMMAND ${CMAKE_COMMAND} -E echo "Clean completed!"
+    VERBATIM
+)
+
+# Add standard clean target that calls CMake's built-in clean
+add_custom_target(cmake_clean
+    COMMAND ${CMAKE_MAKE_PROGRAM} clean
+    VERBATIM
+)
