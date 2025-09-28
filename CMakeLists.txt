@@ -91,6 +91,16 @@ if(${USE_LATENCY_EXP})
     add_compile_definitions(LATENCY_EXP=1)
 endif()
 
+# XDP configuration options from config.h
+set(XDP_IF "ens2f0" CACHE STRING "XDP network interface name")
+set(XDP_MODE "(1U << 2)" CACHE STRING "XDP attachment mode")
+message(STATUS "XDP_IF: ${XDP_IF}")
+message(STATUS "XDP_MODE: ${XDP_MODE}")
+
+# Add XDP configuration as compile definitions
+add_compile_definitions(XDP_IF="${XDP_IF}")
+add_compile_definitions(XDP_MODE=${XDP_MODE})
+
 add_subdirectory("${BPF_KERN_SRC_FILES}")
 add_subdirectory("${C_FILES}")
 
