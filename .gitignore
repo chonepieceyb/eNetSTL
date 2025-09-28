@@ -73,3 +73,6 @@ resources/
 *.gz
 log
 *vmlinux.h
+
+# claude
+# claude_instructions/
