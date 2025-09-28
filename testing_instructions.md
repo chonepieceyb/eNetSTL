@@ -6,7 +6,7 @@ fix errors according to ouput
 
 ### Step2: try to build 
 1. run `./clean.sh -d` to clean previous building
-2. run `./build.sh -d -DLOG_LEVEL=4 -DUSE_STATIC=ON` 
+2. run `./build.sh -d -DLOG_LEVEL=4 -DUSE_STATIC=ON -DXDP_IF="eth1" -DXDP_MODE=XDP_FLAGS_SKB_MODE` (you should build with XDP_IF="veth")
 3. check the output to find the excutable files path, typicaly it locates in project_root/bin
 4. if building fails goto Step1: fix source files
 

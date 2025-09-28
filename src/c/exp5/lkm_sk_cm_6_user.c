@@ -4,5 +4,5 @@
 
 int main()
 {
-	BPF_XDP_SKEL_LOADER(lkm_sk_cm, XDP_IF, xdp_main, XDP_FLAGS_DRV_MODE)
+	BPF_XDP_SKEL_LOADER(lkm_sk_cm, XDP_IF, xdp_main, XDP_MODE)
 }

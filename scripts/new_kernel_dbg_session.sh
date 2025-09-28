@@ -4,6 +4,24 @@ source $(cd "$(dirname "$0")"; pwd)"/"common.sh""
 ENABLE_GDB=false
 WAIT_GDB=false
 
+function find_available_port() {
+    local start_port=$1
+    local end_port=$2
+    local service=$3
+    local port=$start_port
+
+    while [ $port -le $end_port ]; do
+        if ! netstat -tuln 2>/dev/null | grep -q ":$port "; then
+            echo $port
+            return 0
+        fi
+        port=$((port + 1))
+    done
+
+    echo -e "$COLOR_RED [ERROR] No available $service port found in range $start_port-$end_port $COLOR_OFF" >&2
+    return 1
+}
+
 function echo_help() {
     echo "Usage: $0 [-gdb] [-S] [-p SESSION_PREFIX]"
     echo "  -gdb   Enable GDB server"
@@ -13,7 +31,7 @@ function echo_help() {
     echo "add -S to hold on when enabling gdb"
     echo "run ./create_LKM_link.sh"
     echo "gdb vmlinux"
-    echo "target remote :$GDB_PORT"
+    echo "target remote :\$GDB_PORT"
     echo "lx-symbols to reload vmlinux and LKMs symbol"
 }
 
@@ -52,25 +70,9 @@ if [ -n "$SESSION_PREFIX" ]; then
 fi
 session_name="$session_prefix-yangbin-$timestamp"
 
-# Detect GDB port 1567 usage and select alternative port if needed
-GDB_PORT=1567
-while netstat -tuln 2>/dev/null | grep -q ":$GDB_PORT "; do
-    GDB_PORT=$((GDB_PORT + 1))
-    if [ $GDB_PORT -gt 1600 ]; then
-        echo -e "$COLOR_RED [ERROR] No available GDB port found in range 1567-1600 $COLOR_OFF"
-        exit 1
-    fi
-done
-
-# Detect SSH port 3333 usage and select alternative port if needed
-SSH_PORT=3333
-while netstat -tuln 2>/dev/null | grep -q ":$SSH_PORT "; do
-    SSH_PORT=$((SSH_PORT + 1))
-    if [ $SSH_PORT -gt 3400 ]; then
-        echo -e "$COLOR_RED [ERROR] No available SSH port found in range 3333-3400 $COLOR_OFF"
-        exit 1
-    fi
-done
+# Select available ports
+GDB_PORT=$(find_available_port 1567 1600 "GDB") || exit 1
+SSH_PORT=$(find_available_port 3333 3400 "SSH") || exit 1
 
 # Kill any existing sessions with matching pattern
 echo -e "$COLOR_YELLOW [INFO] Cleaning up existing sessions... $COLOR_OFF"
@@ -91,7 +93,7 @@ if [ "$WAIT_GDB" = true ]; then
     DEBUG_ARGS="$DEBUG_ARGS -S"
 fi
 
-# Pass all ports and arguments to the debug script
+# Pass selected ports and arguments to the debug script
 sudo tmux new-session -d -s $session_name "GDB_PORT=$GDB_PORT SSH_PORT=$SSH_PORT ${SCRIPT_DIR}/debug_kernel_testbed.sh $DEBUG_ARGS"
 
 # Check if tmux session is alive after starting
@@ -102,6 +104,7 @@ if ! sudo tmux has-session -t $session_name 2>/dev/null; then
     exit 1
 fi
 
+# Display selected port information
 echo -e "$COLOR_GREEN [INFO] GDB port: $GDB_PORT $COLOR_OFF"
 echo -e "$COLOR_GREEN [INFO] SSH port: $SSH_PORT $COLOR_OFF"
 echo -e "$COLOR_GREEN [INFO] Session name: $session_name $COLOR_OFF"
