@@ -20,8 +20,15 @@ static int __default_callback_after_attach(void *skel)
 	return 0;
 }
 
-#define BPF_XDP_SKEL_LOADER_WITH_CALLBACK(__skel, _ifname, _prog,            \
-					  _callback_load, _callback_after_attach, mode) \
+static int __default_callback_before_load(void *skel)
+{
+	return 0;
+}
+
+// Enhanced XDP skeleton loader with before/after load and attach callbacks
+#define BPF_XDP_SKEL_LOADER_WITH_CALLBACKS(__skel, _ifname, _prog,           \
+					   _callback_before_load, _callback_after_load, \
+					   _callback_after_attach, mode) \
 	struct __skel *skel = NULL;                                          \
 	struct bpf_program *prog;                                            \
 	int fd, ifindex, res;                                                \
@@ -37,13 +44,17 @@ static int __default_callback_after_attach(void *skel)
 		return -1;                                                   \
 	}                                                                    \
 	prog = skel->progs._prog;                                            \
+	if ((res = _callback_before_load(skel))) {                            \
+		printf("failed to invoke before load callback, res %d\n", res); \
+		goto clean;                                                  \
+	}                                                                    \
 	res = __skel##__load(skel);                                          \
 	if (res) {                                                           \
 		printf("faild to load, res %d %s\n", res, strerror(errno));  \
 		goto clean;                                                  \
 	}                                                                    \
-	if ((res = _callback_load(skel))) {                                  \
-		printf("failed to invoke callback, res %d\n", res);          \
+	if ((res = _callback_after_load(skel))) {                             \
+		printf("failed to invoke after load callback, res %d\n", res); \
 		goto clean;                                                  \
 	}                                                                    \
 	fd = bpf_program__fd(prog);                                          \
@@ -61,8 +72,38 @@ clean:;                                                                      \
 	__skel##__destroy(skel);                                             \
 	return res;
 
+// Backward compatibility macro (renamed from original)
+#define BPF_XDP_SKEL_LOADER_WITH_CALLBACK(__skel, _ifname, _prog,            \
+					  _callback_after_load, _callback_after_attach, mode) \
+	BPF_XDP_SKEL_LOADER_WITH_CALLBACKS(__skel, _ifname, _prog,           \
+					   __default_callback_before_load, _callback_after_load, \
+					   _callback_after_attach, mode)
+
+// XDP skeleton loader with after load callback only
+#define BPF_XDP_SKEL_LOADER_WITH_AFTER_LOAD(__skel, _ifname, _prog,         \
+					    _callback_after_load, mode) \
+	BPF_XDP_SKEL_LOADER_WITH_CALLBACKS(__skel, _ifname, _prog,           \
+					   __default_callback_before_load, _callback_after_load, \
+					   __default_callback_after_attach, mode)
+
+// XDP skeleton loader with before load callback only
+#define BPF_XDP_SKEL_LOADER_WITH_BEFORE_LOAD(__skel, _ifname, _prog,        \
+					     _callback_before_load, mode) \
+	BPF_XDP_SKEL_LOADER_WITH_CALLBACKS(__skel, _ifname, _prog,           \
+					   _callback_before_load, __default_callback_load, \
+					   __default_callback_after_attach, mode)
+
+// XDP skeleton loader with attach callback only
+#define BPF_XDP_SKEL_LOADER_WITH_ATTACH_CALLBACK(__skel, _ifname, _prog,    \
+						_callback_after_attach, mode) \
+	BPF_XDP_SKEL_LOADER_WITH_CALLBACKS(__skel, _ifname, _prog,           \
+					   __default_callback_before_load, __default_callback_load, \
+					   _callback_after_attach, mode)
+
+// Simple XDP skeleton loader without any callbacks
 #define BPF_XDP_SKEL_LOADER(__skel, _ifname, _prog, mode)         \
-	BPF_XDP_SKEL_LOADER_WITH_CALLBACK(__skel, _ifname, _prog, \
-					  __default_callback_load, __default_callback_after_attach, mode)
+	BPF_XDP_SKEL_LOADER_WITH_CALLBACKS(__skel, _ifname, _prog, \
+					   __default_callback_before_load, __default_callback_load, \
+					   __default_callback_after_attach, mode)
 
 #endif
