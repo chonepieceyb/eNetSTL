@@ -5,7 +5,7 @@
 fix errors according to ouput
 
 ### Step2: try to build 
-1. remove the build folder `sudo rm build`
+1. run `./clean.sh -d` to clean previous building
 2. run `./build.sh -d -DLOG_LEVEL=4 -DUSE_STATIC=ON` 
 3. check the output to find the excutable files path, typicaly it locates in project_root/bin
 4. if building fails goto Step1: fix source files
