@@ -139,6 +139,7 @@ bpf_prog_list: List[
     ("lkm_cffs_3_user", ExpConfig(), lambda: load_lkm("exp8/cFFS_3.ko"), lambda: unload_lkm("cFFS_3")),
     ("lkm_cffs_4_user", ExpConfig(), lambda: load_lkm("exp8/cFFS_4.ko"), lambda: unload_lkm("cFFS_4")),
     ("ebpf_cuckoo_hash_dp_user", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 10000"), lambda: clear_trex_session()),
     ("ebpf_cuckoo_hash_dp_user", ExpConfig()),
     ("empty_base_user",  ExpConfig())
 ]
