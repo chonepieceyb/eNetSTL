@@ -14,7 +14,11 @@ step_list2: mm_proxy (finished)
     1.Analyze all source code.
     2.A detailed explanation of the memory proxy mechanism of eNetSTL and writing to claude_instructions/docs/mm_proxy.md.
 
-step_list3: extension (TODO)
+step_list3: extension (finished)
     1.Analyze paper SimdNN-BPF.pdf in claude_instructions/papers/. 
     2.Plan to extend a new module under the LKM directory, consistent with the motivation of the paper 'Real-Time Intrusion Detection and Prevention with Neural Network in Kernel using eBPF'. Accelerate neural network inference in eBPF, but implement it using SIMD.
     3.Write out the complete design concept and the expected development framework in claude_instructions/docs/extension-SimdNN-BPF.md.
+
+step_list4: extension (TODO)
+    1.Analyze all source code.
+    2.Organize the basic SIMD-related operations in the source code into src/LKMs/SimdNN/simd_ops.c and src/LKMs/SimdNN/simd_ops.h.
