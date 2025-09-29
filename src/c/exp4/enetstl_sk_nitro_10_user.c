@@ -6,5 +6,5 @@
 int main()
 {
 	BPF_XDP_SKEL_LOADER(enetstl_sk_nitro_10, XDP_IF, xdp_main,
-			    XDP_FLAGS_DRV_MODE)
+			    XDP_MODE)
 }

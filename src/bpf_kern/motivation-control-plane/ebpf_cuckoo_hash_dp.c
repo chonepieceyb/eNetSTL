@@ -2,18 +2,22 @@
 #include "../common.h"
 #include "cuckoo_hash.h"
 
-// Configuration constants for this file
-#define CUCKOO_HASH_LOOKUP_ONLY
-
 char LICENSE[] SEC("license") = "GPL";
 __u32 dummy;
+
+struct dummy_struct {
+	struct cuckoo_hash cuckoo_hash;
+	struct __cuckoo_hash_key padd1[65536];
+	struct __cuckoo_hash_bucket padd2[65536];
+};
 
 // BPF map definitions
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, int);
-	__type(value, struct cuckoo_hash);
+	__type(value, struct dummy_struct);
+	__uint(pinning, 1);
 } cuckoo_hash_map SEC(".maps");
 
 struct {
@@ -75,33 +79,14 @@ int xdp_main(struct xdp_md *ctx)
 	ret = cuckoo_hash_lookup_elem(&params, &pkt, &curr_count);
 	if (likely(ret == 0)) {
 		cuckoo_log(debug, "found packet: %d", *curr_count);
-#ifdef CUCKOO_HASH_LOOKUP_ONLY
 		cuckoo_log(debug, "lookup only");
 		dummy = *curr_count;
-#else
-		*curr_count = *curr_count + 1;
-		cuckoo_log(debug, "updated packet in place");
-#endif
 		goto out;
 	} else {
 		cuckoo_log(debug, "cannot find packet: %d", ret);
 		count = 1;
 	}
-
-#ifdef CUCKOO_HASH_LOOKUP_ONLY
-	cuckoo_log(debug, "lookup only");
-#else
-	ret = cuckoo_hash_update_elem(&params, &pkt, &count);
-	if (unlikely(ret != 0)) {
-		cuckoo_log(error, "cannot update packet: %d", ret);
-		goto err;
-	} else {
-		cuckoo_log(debug, "updated packet");
-	}
-#endif
-
 out:
-
 	PACKET_COUNT_MAP_UPDATE
 
 #ifdef LATENCY_EXP

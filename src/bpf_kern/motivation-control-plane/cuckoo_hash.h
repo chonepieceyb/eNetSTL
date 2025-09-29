@@ -26,7 +26,7 @@
 #define CUCKOO_HASH_SEED 0xdeadbeef
 
 #ifndef CUCKOO_HASH_ENTRIES
-#define CUCKOO_HASH_ENTRIES 512
+#define CUCKOO_HASH_ENTRIES 4096
 #endif 
 
 #define CUCKOO_HASH_KEY_SLOTS (CUCKOO_HASH_ENTRIES + 1)
@@ -49,7 +49,7 @@
 #endif
 
 #ifndef CUCKOO_HASH_KEY_SLOTS_SHIFT
-#define CUCKOO_HASH_KEY_SLOTS_SHIFT 9
+#define CUCKOO_HASH_KEY_SLOTS_SHIFT 12
 #endif
 #if (1 << CUCKOO_HASH_KEY_SLOTS_SHIFT) != CUCKOO_HASH_ENTRIES
 #error CUCKOO_HASH_KEY_SLOTS_SHIFT must be consistent with CUCKOO_HASH_ENTRIES
@@ -190,7 +190,7 @@ get_cuckoo_hash(void *cuckoo_hash_map)
 		return NULL;
 	}
 
-	h = bpf_map_lookup_elem(cuckoo_hash_map, &zero);
+	h = (struct cuckoo_hash*) bpf_map_lookup_elem(cuckoo_hash_map, &zero);
 	if (h == NULL) {
 		cuckoo_log(error, "cannot find cuckoo hash map");
 		return NULL;
