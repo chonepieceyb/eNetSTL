@@ -138,6 +138,8 @@ bpf_prog_list: List[
     ("lkm_cffs_2_user", ExpConfig(), lambda: load_lkm("exp8/cFFS_2.ko"), lambda: unload_lkm("cFFS_2")),
     ("lkm_cffs_3_user", ExpConfig(), lambda: load_lkm("exp8/cFFS_3.ko"), lambda: unload_lkm("cFFS_3")),
     ("lkm_cffs_4_user", ExpConfig(), lambda: load_lkm("exp8/cFFS_4.ko"), lambda: unload_lkm("cFFS_4")),
+    ("ebpf_cuckoo_hash_dp_user", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", ExpConfig()),
     ("empty_base_user",  ExpConfig())
 ]
 
@@ -205,6 +207,36 @@ def unload_lkm(module_name: str):
     except subprocess.CalledProcessError as e:
         print(f"Error executing command: {e}")
         raise
+
+def run_cmd(cmd):
+    try:
+        subprocess.run(cmd, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing command: {e}")
+        raise
+
+def run_cmd_without_fail(cmd):
+    try:
+        subprocess.run(cmd, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Warn executing command: {e}")
+
+def run_cmd_within_new_trex_session(cmd, session_name="xdp_exp"):
+    try:
+        subprocess.run(shlex.join(["tmux", "kill-session", "-t", session_name]), shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        pass
+    try:
+        subprocess.run(shlex.join(["tmux", "new-session", "-d", "-s", session_name, cmd]), shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing command: {e}")
+        raise
+
+def clear_trex_session(session_name="xdp_exp"):
+    try:
+        subprocess.run(shlex.join(["tmux", "kill-session", "-t", session_name]), shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Warn executing command: {e}")
 
 def __restart_flow(lat_pps, bg_pps, sleep_time=1, duration=5):
     trex_client.reset(ports=LAT_TEST_PORTS)
