@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "../common.h"
-#include "../bpf_skel/ebpf_cuckoo_hash_dp.skel.h"
+#include "../bpf_skel/ebpf_cuckoo_hash_shared_dp.skel.h"
 #include "../config.h"
 #include "cuckoo_hash_operations.h"
 #include <unistd.h>
@@ -128,7 +128,7 @@ static int clear_pinned_map(void) {
 
 // Function to load BPF skeleton and pin map without attaching XDP
 static int load_bpf_and_pin_map(void) {
-    struct ebpf_cuckoo_hash_dp *skel = NULL;
+    struct ebpf_cuckoo_hash_shared_dp *skel = NULL;
     int res = 0;
 
     printf("Loading BPF skeleton...\n");
@@ -137,14 +137,14 @@ static int load_bpf_and_pin_map(void) {
     clear_pinned_map();
 
     // Open the BPF skeleton
-    skel = ebpf_cuckoo_hash_dp__open();
+    skel = ebpf_cuckoo_hash_shared_dp__open();
     if (skel == NULL) {
         printf("Failed to open BPF skeleton\n");
         return -1;
     }
-    bpf_map__set_map_flags(skel->maps.cuckoo_hash_map, BPF_F_MMAPABLE);
+    //bpf_map__set_map_flags(skel->maps.cuckoo_hash_map, BPF_F_MMAPABLE);
     // Load the BPF program
-    res = ebpf_cuckoo_hash_dp__load(skel);
+    res = ebpf_cuckoo_hash_shared_dp__load(skel);
     if (res != 0) {
         printf("Failed to load BPF program: %d\n", res);
         goto cleanup;
@@ -170,7 +170,7 @@ static int load_bpf_and_pin_map(void) {
     printf("BPF skeleton loaded, maps initialized and pinned successfully\n");
 
 cleanup:
-    ebpf_cuckoo_hash_dp__destroy(skel);
+    ebpf_cuckoo_hash_shared_dp__destroy(skel);
     return res;
 }
 

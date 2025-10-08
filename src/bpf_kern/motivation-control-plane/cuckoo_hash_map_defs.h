@@ -15,6 +15,9 @@ struct {
 	__type(key, int);
 	__type(value, struct dummy_struct);
 	__uint(pinning, 1);
+#ifdef CUCKOO_HASH_MAP_SHARED
+	__uint(map_flags, BPF_F_MMAPABLE);
+#endif
 } cuckoo_hash_map SEC(".maps");
 
 struct {
