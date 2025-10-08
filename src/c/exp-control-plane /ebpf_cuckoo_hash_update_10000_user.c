@@ -146,7 +146,7 @@ cleanup:
 
 
 // Simple update loop function (non-daemon) - updates fixed keys with varying values
-static void update_loop(int insertion_frequency, int cpu_core) {
+static void update_loop(int insertion_frequency, int cpu_core, int verbose) {
     struct dummy_struct hash_tab = {0};
     struct __cuckoo_hash_bfs_queue bfs_queue = {0};
     struct cuckoo_hash_parameters params = {
@@ -173,7 +173,8 @@ static void update_loop(int insertion_frequency, int cpu_core) {
     if (cpu_core >= 0) {
         printf("Pinned to CPU core: %d\n", cpu_core);
     }
-    printf("Mode: Fixed keys with incrementing values\n");
+    printf("Mode: Fixed keys with incrementing values (%s)\n",
+           verbose ? "verbose mode" : "quiet mode");
     printf("Press Ctrl+C to stop...\n");
 
     int operations = 0;
@@ -223,8 +224,8 @@ static void update_loop(int insertion_frequency, int cpu_core) {
         current_key_index = (current_key_index + 1) % CUCKOO_HASH_ENTRIES;
         update_count++;
 
-        // Print statistics periodically
-        if (operations % 10 == 0) {
+        // Print statistics periodically only in verbose mode
+        if (verbose && operations % 10 == 0) {
             printf("Operations: %d, Insertions: %d, Success rate: %.2f%%, Key: %d/%d, Value: %d, Updates: %d\n",
                    operations, insertions, (float)insertions/operations*100,
                    current_key_index, CUCKOO_HASH_ENTRIES, 100 + (update_count % 900), update_count);
@@ -244,11 +245,13 @@ static void print_usage(const char *prog_name) {
     printf("Options:\n");
     printf("  -f, --frequency FREQ    Insertion frequency in microseconds (default: 1000000)\n");
     printf("  -c, --cpu-core CORE     Pin to specific CPU core (default: -1, no pinning)\n");
+    printf("  -v, --verbose          Enable verbose output (default: quiet mode)\n");
     printf("  -h, --help             Show this help message\n");
     printf("\nNotes:\n");
     printf("  This program loads the BPF skeleton and pins the map automatically.\n");
     printf("  Map will be pinned to %s\n", PIN_PATH);
     printf("  Press Ctrl+C to stop the update loop.\n");
+    printf("  Default mode is quiet (no periodic statistics printed).\n");
     printf("\nCPU Core Pinning:\n");
     printf("  Use -c option to pin to a specific CPU core for better performance.\n");
     printf("  Core IDs start from 0. Use -1 for no CPU affinity (default).\n");
@@ -258,6 +261,7 @@ int main(int argc, char *argv[])
 {
     int insertion_frequency = 1000000; // Default: 1 second
     int cpu_core = -1; // Default: no CPU core pinning
+    int verbose = 0; // Default: quiet mode
 
     // Parse command line arguments
     for (int i = 1; i < argc; i++) {
@@ -281,6 +285,9 @@ int main(int argc, char *argv[])
             } else if (cpu_core >= 0) {
                 printf("Will pin to CPU core %d\n", cpu_core);
             }
+        } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+            verbose = 1;
+            printf("Verbose mode enabled\n");
         } else {
             printf("Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
@@ -309,9 +316,12 @@ int main(int argc, char *argv[])
     } else {
         printf("CPU core pinning: disabled\n");
     }
+    if (!verbose) {
+        printf("Quiet mode enabled (use -v for verbose output)\n");
+    }
 
     // Run the update loop
-    update_loop(insertion_frequency, cpu_core);
+    update_loop(insertion_frequency, cpu_core, verbose);
 
     printf("Program exited gracefully.\n");
     return 0;

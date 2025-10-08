@@ -163,7 +163,7 @@ cleanup:
 }
 
 // In-kernel control plane update loop using BPF iter
-static void inkernel_update_loop(int insertion_frequency, int cpu_core) {
+static void inkernel_update_loop(int insertion_frequency, int cpu_core, int verbose) {
     struct ebpf_cuckoo_hash_cp_iter *iter_skel = NULL;
     struct bpf_link *link = NULL;
     union bpf_iter_link_info linfo = {0};
@@ -207,7 +207,8 @@ static void inkernel_update_loop(int insertion_frequency, int cpu_core) {
     if (cpu_core >= 0) {
         printf("Pinned to CPU core: %d\n", cpu_core);
     }
-    printf("Mode: In-kernel control plane using BPF iter\n");
+    printf("Mode: In-kernel control plane using BPF iter (%s)\n",
+           verbose ? "verbose mode" : "quiet mode");
     printf("Press Ctrl+C to stop...\n");
 
     int operations = 0;
@@ -283,8 +284,8 @@ static void inkernel_update_loop(int insertion_frequency, int cpu_core) {
 
         operations++;
 
-        // Print statistics periodically
-        if (operations % 10 == 0) {
+        // Print statistics periodically only in verbose mode
+        if (verbose && operations % 10 == 0) {
             printf("Operations: %d, Insertions: %d, Success rate: %.2f%%, Key: %d/%d, Value: %d, Updates: %d\n",
                    operations, insertions, (float)insertions/operations*100,
                    current_key_index, CUCKOO_HASH_ENTRIES, 100 + (update_count % 900), update_count);
@@ -315,6 +316,7 @@ static void print_usage(const char *prog_name) {
     printf("Options:\n");
     printf("  -f, --frequency FREQ    Insertion frequency in microseconds (default: 1000000)\n");
     printf("  -c, --cpu-core CORE     Pin to specific CPU core (default: -1, no pinning)\n");
+    printf("  -v, --verbose          Enable verbose output (default: quiet mode)\n");
     printf("  -h, --help             Show this help message\n");
     printf("\nNotes:\n");
     printf("  This program uses in-kernel control plane with BPF iter for updates.\n");
@@ -322,6 +324,7 @@ static void print_usage(const char *prog_name) {
     printf("  Press Ctrl+C to stop the update loop.\n");
     printf("  Uses optimized approach: attach once, create iter multiple times.\n");
     printf("  Always updates map key 0 with current key-value pair.\n");
+    printf("  Default mode is quiet (no periodic statistics printed).\n");
     printf("\nCPU Core Pinning:\n");
     printf("  Use -c option to pin to a specific CPU core for better performance.\n");
     printf("  Core IDs start from 0. Use -1 for no CPU affinity (default).\n");
@@ -331,6 +334,7 @@ int main(int argc, char *argv[])
 {
     int insertion_frequency = 1000000; // Default: 1 second
     int cpu_core = -1; // Default: no CPU core pinning
+    int verbose = 0; // Default: quiet mode
 
     // Parse command line arguments
     for (int i = 1; i < argc; i++) {
@@ -354,6 +358,9 @@ int main(int argc, char *argv[])
             } else if (cpu_core >= 0) {
                 printf("Will pin to CPU core %d\n", cpu_core);
             }
+        } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+            verbose = 1;
+            printf("Verbose mode enabled\n");
         } else {
             printf("Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
@@ -382,9 +389,12 @@ int main(int argc, char *argv[])
     } else {
         printf("CPU core pinning: disabled\n");
     }
+    if (!verbose) {
+        printf("Quiet mode enabled (use -v for verbose output)\n");
+    }
 
     // Run the in-kernel control plane update loop
-    inkernel_update_loop(insertion_frequency, cpu_core);
+    inkernel_update_loop(insertion_frequency, cpu_core, verbose);
 
     printf("Program exited gracefully.\n");
     return 0;
