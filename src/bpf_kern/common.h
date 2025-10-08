@@ -430,8 +430,21 @@ static __always_inline void __write_once_size_custom(volatile void *p,
 		__uint(pinning, 1);               \
 	} count_map SEC(".maps");
 
+
+#ifndef __GET_BPF_KTIME_DEFINED
+#define __GET_BPF_KTIME_DEFINED
+static __always_inline __u64 __get_bpf_ktime(void)
+{
+#ifdef TIMESTAMP_EXP
+	return bpf_ktime_get_ns();
+#else
+	return 0;
+#endif
+}
+#endif
+
 #define LATENCY_START_TIMESTAMP_DEFINE \
-	__u64 start_timestamp = bpf_ktime_get_ns();
+	__u64 start_timestamp = __get_bpf_ktime();
 
 #define PACKET_COUNT_MAP_UPDATE                                    \
 	{                                                          \
@@ -441,7 +454,7 @@ static __always_inline void __write_once_size_custom(volatile void *p,
 		if (current_count == NULL) {                       \
 			return XDP_DROP;                           \
 		}                                                  \
-		__u64 end_timestamp = bpf_ktime_get_ns();          \
+		__u64 end_timestamp = __get_bpf_ktime();          \
 		__u64 duration = end_timestamp - start_timestamp;  \
 		current_count->rx_count += 1;                      \
 		current_count->lat_count += duration;              \

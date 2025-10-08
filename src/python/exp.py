@@ -40,108 +40,127 @@ class ExpConfig:
 bpf_prog_list: List[
     Union[str, Tuple[str, Callable[[], Any] | None, Callable[[], Any] | None]]
 ] = [
-    ("enetstl_skiplist_lookup_12_user", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
-    ("enetstl_skiplist_lookup_13_user", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),    
-    ("enetstl_skiplist_lookup_14_user", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
-    ("enetstl_skiplist_lookup_15_user", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),    
-    ("enetstl_skiplist_lookup_16_user", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
-    ("lkm_skiplist_lookup_12_user", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
-    ("lkm_skiplist_lookup_13_user", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
-    ("lkm_skiplist_lookup_14_user", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
-    ("lkm_skiplist_lookup_15_user", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
-    ("lkm_skiplist_lookup_16_user", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
-    ("enetstl_skiplist_ins_del_12_user", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
-    ("enetstl_skiplist_ins_del_13_user", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),    
-    ("enetstl_skiplist_ins_del_14_user", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
-    ("enetstl_skiplist_ins_del_15_user", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),    
-    ("enetstl_skiplist_ins_del_16_user", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
-    ("lkm_skiplist_ins_del_12_user", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
-    ("lkm_skiplist_ins_del_13_user", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
-    ("lkm_skiplist_ins_del_14_user", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
-    ("lkm_skiplist_ins_del_15_user", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
-    ("lkm_skiplist_ins_del_16_user", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
-    ("ebpf_cuckoo_hash_10_user", ExpConfig()),
-    ("ebpf_cuckoo_hash_25_user", ExpConfig()),
-    ("ebpf_cuckoo_hash_50_user", ExpConfig()),
-    ("ebpf_cuckoo_hash_75_user", ExpConfig()),
-    ("ebpf_cuckoo_hash_100_user", ExpConfig()),
-    ("enetstl_cuckoo_hash_10_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_cuckoo_hash_25_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_cuckoo_hash_50_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_cuckoo_hash_75_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_cuckoo_hash_100_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("lkm_cuckoo_hash_10_user", ExpConfig(), lambda: load_lkm("exp3/cuckoo_hash.ko"), lambda: unload_lkm("cuckoo_hash")),
-    ("lkm_cuckoo_hash_25_user", ExpConfig(), lambda: load_lkm("exp3/cuckoo_hash.ko"), lambda: unload_lkm("cuckoo_hash")),
-    ("lkm_cuckoo_hash_50_user", ExpConfig(), lambda: load_lkm("exp3/cuckoo_hash.ko"), lambda: unload_lkm("cuckoo_hash")),
-    ("lkm_cuckoo_hash_75_user", ExpConfig(), lambda: load_lkm("exp3/cuckoo_hash.ko"), lambda: unload_lkm("cuckoo_hash")),
-    ("lkm_cuckoo_hash_100_user", ExpConfig(),lambda: load_lkm("exp3/cuckoo_hash.ko"), lambda: unload_lkm("cuckoo_hash")),
-    ("ebpf_sk_nitro_2_user", ExpConfig()),
-    ("ebpf_sk_nitro_4_user", ExpConfig()),
-    ("ebpf_sk_nitro_6_user", ExpConfig()),
-    ("ebpf_sk_nitro_8_user", ExpConfig()),
-    ("ebpf_sk_nitro_10_user",  ExpConfig()),
-    ("enetstl_sk_nitro_2_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_sk_nitro_4_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_sk_nitro_6_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_sk_nitro_8_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_sk_nitro_10_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("lkm_sk_nitro_2_user", ExpConfig(), lambda: load_lkm("exp4/sk_nitro_2.ko"), lambda: unload_lkm("sk_nitro_2")),
-    ("lkm_sk_nitro_4_user", ExpConfig(), lambda: load_lkm("exp4/sk_nitro_4.ko"), lambda: unload_lkm("sk_nitro_4")),
-    ("lkm_sk_nitro_6_user", ExpConfig(), lambda: load_lkm("exp4/sk_nitro_6.ko"), lambda: unload_lkm("sk_nitro_6")),
-    ("lkm_sk_nitro_8_user", ExpConfig(), lambda: load_lkm("exp4/sk_nitro_8.ko"), lambda: unload_lkm("sk_nitro_8")),
-    ("lkm_sk_nitro_10_user", ExpConfig(), lambda: load_lkm("exp4/sk_nitro_10.ko"), lambda: unload_lkm("sk_nitro_10")),
-    ("ebpf_sk_cm_2_user",  ExpConfig()),
-    ("ebpf_sk_cm_4_user", ExpConfig()),
-    ("ebpf_sk_cm_6_user", ExpConfig()),
-    ("ebpf_sk_cm_8_user",  ExpConfig()),
-    ("enetstl_sk_cm_2_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_sk_cm_4_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_sk_cm_6_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_sk_cm_8_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("lkm_sk_cm_2_user", ExpConfig(), lambda: load_lkm("exp5/sk_cm_2.ko"), lambda: unload_lkm("sk_cm_2")),
-    ("lkm_sk_cm_4_user", ExpConfig(), lambda: load_lkm("exp5/sk_cm_4.ko"), lambda: unload_lkm("sk_cm_4")),
-    ("lkm_sk_cm_6_user",  ExpConfig(), lambda: load_lkm("exp5/sk_cm_6.ko"), lambda: unload_lkm("sk_cm_6")),
-    ("lkm_sk_cm_8_user",  ExpConfig(), lambda: load_lkm("exp5/sk_cm_8.ko"), lambda: unload_lkm("sk_cm_8")),
-    ("ebpf_carausel_tw_4_user",  ExpConfig()),
-    ("ebpf_carausel_tw_8_user", ExpConfig()),
-    ("ebpf_carausel_tw_16_user", ExpConfig()),
-    ("ebpf_carausel_tw_32_user",  ExpConfig()),
-    ("enetstl_carausel_tw_4_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_carausel_tw_8_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_carausel_tw_16_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_carausel_tw_32_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("lkm_carausel_tw_4_user",  ExpConfig(), lambda: load_lkm("exp6/carausel_tw_4.ko"), lambda: unload_lkm("carausel_tw_4")),
-    ("lkm_carausel_tw_8_user",  ExpConfig(), lambda: load_lkm("exp6/carausel_tw_8.ko"), lambda: unload_lkm("carausel_tw_8")),
-    ("lkm_carausel_tw_16_user",  ExpConfig(), lambda: load_lkm("exp6/carausel_tw_16.ko"), lambda: unload_lkm("carausel_tw_16")),
-    ("lkm_carausel_tw_32_user",  ExpConfig(), lambda: load_lkm("exp6/carausel_tw_32.ko"), lambda: unload_lkm("carausel_tw_32")),
-    ("ebpf_htss_25_user", ExpConfig()),
-    ("ebpf_htss_50_user", ExpConfig()),
-    ("ebpf_htss_75_user",  ExpConfig()),
-    ("ebpf_htss_100_user",  ExpConfig()),
-    ("enetstl_htss_25_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_htss_50_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_htss_75_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_htss_100_user",  ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("lkm_htss_25_user",  ExpConfig(), lambda: load_lkm("exp7/htss_25.ko"), lambda: unload_lkm("htss_25")),
-    ("lkm_htss_50_user",  ExpConfig(), lambda: load_lkm("exp7/htss_50.ko"), lambda: unload_lkm("htss_50")),
-    ("lkm_htss_75_user",  ExpConfig(), lambda: load_lkm("exp7/htss_75.ko"), lambda: unload_lkm("htss_75")),
-    ("lkm_htss_100_user",  ExpConfig(), lambda: load_lkm("exp7/htss_100.ko"), lambda: unload_lkm("htss_100")),
-    ("ebpf_cffs_1_user",  ExpConfig()),
-    ("ebpf_cffs_2_user",  ExpConfig()),
-    ("ebpf_cffs_3_user",  ExpConfig()),
-    ("ebpf_cffs_4_user", ExpConfig()),
-    ("enetstl_cffs_1_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_cffs_2_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_cffs_3_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("enetstl_cffs_4_user", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
-    ("lkm_cffs_1_user", ExpConfig(), lambda: load_lkm("exp8/cFFS_1.ko"), lambda: unload_lkm("cFFS_1")),
-    ("lkm_cffs_2_user", ExpConfig(), lambda: load_lkm("exp8/cFFS_2.ko"), lambda: unload_lkm("cFFS_2")),
-    ("lkm_cffs_3_user", ExpConfig(), lambda: load_lkm("exp8/cFFS_3.ko"), lambda: unload_lkm("cFFS_3")),
-    ("lkm_cffs_4_user", ExpConfig(), lambda: load_lkm("exp8/cFFS_4.ko"), lambda: unload_lkm("cFFS_4")),
-    ("ebpf_cuckoo_hash_dp_user", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_user -c 0 -f 10000"), lambda: clear_trex_session()),
-    ("ebpf_cuckoo_hash_dp_user", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 10000"), lambda: clear_trex_session()),
-    ("ebpf_cuckoo_hash_dp_user", ExpConfig()),
-    ("empty_base_user",  ExpConfig())
+    ("enetstl_skiplist_lookup_12_user", "enetstl_skiplist_lookup_12", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
+    ("enetstl_skiplist_lookup_13_user", "enetstl_skiplist_lookup_13", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),    
+    ("enetstl_skiplist_lookup_14_user", "enetstl_skiplist_lookup_14", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
+    ("enetstl_skiplist_lookup_15_user", "enetstl_skiplist_lookup_15", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),    
+    ("enetstl_skiplist_lookup_16_user", "enetstl_skiplist_lookup_16", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
+    ("lkm_skiplist_lookup_12_user", "lkm_skiplist_lookup_12", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
+    ("lkm_skiplist_lookup_13_user", "lkm_skiplist_lookup_13", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
+    ("lkm_skiplist_lookup_14_user", "lkm_skiplist_lookup_14", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
+    ("lkm_skiplist_lookup_15_user", "lkm_skiplist_lookup_15", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
+    ("lkm_skiplist_lookup_16_user", "lkm_skiplist_lookup_16", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
+    ("enetstl_skiplist_ins_del_12_user", "enetstl_skiplist_ins_del_12", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
+    ("enetstl_skiplist_ins_del_13_user", "enetstl_skiplist_ins_del_13", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
+    ("enetstl_skiplist_ins_del_14_user", "enetstl_skiplist_ins_del_14", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
+    ("enetstl_skiplist_ins_del_15_user", "enetstl_skiplist_ins_del_15", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
+    ("enetstl_skiplist_ins_del_16_user", "enetstl_skiplist_ins_del_16", ExpConfig(), lambda: load_lkm("bpf_ptr_structure_lib/bpf_ptr_structure_lib.ko"), lambda: unload_lkm("bpf_ptr_structure_lib")),
+    ("lkm_skiplist_ins_del_12_user", "lkm_skiplist_ins_del_12", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
+    ("lkm_skiplist_ins_del_13_user", "lkm_skiplist_ins_del_13", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
+    ("lkm_skiplist_ins_del_14_user", "lkm_skiplist_ins_del_14", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
+    ("lkm_skiplist_ins_del_15_user", "lkm_skiplist_ins_del_15", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
+    ("lkm_skiplist_ins_del_16_user", "lkm_skiplist_ins_del_16", ExpConfig(), lambda: load_lkm("exp1-2/skip_list.ko"), lambda: unload_lkm("skip_list")),
+    ("ebpf_cuckoo_hash_10_user", "ebpf_cuckoo_hash_10", ExpConfig()),
+    ("ebpf_cuckoo_hash_25_user", "ebpf_cuckoo_hash_25", ExpConfig()),
+    ("ebpf_cuckoo_hash_50_user", "ebpf_cuckoo_hash_50", ExpConfig()),
+    ("ebpf_cuckoo_hash_75_user", "ebpf_cuckoo_hash_75", ExpConfig()),
+    ("ebpf_cuckoo_hash_100_user", "ebpf_cuckoo_hash_100", ExpConfig()),
+    ("enetstl_cuckoo_hash_10_user", "enetstl_cuckoo_hash_10", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_cuckoo_hash_25_user", "enetstl_cuckoo_hash_25", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_cuckoo_hash_50_user", "enetstl_cuckoo_hash_50", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_cuckoo_hash_75_user", "enetstl_cuckoo_hash_75", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_cuckoo_hash_100_user", "enetstl_cuckoo_hash_100", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("lkm_cuckoo_hash_10_user", "lkm_cuckoo_hash_10", ExpConfig(), lambda: load_lkm("exp3/cuckoo_hash.ko"), lambda: unload_lkm("cuckoo_hash")),
+    ("lkm_cuckoo_hash_25_user", "lkm_cuckoo_hash_25", ExpConfig(), lambda: load_lkm("exp3/cuckoo_hash.ko"), lambda: unload_lkm("cuckoo_hash")),
+    ("lkm_cuckoo_hash_50_user", "lkm_cuckoo_hash_50", ExpConfig(), lambda: load_lkm("exp3/cuckoo_hash.ko"), lambda: unload_lkm("cuckoo_hash")),
+    ("lkm_cuckoo_hash_75_user", "lkm_cuckoo_hash_75", ExpConfig(), lambda: load_lkm("exp3/cuckoo_hash.ko"), lambda: unload_lkm("cuckoo_hash")),
+    ("lkm_cuckoo_hash_100_user", "lkm_cuckoo_hash_100", ExpConfig(),lambda: load_lkm("exp3/cuckoo_hash.ko"), lambda: unload_lkm("cuckoo_hash")),
+    ("ebpf_sk_nitro_2_user", "ebpf_sk_nitro_2", ExpConfig()),
+    ("ebpf_sk_nitro_4_user", "ebpf_sk_nitro_4", ExpConfig()),
+    ("ebpf_sk_nitro_6_user", "ebpf_sk_nitro_6", ExpConfig()),
+    ("ebpf_sk_nitro_8_user", "ebpf_sk_nitro_8", ExpConfig()),
+    ("ebpf_sk_nitro_10_user", "ebpf_sk_nitro_10", ExpConfig()),
+    ("enetstl_sk_nitro_2_user", "enetstl_sk_nitro_2", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_sk_nitro_4_user", "enetstl_sk_nitro_4", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_sk_nitro_6_user", "enetstl_sk_nitro_6", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_sk_nitro_8_user", "enetstl_sk_nitro_8", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_sk_nitro_10_user", "enetstl_sk_nitro_10", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("lkm_sk_nitro_2_user", "lkm_sk_nitro_2", ExpConfig(), lambda: load_lkm("exp4/sk_nitro_2.ko"), lambda: unload_lkm("sk_nitro_2")),
+    ("lkm_sk_nitro_4_user", "lkm_sk_nitro_4", ExpConfig(), lambda: load_lkm("exp4/sk_nitro_4.ko"), lambda: unload_lkm("sk_nitro_4")),
+    ("lkm_sk_nitro_6_user", "lkm_sk_nitro_6", ExpConfig(), lambda: load_lkm("exp4/sk_nitro_6.ko"), lambda: unload_lkm("sk_nitro_6")),
+    ("lkm_sk_nitro_8_user", "lkm_sk_nitro_8", ExpConfig(), lambda: load_lkm("exp4/sk_nitro_8.ko"), lambda: unload_lkm("sk_nitro_8")),
+    ("lkm_sk_nitro_10_user", "lkm_sk_nitro_10", ExpConfig(), lambda: load_lkm("exp4/sk_nitro_10.ko"), lambda: unload_lkm("sk_nitro_10")),
+    ("ebpf_sk_cm_2_user", "ebpf_sk_cm_2", ExpConfig()),
+    ("ebpf_sk_cm_4_user", "ebpf_sk_cm_4", ExpConfig()),
+    ("ebpf_sk_cm_6_user", "ebpf_sk_cm_6", ExpConfig()),
+    ("ebpf_sk_cm_8_user", "ebpf_sk_cm_8", ExpConfig()),
+    ("enetstl_sk_cm_2_user", "enetstl_sk_cm_2", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_sk_cm_4_user", "enetstl_sk_cm_4", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_sk_cm_6_user", "enetstl_sk_cm_6", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_sk_cm_8_user", "enetstl_sk_cm_8", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("lkm_sk_cm_2_user", "lkm_sk_cm_2", ExpConfig(), lambda: load_lkm("exp5/sk_cm_2.ko"), lambda: unload_lkm("sk_cm_2")),
+    ("lkm_sk_cm_4_user", "lkm_sk_cm_4", ExpConfig(), lambda: load_lkm("exp5/sk_cm_4.ko"), lambda: unload_lkm("sk_cm_4")),
+    ("lkm_sk_cm_6_user", "lkm_sk_cm_6", ExpConfig(), lambda: load_lkm("exp5/sk_cm_6.ko"), lambda: unload_lkm("sk_cm_6")),
+    ("lkm_sk_cm_8_user", "lkm_sk_cm_8", ExpConfig(), lambda: load_lkm("exp5/sk_cm_8.ko"), lambda: unload_lkm("sk_cm_8")),
+    ("ebpf_carausel_tw_4_user", "ebpf_carausel_tw_4", ExpConfig()),
+    ("ebpf_carausel_tw_8_user", "ebpf_carausel_tw_8", ExpConfig()),
+    ("ebpf_carausel_tw_16_user", "ebpf_carausel_tw_16", ExpConfig()),
+    ("ebpf_carausel_tw_32_user", "ebpf_carausel_tw_32", ExpConfig()),
+    ("enetstl_carausel_tw_4_user", "enetstl_carausel_tw_4", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_carausel_tw_8_user", "enetstl_carausel_tw_8", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_carausel_tw_16_user", "enetstl_carausel_tw_16", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_carausel_tw_32_user", "enetstl_carausel_tw_32", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("lkm_carausel_tw_4_user", "lkm_carausel_tw_4", ExpConfig(), lambda: load_lkm("exp6/carausel_tw_4.ko"), lambda: unload_lkm("carausel_tw_4")),
+    ("lkm_carausel_tw_8_user", "lkm_carausel_tw_8", ExpConfig(), lambda: load_lkm("exp6/carausel_tw_8.ko"), lambda: unload_lkm("carausel_tw_8")),
+    ("lkm_carausel_tw_16_user", "lkm_carausel_tw_16", ExpConfig(), lambda: load_lkm("exp6/carausel_tw_16.ko"), lambda: unload_lkm("carausel_tw_16")),
+    ("lkm_carausel_tw_32_user", "lkm_carausel_tw_32", ExpConfig(), lambda: load_lkm("exp6/carausel_tw_32.ko"), lambda: unload_lkm("carausel_tw_32")),
+    ("ebpf_htss_25_user", "ebpf_htss_25", ExpConfig()),
+    ("ebpf_htss_50_user", "ebpf_htss_50", ExpConfig()),
+    ("ebpf_htss_75_user", "ebpf_htss_75", ExpConfig()),
+    ("ebpf_htss_100_user", "ebpf_htss_100", ExpConfig()),
+    ("enetstl_htss_25_user", "enetstl_htss_25", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_htss_50_user", "enetstl_htss_50", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_htss_75_user", "enetstl_htss_75", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_htss_100_user", "enetstl_htss_100", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("lkm_htss_25_user", "lkm_htss_25", ExpConfig(), lambda: load_lkm("exp7/htss_25.ko"), lambda: unload_lkm("htss_25")),
+    ("lkm_htss_50_user", "lkm_htss_50", ExpConfig(), lambda: load_lkm("exp7/htss_50.ko"), lambda: unload_lkm("htss_50")),
+    ("lkm_htss_75_user", "lkm_htss_75", ExpConfig(), lambda: load_lkm("exp7/htss_75.ko"), lambda: unload_lkm("htss_75")),
+    ("lkm_htss_100_user", "lkm_htss_100", ExpConfig(), lambda: load_lkm("exp7/htss_100.ko"), lambda: unload_lkm("htss_100")),
+    ("ebpf_cffs_1_user", "ebpf_cffs_1", ExpConfig()),
+    ("ebpf_cffs_2_user", "ebpf_cffs_2", ExpConfig()),
+    ("ebpf_cffs_3_user", "ebpf_cffs_3", ExpConfig()),
+    ("ebpf_cffs_4_user", "ebpf_cffs_4", ExpConfig()),
+    ("enetstl_cffs_1_user", "enetstl_cffs_1", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_cffs_2_user", "enetstl_cffs_2", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_cffs_3_user", "enetstl_cffs_3", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("enetstl_cffs_4_user", "enetstl_cffs_4", ExpConfig(), lambda: load_lkm("eNetSTL/eNetSTL.ko"), lambda: unload_lkm("eNetSTL")),
+    ("lkm_cffs_1_user", "lkm_cffs_1", ExpConfig(), lambda: load_lkm("exp8/cFFS_1.ko"), lambda: unload_lkm("cFFS_1")),
+    ("lkm_cffs_2_user", "lkm_cffs_2", ExpConfig(), lambda: load_lkm("exp8/cFFS_2.ko"), lambda: unload_lkm("cFFS_2")),
+    ("lkm_cffs_3_user", "lkm_cffs_3", ExpConfig(), lambda: load_lkm("exp8/cFFS_3.ko"), lambda: unload_lkm("cFFS_3")),
+    ("lkm_cffs_4_user", "lkm_cffs_4", ExpConfig(), lambda: load_lkm("exp8/cFFS_4.ko"), lambda: unload_lkm("cFFS_4")),
+    ("ebpf_cuckoo_hash_dp_10000_user", "cp_cuckoo_hash_no_shared_10000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_10000_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_20000_user", "cp_cuckoo_hash_no_shared_20000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_20000_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_30000_user", "cp_cuckoo_hash_no_shared_30000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_30000_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_40000_user", "cp_cuckoo_hash_no_shared_40000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_40000_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_50000_user", "cp_cuckoo_hash_no_shared_50000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_50000_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_60000_user", "cp_cuckoo_hash_no_shared_60000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_60000_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_20000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_30000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_40000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_50000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_60000_10ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 10000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_10000_user", "cp_cuckoo_hash_no_shared_10000_1ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_10000_user -c 0 -f 1000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_10000_user", "cp_cuckoo_hash_no_shared_10000_50ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_10000_user -c 0 -f 50000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_10000_user", "cp_cuckoo_hash_no_shared_10000_100ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_10000_user -c 0 -f 100000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_10000_user", "cp_cuckoo_hash_no_shared_10000_500ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_10000_user -c 0 -f 500000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_10000_user", "cp_cuckoo_hash_no_shared_10000_1000ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_update_10000_user -c 0 -f 1000000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_1ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 1000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_50ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 50000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_100ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 100000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_500ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 500000"), lambda: clear_trex_session()),
+    ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_1000ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 1000000"), lambda: clear_trex_session()),
+    ("empty_base_user", "empty_base", ExpConfig())
 ]
 
 BIN_PATH = os.path.join(PROJECT_ROOT_DIR, "bin")
@@ -269,7 +288,7 @@ def __eval_lat(lat_pps, bg_pps):
     finally:
         return result
 
-def __eval_progs_lat(lat_pps, bg_pps, test_prog, result_file, total_result_file, quiet):
+def __eval_progs_lat(lat_pps, bg_pps, test_prog, result_file, total_result_file, exp_id, quiet):
     detach_xdp()
     # repeat the exp for multiple times
     for i in range(exp_repeat_count):
@@ -303,18 +322,18 @@ def __eval_progs_lat(lat_pps, bg_pps, test_prog, result_file, total_result_file,
             if not quiet : 
                 print("Avg: %f  total_max: %f total_min: %f"%(avg, total_max, total_min))
             result_file.write(f"{avg},{total_max},{total_min}\n")
-        total_result_file.write(f"{test_prog},{avg},{total_max},{total_min},{str(histogram)}\n")
+        total_result_file.write(f"{exp_id},{test_prog},{avg},{total_max},{total_min},{str(histogram)}\n")
 
 
-def print_non_load_lat(exp_config, test_prog, result_file, quiet=False):
+def print_non_load_lat(exp_config, test_prog, result_file, exp_id, quiet=False):
     assert(isinstance(exp_config, ExpConfig))
-    __eval_progs_lat(exp_config.lat_pps, exp_config.bg_no_pps, test_prog, result_file, lat_no_total_result, quiet)
+    __eval_progs_lat(exp_config.lat_pps, exp_config.bg_no_pps, test_prog, result_file, lat_no_total_result, exp_id, quiet)
         
-def print_high_load_lat(exp_config, test_prog, result_file, quiet=False):
+def print_high_load_lat(exp_config, test_prog, result_file, exp_id, quiet=False):
     assert(isinstance(exp_config, ExpConfig))
-    __eval_progs_lat(exp_config.lat_pps, exp_config.bg_high_pps, test_prog, result_file, lat_high_total_result, quiet)
+    __eval_progs_lat(exp_config.lat_pps, exp_config.bg_high_pps, test_prog, result_file, lat_high_total_result, exp_id, quiet)
 
-def print_rxcnt(count_map, wait_second, test_prog, result_file, quiet=False):
+def print_rxcnt(count_map, wait_second, test_prog, result_file, exp_id, quiet=False):
     if count_map == None: 
         print("err! pkt count is not init")
         return
@@ -371,7 +390,7 @@ def print_rxcnt(count_map, wait_second, test_prog, result_file, quiet=False):
                 avg_latency = round(np.average(latency_array[1:]), 2)
             if not quiet : print("Average pkts rate: %f"%avg_pkts)
             result_file.write(f"{avg_pkts},{avg_latency}\n")
-        pps_total_result.write(f"{test_prog},{avg_pkts},{avg_latency}\n")
+        pps_total_result.write(f"{exp_id},{test_prog},{avg_pkts},{avg_latency}\n")
 
 def clear_map(count_map):
     if count_map == None: 
@@ -430,16 +449,17 @@ if __name__ == '__main__':
         exit -1
 
     for i, entry in enumerate(bpf_prog_list):
-        if len(entry) == 2:
-            entry = (entry[0], entry[1], None, None)
-        prog, config, setup, teardown = entry
+        if len(entry) == 3:
+            entry = (entry[0], entry[1], entry[2], None, None)
+        elif len(entry) == 4:
+            entry = (entry[0], entry[1], entry[2], entry[3], None)
+        prog, exp_id, config, setup, teardown = entry
 
-        if include_pattern and not include_pattern.search(prog):
+        if include_pattern and not include_pattern.search(exp_id):
             continue
-        if exclude_pattern and exclude_pattern.search(prog):
+        if exclude_pattern and exclude_pattern.search(exp_id):
             continue
-
-        print(f"{COLOR_EMPHASIS}Running {prog} ({i + 1}/{len(bpf_prog_list)}){COLOR_RESET}")
+        print(f"{COLOR_EMPHASIS}Running {prog} (exp_id: {exp_id}) ({i + 1}/{len(bpf_prog_list)}){COLOR_RESET}")
         try:
             if setup is not None:
                 print(f'Running setup hook {setup}')
@@ -449,14 +469,14 @@ if __name__ == '__main__':
                     print(f"Error in setup hook: {e}")
                     continue
             if 'pps' in cmds:
-                with open(f"{os.path.join(PPS_LOG_PATH, f'{i + 1:03d}-{prog}')}.csv", "w", buffering=1) as pps_result_file:
-                    print_rxcnt(count_map, final_count, prog, pps_result_file, quiet=PRINT_QUIET)
+                with open(f"{os.path.join(PPS_LOG_PATH, f'{i + 1:03d}-{exp_id}')}.csv", "w", buffering=1) as pps_result_file:
+                    print_rxcnt(count_map, final_count, prog, pps_result_file, exp_id, quiet=PRINT_QUIET)
             if 'lat_no' in cmds:
-                with open(f"{os.path.join(LAT_NO_LOG_PATH, f'{i + 1:03d}-{prog}')}.csv", "w", buffering=1) as lat_no_result_file:
-                    print_non_load_lat(config, prog, lat_no_result_file, quiet=PRINT_QUIET)
+                with open(f"{os.path.join(LAT_NO_LOG_PATH, f'{i + 1:03d}-{exp_id}')}.csv", "w", buffering=1) as lat_no_result_file:
+                    print_non_load_lat(config, prog, lat_no_result_file, exp_id, quiet=PRINT_QUIET)
             if 'lat_high' in cmds:
-                with open(f"{os.path.join(LAT_HIGH_LOG_PATH, f'{i + 1:03d}-{prog}')}.csv", "w", buffering=1) as lat_high_result_file:
-                    print_high_load_lat(config, prog, lat_high_result_file, quiet=PRINT_QUIET)
+                with open(f"{os.path.join(LAT_HIGH_LOG_PATH, f'{i + 1:03d}-{exp_id}')}.csv", "w", buffering=1) as lat_high_result_file:
+                    print_high_load_lat(config, prog, lat_high_result_file, exp_id, quiet=PRINT_QUIET)
         except BaseException as e:
             if trex_client is not None:
                 trex_client.remove_all_streams(ports=LAT_TEST_PORTS)

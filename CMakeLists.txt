@@ -91,6 +91,12 @@ if(${USE_LATENCY_EXP})
     add_compile_definitions(LATENCY_EXP=1)
 endif()
 
+set(USE_TIMESTAMP_EXP OFF CACHE BOOL "start latency evaluations")
+message(STATUS "USE_TIMESTAMP_EXP: ${USE_TIMESTAMP_EXP}")
+if(${USE_TIMESTAMP_EXP})
+    add_compile_definitions(TIMESTAMP_EXP=1)
+endif()
+
 # XDP configuration options from config.h
 set(XDP_IF "ens2f0" CACHE STRING "XDP network interface name")
 set(XDP_MODE "(1U << 2)" CACHE STRING "XDP attachment mode")
