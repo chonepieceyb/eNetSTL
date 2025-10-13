@@ -1,10 +1,13 @@
 set(EXECUTABLE_OUTPUT_PATH "${BIN_TARGETS}")
 
-# Get blacklist from parent scope or use default
+# Get blacklist and whitelist from parent scope or use default
 if(NOT DEFINED C_BLACKLIST)
     set(C_BLACKLIST "")
 endif()
 
+if(NOT DEFINED C_WHITELIST)
+    set(C_WHITELIST "")
+endif()
 
 # Add custom libbpf search path support
 if(${USE_STATIC})
@@ -39,7 +42,40 @@ function(is_blacklisted path blacklist result)
     endforeach()
 endfunction()
 
-# Auto-detect all subfolders and compile source files with blacklist support
+# Function to check if path is whitelisted (higher priority than blacklist)
+function(is_whitelisted path whitelist result)
+    set(${result} FALSE PARENT_SCOPE)
+    foreach(whitelisted_item ${whitelist})
+        if("${path}" MATCHES "${whitelisted_item}")
+            set(${result} TRUE PARENT_SCOPE)
+            break()
+        endif()
+    endforeach()
+endfunction()
+
+# Function to determine if path should be included (whitelist overrides blacklist)
+function(should_include path whitelist blacklist result)
+    is_whitelisted("${path}" "${whitelist}" is_in_whitelist)
+    is_blacklisted("${path}" "${blacklist}" is_in_blacklist)
+
+    # If whitelist has items, include only whitelisted paths
+    # If whitelist is empty, include all paths except blacklisted ones
+    if(whitelist)
+        if(is_in_whitelist)
+            set(${result} TRUE PARENT_SCOPE)
+        else()
+            set(${result} FALSE PARENT_SCOPE)
+        endif()
+    else()
+        if(is_in_blacklist)
+            set(${result} FALSE PARENT_SCOPE)
+        else()
+            set(${result} TRUE PARENT_SCOPE)
+        endif()
+    endif()
+endfunction()
+
+# Auto-detect all subfolders and compile source files with whitelist/blacklist support
 file(GLOB EXP_FOLDERS RELATIVE "${C_FILES}" "${C_FILES}/*")
 set(SRC_LIST "")
 set(TARGET_LIST "")
@@ -52,9 +88,9 @@ foreach(folder ${EXP_FOLDERS})
         continue()
     endif()
 
-    # Check if folder is blacklisted
-    is_blacklisted("${folder}" "${C_BLACKLIST}" is_excluded)
-    if(is_excluded)
+    # Check if folder should be included (whitelist overrides blacklist)
+    should_include("${folder}" "${C_WHITELIST}" "${C_BLACKLIST}" include_folder)
+    if(NOT include_folder)
         message(STATUS "Excluding C folder: ${folder}")
         continue()
     endif()
@@ -65,22 +101,22 @@ foreach(folder ${EXP_FOLDERS})
     file(GLOB folder_sources "${folder_path}/*.c")
     file(GLOB user_targets "${folder_path}/*_user.c")
 
-    # Filter out blacklisted individual files from sources
+    # Filter files based on whitelist/blacklist for sources
     foreach(source ${folder_sources})
         get_filename_component(source_name "${source}" NAME)
-        is_blacklisted("${folder}/${source_name}" "${C_BLACKLIST}" file_excluded)
-        if(NOT file_excluded)
+        should_include("${folder}/${source_name}" "${C_WHITELIST}" "${C_BLACKLIST}" include_file)
+        if(include_file)
             list(APPEND SRC_LIST "${source}")
         else()
             message(STATUS "Excluding C source file: ${folder}/${source_name}")
         endif()
     endforeach()
 
-    # Filter out blacklisted individual files from targets
+    # Filter files based on whitelist/blacklist for targets
     foreach(target ${user_targets})
         get_filename_component(target_name "${target}" NAME)
-        is_blacklisted("${folder}/${target_name}" "${C_BLACKLIST}" target_excluded)
-        if(NOT target_excluded)
+        should_include("${folder}/${target_name}" "${C_WHITELIST}" "${C_BLACKLIST}" include_target)
+        if(include_target)
             list(APPEND TARGET_LIST "${target}")
         else()
             message(STATUS "Excluding C target file: ${folder}/${target_name}")

@@ -1,6 +1,10 @@
-# Get blacklist from parent scope or use default
+# Get blacklist and whitelist from parent scope or use default
 if(NOT DEFINED BPF_BLACKLIST)
     set(BPF_BLACKLIST "")
+endif()
+
+if(NOT DEFINED BPF_WHITELIST)
+    set(BPF_WHITELIST "")
 endif()
 
 # Function to check if path is blacklisted
@@ -14,7 +18,40 @@ function(is_blacklisted path blacklist result)
     endforeach()
 endfunction()
 
-# Auto-detect all subfolders and compile source files with blacklist support
+# Function to check if path is whitelisted (higher priority than blacklist)
+function(is_whitelisted path whitelist result)
+    set(${result} FALSE PARENT_SCOPE)
+    foreach(whitelisted_item ${whitelist})
+        if("${path}" MATCHES "${whitelisted_item}")
+            set(${result} TRUE PARENT_SCOPE)
+            break()
+        endif()
+    endforeach()
+endfunction()
+
+# Function to determine if path should be included (whitelist overrides blacklist)
+function(should_include path whitelist blacklist result)
+    is_whitelisted("${path}" "${whitelist}" is_in_whitelist)
+    is_blacklisted("${path}" "${blacklist}" is_in_blacklist)
+
+    # If whitelist has items, include only whitelisted paths
+    # If whitelist is empty, include all paths except blacklisted ones
+    if(whitelist)
+        if(is_in_whitelist)
+            set(${result} TRUE PARENT_SCOPE)
+        else()
+            set(${result} FALSE PARENT_SCOPE)
+        endif()
+    else()
+        if(is_in_blacklist)
+            set(${result} FALSE PARENT_SCOPE)
+        else()
+            set(${result} TRUE PARENT_SCOPE)
+        endif()
+    endif()
+endfunction()
+
+# Auto-detect all subfolders and compile source files with whitelist/blacklist support
 file(GLOB EXP_FOLDERS RELATIVE "${BPF_KERN_SRC_FILES}" "${BPF_KERN_SRC_FILES}/*")
 set(BPF_SRC_LIST "")
 
@@ -26,9 +63,9 @@ foreach(folder ${EXP_FOLDERS})
         continue()
     endif()
 
-    # Check if folder is blacklisted
-    is_blacklisted("${folder}" "${BPF_BLACKLIST}" is_excluded)
-    if(is_excluded)
+    # Check if folder should be included (whitelist overrides blacklist)
+    should_include("${folder}" "${BPF_WHITELIST}" "${BPF_BLACKLIST}" include_folder)
+    if(NOT include_folder)
         message(STATUS "Excluding BPF folder: ${folder}")
         continue()
     endif()
@@ -38,11 +75,11 @@ foreach(folder ${EXP_FOLDERS})
     # Get all .c files in the folder
     file(GLOB folder_sources "${folder_path}/*.c")
 
-    # Filter out blacklisted individual files
+    # Filter files based on whitelist/blacklist
     foreach(source ${folder_sources})
         get_filename_component(source_name "${source}" NAME)
-        is_blacklisted("${folder}/${source_name}" "${BPF_BLACKLIST}" file_excluded)
-        if(NOT file_excluded)
+        should_include("${folder}/${source_name}" "${BPF_WHITELIST}" "${BPF_BLACKLIST}" include_file)
+        if(include_file)
             list(APPEND BPF_SRC_LIST "${source}")
         else()
             message(STATUS "Excluding BPF file: ${folder}/${source_name}")

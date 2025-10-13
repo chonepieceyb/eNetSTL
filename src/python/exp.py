@@ -23,9 +23,10 @@ import subprocess
 import os
 from exp_config import *
 
+sys.path.insert(0, '/root/trex/v3.03/external_libs')
 sys.path.insert(0, '/root/trex/v3.03/automation/trex_control_plane/interactive')
 sys.path.insert(0, '/root/trex/v3.03/automation/trex_control_plane/interactive/trex/examples/stl')
-sys.path.insert(0, '/root/trex/v3.03/external_libs')
+
 from trex.stl.api import *
 from trex.utils.text_opts import format_text
 
@@ -171,6 +172,7 @@ bpf_prog_list: List[
     ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_20ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 20000"), lambda: clear_trex_session()),
     ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_50ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 50000"), lambda: clear_trex_session()),
     ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_100ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 100000"), lambda: clear_trex_session()),
+    ("ebpf_arena_skiplist_lookup_12_user", "ebpf_arena_skiplist_lookup_12", ExpConfig(), lambda: load_lkm("exp1-arena/bpf_arena.ko"), lambda: unload_lkm("bpf_arena")),
     ("empty_base_user", "empty_base", ExpConfig())
 ]
 

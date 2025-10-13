@@ -1,0 +1,37 @@
+# C User-space Whitelist Configuration File
+# This file contains folders and files to explicitly include in C compilation
+# Whitelist has HIGHER PRIORITY than blacklist - items in whitelist override blacklist
+# Each line should be a relative path from src/c
+# Lines starting with # are comments and ignored
+# Empty lines are ignored
+
+# === USAGE EXAMPLES ===
+
+# Example 1: Include only specific experiment folders
+# Uncomment the lines below to build ONLY exp1-2 and exp4 user programs
+# exp1-2/
+# exp4/
+
+# Example 2: Include specific user programs from different experiments
+# Uncomment the lines below to build only specific user programs
+# exp1-2/ebpf_cuckoo_hash_dp_user.c
+# exp4/cuckoo_cp_dp_user.c
+
+exp1-arena
+
+# Example 3: Override blacklist for specific programs
+# If you have items in c_blacklist.txt but want to whitelist certain ones:
+# exp9/special_experiment_user.c  # This would be included even if exp9/ is blacklisted
+
+# Example 4: Build only control plane components
+# control_plane/
+# utils/
+
+# === CURRENT CONFIGURATION ===
+# Temporarily build all C programs (empty whitelist)
+
+# === PRIORITY NOTES ===
+# 1. If whitelist has ANY entries, ONLY whitelisted items will be built
+# 2. Whitelist completely overrides blacklist for matching items
+# 3. Use whitelist when you want to build specific components
+# 4. Use blacklist when you want to exclude specific components but build everything else

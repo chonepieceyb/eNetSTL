@@ -1,6 +1,34 @@
 #!/bin/bash
 set -e
 
+# Default Docker image
+DEFAULT_IMAGE="chonepieceyb/enetstl:v0.1"
+DOCKER_IMAGE="$DEFAULT_IMAGE"
+
+# Parse command line arguments
+usage() {
+    echo "Usage: $0 [-i|--image DOCKER_IMAGE] [-h|--help]"
+    echo "  -i, --image    Use custom Docker image (default: $DEFAULT_IMAGE)"
+    echo "  -h, --help     Show this help message"
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -i|--image)
+            DOCKER_IMAGE="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            ;;
+    esac
+done
+
 # Get the project directory
 PROJECT_DIR="$(dirname $(pwd))"
 LINUX_DIR="${PROJECT_DIR}/linux"
@@ -8,6 +36,7 @@ VMLINUX_H_PATH="${PROJECT_DIR}/src/bpf_kern/vmlinux.h"
 
 echo "=== eNetSTL Docker Build Environment ==="
 echo "Project directory: ${PROJECT_DIR}"
+echo "Docker image: ${DOCKER_IMAGE}"
 echo ""
 
 # Function to generate vmlinux.h
@@ -18,14 +47,14 @@ generate_vmlinux() {
             --rm \
             -v "${PROJECT_DIR}":/root/enetstl \
             -v "${LINUX_DIR}":/root/enetstl/linux \
-            chonepieceyb/enetstl:v0.1 /bin/sh \
+            "${DOCKER_IMAGE}" /bin/sh \
             -c '/usr/local/sbin/bpftool btf dump file /root/enetstl/linux/vmlinux format c > /root/enetstl/src/bpf_kern/vmlinux.h'
     else
         echo "🔄 Generating vmlinux.h from system BTF..."
         sudo docker run --privileged \
             --rm \
             -v "${PROJECT_DIR}":/root/enetstl \
-            -v /sys/kernel/btf:/sys/kernel/btf chonepieceyb/enetstl:v0.1 /bin/sh \
+            -v /sys/kernel/btf:/sys/kernel/btf "${DOCKER_IMAGE}" /bin/sh \
             -c '/usr/local/sbin/bpftool btf dump file /sys/kernel/btf/vmlinux format c > /root/enetstl/src/bpf_kern/vmlinux.h'
     fi
     echo "✅ vmlinux.h generated successfully!"
@@ -81,7 +110,7 @@ sudo docker run  \
     --privileged \
     --runtime=runc \
     -w /root/enetstl \
-    chonepieceyb/enetstl:v0.1
+    "${DOCKER_IMAGE}"
 
 echo ""
 echo "👋 eNetSTL Docker session ended"

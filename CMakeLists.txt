@@ -15,7 +15,10 @@ cmake_minimum_required(VERSION 3.15)
 set(PROJECT_NAME eurosys_ae)
 set(PROJECT_VERSION 0.1)
 
-set(CMAKE_C_COMPILER "/usr/bin/clang-15")
+# Set default compiler, allow override via command line
+if(NOT DEFINED CMAKE_C_COMPILER)
+    set(CMAKE_C_COMPILER "/usr/bin/clang-15")
+endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(${PROJECT_NAME} VERSION ${PROJECT_VERSION})
@@ -33,6 +36,10 @@ set(C_FILES "${PROJECT_SOURCE_DIR}/src/c")
 # Blacklist config files for selective compilation
 set(BPF_BLACKLIST_FILE "${PROJECT_SOURCE_DIR}/cmake/bpf_blacklist.txt" CACHE FILEPATH "Path to BPF blacklist file (contains folders/files to exclude)")
 set(C_BLACKLIST_FILE "${PROJECT_SOURCE_DIR}/cmake/c_blacklist.txt" CACHE FILEPATH "Path to C blacklist file (contains folders/files to exclude)")
+
+# Whitelist config files for selective compilation (higher priority than blacklist)
+set(BPF_WHITELIST_FILE "${PROJECT_SOURCE_DIR}/cmake/bpf_whitelist.txt" CACHE FILEPATH "Path to BPF whitelist file (contains folders/files to include - overrides blacklist)")
+set(C_WHITELIST_FILE "${PROJECT_SOURCE_DIR}/cmake/c_whitelist.txt" CACHE FILEPATH "Path to C whitelist file (contains folders/files to include - overrides blacklist)")
 
 # Linux kernel source path option
 set(LINUX_PATH "${PROJECT_SOURCE_DIR}/linux" CACHE PATH "Path to Linux kernel source directory")
@@ -69,12 +76,33 @@ function(read_blacklist file_path output_var)
     endif()
 endfunction()
 
+# Function to read whitelist file
+function(read_whitelist file_path output_var)
+    set(${output_var} "" PARENT_SCOPE)
+    if(EXISTS "${file_path}")
+        file(STRINGS "${file_path}" whitelist_lines)
+        foreach(line ${whitelist_lines})
+            # Skip empty lines and comments
+            if(NOT "${line}" MATCHES "^[[:space:]]*#.*$" AND NOT "${line}" MATCHES "^[[:space:]]*$")
+                list(APPEND ${output_var} "${line}")
+            endif()
+        endforeach()
+        set(${output_var} "${${output_var}}" PARENT_SCOPE)
+    endif()
+endfunction()
+
 # Read blacklist files
 read_blacklist("${BPF_BLACKLIST_FILE}" BPF_BLACKLIST)
 read_blacklist("${C_BLACKLIST_FILE}" C_BLACKLIST)
 
+# Read whitelist files
+read_whitelist("${BPF_WHITELIST_FILE}" BPF_WHITELIST)
+read_whitelist("${C_WHITELIST_FILE}" C_WHITELIST)
+
 message(STATUS "BPF blacklist: ${BPF_BLACKLIST}")
 message(STATUS "C blacklist: ${C_BLACKLIST}")
+message(STATUS "BPF whitelist: ${BPF_WHITELIST}")
+message(STATUS "C whitelist: ${C_WHITELIST}")
 
 # compile options
 
