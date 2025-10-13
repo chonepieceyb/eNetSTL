@@ -172,13 +172,13 @@ static int simdnn_relu_layer_forward(struct relu_layer *layer, int *input, int *
 }
 
 // BTF kfunc registration
-BTF_SET8_START(simdnn_kfunc_set)
+BTF_SET8_START(simdnn_kfunc_list)
 BTF_ID_FLAGS(func, bpf_nm_inference, KF_TRUSTED_ARGS)
-BTF_SET8_END(simdnn_kfunc_set)
+BTF_SET8_END(simdnn_kfunc_list)
 
 static const struct btf_kfunc_id_set simdnn_kfunc_set = {
     .owner = THIS_MODULE,
-    .set   = &simdnn_kfunc_set,
+    .set   = &simdnn_kfunc_list,
 };
 
 static int __init simdnn_init(void)
