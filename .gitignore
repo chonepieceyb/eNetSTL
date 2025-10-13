@@ -75,4 +75,14 @@ log
 *vmlinux.h
 
 # claude
-# claude_instructions/
+claude_instructions/
+.claude/
+
+# linux kernel
+kernel/
+kernel-build/
+
+# qemu
+*.img
+*.iso
+iso/
