@@ -79,8 +79,7 @@ claude_instructions/
 .claude/
 
 # linux kernel
-kernel/
-kernel-build/
+linux/
 
 # qemu
 *.img

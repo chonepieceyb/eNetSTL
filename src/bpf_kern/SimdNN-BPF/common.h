@@ -2,24 +2,54 @@
 #define SIMDNN_COMMON_H
 
 #include <linux/types.h>
+#include "./mlp.bpf.h"
 
-// Layer types for neural network
-#define ENETSTL_FC_LAYER 1
-#define ENETSTL_RELU_LAYER 2
+/* ---- Layer types ---- */
+#define ENETSTL_FC_LAYER       1
+#define ENETSTL_RELU_LAYER     2
+#define ENETSTL_OUTPUT_LAYER   101
 
-// Common layer structure
+/* ---- Common header ---- */
 struct layer_common {
-    int type;
-    int next_layer_off;
+    int type;           /* ENETSTL_* */
+    int next_layer_off; /* byte offset from struct model base; 0 => end */
 };
 
-// Fully connected layer parameters
+/* ---- FC params / size ---- */
 struct fc_layer_parms {
     int in_features;
     int out_features;
 };
 
-// Flow key structure
+/* ---- Layers ---- */
+struct fc_layer1 {
+    struct layer_common   comm;
+    struct fc_layer_parms parm;  
+    int weights[N1][N0]; 
+};
+
+struct fc_layer2 {
+    struct layer_common   comm;
+    struct fc_layer_parms parm;  
+    int weights[N2][N1]; 
+};
+
+struct fc_layer3 {
+    struct layer_common   comm;
+    struct fc_layer_parms parm;  
+    int weights[N3][N2]; 
+};
+
+struct relu_layer {
+    struct layer_common comm;
+};
+
+struct output_layer {
+    struct layer_common comm;
+    int buffer[N3];
+};
+
+/* ---- Flow structs ---- */
 struct flow {
     int saddr;
     int sport;
@@ -27,15 +57,13 @@ struct flow {
     int dport;
 };
 
-// Flow attributes structure
-struct flow_attribute
-{
-    __s64 num_packet;        // Number of packets
-    __s64 min_packet_length; // Minimum length of a packet
-    __s64 max_packet_length; // Maximum length of a packet
-    __s64 max_duration;      // Maximum time between two packets sent in the forward direction
-    __s64 dst_port;          // Destination port
-    __s64 header_length;     // TCP total header length
+struct flow_attribute {
+    __s64 num_packet;
+    __s64 min_packet_length;
+    __s64 max_packet_length;
+    __s64 max_duration;
+    __s64 dst_port;
+    __s64 header_length;
 
     __s64 last_packet_time;
     __s64 status;
@@ -43,43 +71,14 @@ struct flow_attribute
     __u64 detection_start_time;
 };
 
-// User defined full connected layer
-struct fc_layer {
-    struct layer_common comm; // common fields for all layers
-    struct fc_layer_parms parm; // parameters depend on comm.type
-    // below are user provided data
-    int weights[32][6];
-    int bias[32];
-};
-
-// User defined ReLU layer
-struct relu_layer {
-    struct layer_common comm;
-};
-
-// User defined DNN model
+/* ---- model ---- */
 struct model {
-   struct fc_layer fc1;
-   struct relu_layer relu1;
-   struct fc_layer fc2;
-   struct relu_layer relu2;
-   struct fc_layer output;
-   int input_buffer[6];
-   int output_buffer[2];
+    struct fc_layer1     fc1;           
+    struct relu_layer   relu1;
+    struct fc_layer2     fc2;         
+    struct relu_layer   relu2;
+    struct fc_layer3     fc_out;    
+    struct output_layer output_buffer; 
 };
 
-#define MAX_PACKET_RECORD 8192
-
-// Flow map definition for eBPF
-#define FLOW_MAP_DEFINE \
-    struct { \
-        __uint(type, BPF_MAP_TYPE_HASH); \
-        __uint(max_entries, MAX_PACKET_RECORD); \
-        __type(key, struct flow); \
-        __type(value, struct flow_attribute); \
-    } flow_map SEC(".maps");
-
-// Kfunc declaration for neural network inference
-extern int bpf_nm_inference(void *model, int model_size) __ksym;
-
-#endif // SIMDNN_COMMON_H
+#endif /* SIMDNN_COMMON_H */
