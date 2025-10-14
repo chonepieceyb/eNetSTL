@@ -7,7 +7,7 @@
 struct {
     __uint(type, BPF_MAP_TYPE_ARENA);
     __uint(map_flags, BPF_F_MMAPABLE);
-    __uint(max_entries, 100); /* number of pages */
+    __uint(max_entries, 10000); /* number of pages */
     __ulong(map_extra, 0x1ull << 44); /* start of mmap() region */
 } arena SEC(".maps");
 
@@ -17,21 +17,10 @@ struct {
 #define MAX_ENTRY 100000
 #define RAND_MAX 2147483647
 #define MAX_SKIPLIST_HEIGHT 16
-#define MAX_SEARCH_DEPTH 512
+#define MAX_SEARCH_DEPTH 65536
 
 #define MEM_CMP_FUNC __builtin_memcmp
 
-//#define MEM_CMP_FUNC memcmp_byte
-// static int memcmp_byte(void *a, void *b, __u64 size) {
-// 	// __u8 *a_ptr = (__u8 *)a;
-// 	// __u8 *b_ptr = (__u8 *)b;
-// 	// for (int i = 0; i < size; i++) {
-// 	// 	if (a_ptr[i] != b_ptr[i]) {
-// 	// 		return a_ptr[i] - b_ptr[i];
-// 	// 	}
-// 	// }
-// 	// return 0;
-// }
 
 // Use pkt_5tuple from common.h - avoid redefinition
 
@@ -59,12 +48,33 @@ struct sl_entry {
 
 typedef struct sl_entry __arena sl_entry;
 
-static sl_entry *NULL_MARKER = NULL;
-
-static inline int skip_key_cmp(skip_key_type_t *a, skip_key_type_t *b)
+static inline int skip_key_cmp(skip_key_type_t __arena *a, skip_key_type_t *b)
 {
-	log_debug("Comparing keys: %u and %u", a->key, b->key);
-    return MEM_CMP_FUNC(a, b, sizeof(skip_key_type_t));
+	// log_debug("Comparing keys: %u and %u", a->key, b->key);
+
+   
+	// if (a->key < b->key) {
+	// 	return -1;
+	// } else if (a->key > b->key) {
+	// 	return 1;
+	// } else {
+	// 	return 0;	
+	// }
+
+	int size = (sizeof(skip_key_type_t) >> 1);
+	for (int i = 0; i < size; i++) {
+		__u16 __arena *a_ptr = (__u16 __arena *)((__u16*)a + i);
+		__u16 *b_ptr = (__u16 *)((__u16*)b + i);
+		cast_kern(a_ptr);
+		if (*a_ptr > *b_ptr) {
+			return 1;
+		} else if (*a_ptr < *b_ptr) {
+			return -1;
+		} else {
+			continue;
+		}
+	}
+	return 0;
 }
 
 static inline sl_entry* ptr_get_next(sl_entry *parent, u32 idx)
@@ -106,9 +116,6 @@ static inline void connected_prev_next(sl_entry *prev, int level, sl_entry *new_
 		cast_user(new_entry);
 		//WRITE_ONCE(prev->next[level & (MAX_SKIPLIST_HEIGHT - 1)	], new_entry);
 		*next_ptr = new_entry;
-		sl_entry *check_next = READ_ONCE(prev->next[level & (MAX_SKIPLIST_HEIGHT - 1)]);
-		cast_user(check_next);
-		log_debug("[SKIP LIST] prev_node->next[%d] = %p, height %d", level, *next_ptr , prev->height);
 		return;
 		// prev->next[level] = new_entry;
 	}
@@ -179,7 +186,8 @@ static long lookup_callback(__u32 index, void *data)
 		--ctx->level;
 		return 0; // Continue
 	}
-	skip_key_type_t *next_key = &(next->key);
+	skip_key_type_t __arena *next_key = &(next->key);
+	cast_kern(next_key);
 	int cmp = skip_key_cmp(next_key, ctx->key);
 	log_debug("[SKIP LIST] lookup_elem: comparing with key %u, cmp result %d", next_key->key, cmp);
 	cast_kern(next);
@@ -204,14 +212,21 @@ static inline int init_new_entry(sl_entry *entry, skip_key_type_t *key, skip_val
 		log_debug("[SKIP LIST] init_new_entry: invalid parameters");
 		return -1;
 	}
+	cast_kern(entry);
+	__builtin_memset(entry, 0, sizeof(sl_entry));
 
 	int new_height = bpf_grand();
 	log_debug("[SKIP LIST] init_new_entry: new entry random height %d", new_height);
 	cast_kern(entry);
 	entry->height = new_height;
 	log_debug("[SKIP LIST] init_new_entry: allocated new entry with height %d", entry->height);
-	__builtin_memcpy(&entry->key, key, sizeof(skip_key_type_t));
-	__builtin_memcpy(&entry->value, value, sizeof(skip_value_type_t));
+	
+	void __arena *key_ptr = &entry->key;
+	void __arena *value_ptr = &entry->value;
+	cast_kern(key_ptr);
+	cast_kern(value_ptr);
+	__builtin_memcpy(key_ptr, key, sizeof(skip_key_type_t));
+	__builtin_memcpy(value_ptr, value, sizeof(skip_value_type_t));
 	log_debug("[SKIP LIST] init_new_entry: initialized new entry with key %u, value %lu", entry->key.key, entry->value.data);
 	return 0;
 }
@@ -323,26 +338,18 @@ static inline long skip_list_update_elem(sl_entry *head, skip_key_type_t *key, s
 	// Link the new entry at all levels using a normal for loop
 	#pragma unroll 1
 	for (int i = 0; i < MAX_SKIPLIST_HEIGHT; i++) {
-		log_debug("[SKIP LIST] update_elem: processing level %d, entry height %d", i, new_entry->height);
 		cast_kern(new_entry);
 		if (i >= new_entry->height) {
 			new_entry->next[i] = NULL;
 			log_debug("[SKIP LIST] update_elem: level %d above height, setting next to NULL", i);
 		} else {
 			sl_entry *prev_node = ctx.prev[i];
-			cast_kern(prev_node);
-			sl_entry *tmp = prev_node->next[i];
-			cast_kern(prev_node);
-			connected_prev_next(prev_node, i, new_entry);
 			cast_kern(new_entry);
-			connected_prev_next(new_entry, i, tmp);
 			cast_kern(prev_node);
-			sl_entry *check_next = READ_ONCE(prev_node->next[i]);
-			log_debug("[SKIP LIST] prev_node->next[%d] = %p, height %d", i, check_next, prev_node->height);
-			log_debug("[SKIP LIST] update_elem: level %d linked successfully", i);
+			connected_prev_next(new_entry, i, prev_node->next[i]);
+			cast_kern(prev_node);
+			connected_prev_next(prev_node, i, new_entry);			
 		}
 	}
-	log_debug("[SKIP LIST] update_elem: successfully inserted key %u with height %d after %d iterations",
-		  key->key, new_entry->height, MAX_SKIPLIST_HEIGHT);
 	return 0;
 }

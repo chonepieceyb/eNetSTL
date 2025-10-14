@@ -7,6 +7,7 @@
 #include "arena_skiplist_common.h"
 #include "../bpf_skel/test_ebpf_arena.skel.h"
 #include "../test_helpers.h"
+#include <unistd.h>
 
 static void test_skiplist_init(void)
 {
@@ -36,7 +37,8 @@ static void test_skiplist_init(void)
 	ret = bpf_prog_test_run_opts(bpf_program__fd(prog_init), &opts);
 	ASSERT_OK(ret, "arena_skiplist_init test_run_opts");
 	ASSERT_OK(opts.retval, "arena_skiplist_init retval");
-
+	
+	sleep(2);
 	/* RUN LOOKUP */
 	ret = bpf_prog_test_run_opts(bpf_program__fd(prog_lookup), &opts);
 	ASSERT_OK(ret, "arena_skiplist_lookup test_run_opts");

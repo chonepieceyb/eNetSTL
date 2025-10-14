@@ -26,7 +26,7 @@ extern void *bpf_map_area_alloc(u64 size, int numa_node);
 
 // #define MEM_CMP_FUNC __builtin_memcpy
 #define MEM_CMP_FUNC memcmp_byte
-static int memcmp_byte(void *a, void *b, __u64 size) {
+static inline int memcmp_byte(void *a, void *b, __u64 size) {
 	__u8 *a_ptr = (__u8 *)a;
 	__u8 *b_ptr = (__u8 *)b;
 	for (int i = 0; i < size; i++) {
@@ -36,6 +36,7 @@ static int memcmp_byte(void *a, void *b, __u64 size) {
 	}
 	return 0;
 }
+
 struct pkt_5tuple {
 	__be32 src_ip;
 	__be32 dst_ip;
@@ -153,31 +154,33 @@ static void skip_list_free(struct bpf_map *map)
 	return;
 }
 
-noinline sl_entry* ptr_get_next(sl_entry *parent, u32 idx)
+static inline sl_entry* ptr_get_next(sl_entry *parent, u32 idx)
 {
-	if (idx >= MAX_SKIPLIST_HEIGHT) {
-		return NULL;
-	}
+	// if (idx >= MAX_SKIPLIST_HEIGHT) {
+	// 	return NULL;
+	// }
 	
-	sl_entry *next_node = parent->next[idx & (MAX_SKIPLIST_HEIGHT - 1)];
-	if (next_node == NULL) 
-		return NULL;
-	next_node->ref_cnt++;
+	// sl_entry *next_node = parent->next[idx & (MAX_SKIPLIST_HEIGHT - 1)];
+	// if (next_node == NULL) 
+	// 	return NULL;
+	// next_node->ref_cnt++;
 
-	return next_node;
+	//return next_node;
+	return parent->next[idx & (MAX_SKIPLIST_HEIGHT - 1)];
 }
 
-noinline void ptr_release_node(sl_entry *node)
+static inline void ptr_release_node(sl_entry *node)
 {
-	if (node == NULL) {
-		return;
-	}
+	return;	
+	// if (node == NULL) {
+	// 	return;
+	// }
 
-	if (unlikely((--node->ref_cnt) == 0)) {
-		preempt_disable();
-		node->hit_cnt ++;
-		preempt_enable();
-	}
+	// if (unlikely((--node->ref_cnt) == 0)) {
+	// 	preempt_disable();
+	// 	node->hit_cnt ++;
+	// 	preempt_enable();
+	// }
 }
 
 static void *skip_list_lookup_elem(struct bpf_map *map, void* key_ptr)

@@ -15,7 +15,7 @@ static long insert_callback(__u32 index, void *data)
 {
 	skip_key_type_t pkt_with_pad = {0};
 	skip_value_type_t value_with_pad = {0};
-	int key = index + 1; // Convert 0-based index to 1-based key
+	int key = index; // Convert 0-based index to 1-based key
 
 	pkt_with_pad.key = key;
 	value_with_pad.data = key;
@@ -64,10 +64,10 @@ int xdp_main(struct xdp_md *ctx)
 	LATENCY_START_TIMESTAMP_DEFINE
 
 	bpf_arena_empty(&arena);
-	skip_key_type_t pkt_with_pad = {};
-	skip_value_type_t value_with_pad = {};
+	skip_key_type_t pkt_with_pad = {0};
+	skip_value_type_t value_with_pad = {0};
 
-	pkt_with_pad.key = (bpf_get_prandom_u32() % KEY_RANGE) + 1;
+	pkt_with_pad.key = (bpf_get_prandom_u32() % KEY_RANGE);
 
 	// Perform lookup
 	sl_entry *lookup_res = skip_list_lookup_elem(skip_list_head,
