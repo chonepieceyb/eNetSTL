@@ -26,7 +26,7 @@ static int setup_model_map(struct bpf_map *model_map)
     __u32 key = 0;
     struct model model = (struct model){0};
 
-    /* fc1: N0 -> N1（作为图起点） */
+    /* fc1: N0 -> N1 */
     model.fc1.comm.type = ENETSTL_FC_LAYER;
     model.fc1.comm.next_layer_off = (int)offsetof(struct model, relu1);
     model.fc1.parm.in_features = N0;

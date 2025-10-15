@@ -193,8 +193,8 @@ int xdp_simdnn_main(struct xdp_md *ctx)
     if (fa->num_packet < 10)
         return XDP_PASS;
 
-    __u32 input_buffer_id = 0;
-    int *attr = bpf_map_lookup_elem(&input_map, &input_buffer_id);
+    __u32 input_buffer_key = 0;
+    int *attr = bpf_map_lookup_elem(&input_map, &input_buffer_key);
     if (!attr)
     {
         log_error("input_map lookup failed");
@@ -207,8 +207,8 @@ int xdp_simdnn_main(struct xdp_md *ctx)
     normalize_features(attr);
 
     /* 模型实例（value: struct model） */
-    __u32 model_id = 0;
-    struct model *m = bpf_map_lookup_elem(&model_map, &model_id);
+    __u32 model_key = 0;
+    struct model *m = bpf_map_lookup_elem(&model_map, &model_key);
     if (!m)
     {
         log_error("model_map empty");

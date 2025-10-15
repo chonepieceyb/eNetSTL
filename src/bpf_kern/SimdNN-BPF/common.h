@@ -7,7 +7,6 @@
 /* ---- Layer types ---- */
 #define ENETSTL_FC_LAYER       1
 #define ENETSTL_RELU_LAYER     2
-#define ENETSTL_OUTPUT_LAYER   101
 
 /* ---- Common header ---- */
 struct layer_common {
@@ -22,22 +21,10 @@ struct fc_layer_parms {
 };
 
 /* ---- Layers ---- */
-struct fc_layer1 {
+struct fc_layer {
     struct layer_common   comm;
     struct fc_layer_parms parm;  
-    int weights[N1][N0]; 
-};
-
-struct fc_layer2 {
-    struct layer_common   comm;
-    struct fc_layer_parms parm;  
-    int weights[N2][N1]; 
-};
-
-struct fc_layer3 {
-    struct layer_common   comm;
-    struct fc_layer_parms parm;  
-    int weights[N3][N2]; 
+    int weights[64][64]; 
 };
 
 struct relu_layer {
@@ -73,11 +60,11 @@ struct flow_attribute {
 
 /* ---- model ---- */
 struct model {
-    struct fc_layer1     fc1;           
+    struct fc_layer     fc1;           
     struct relu_layer   relu1;
-    struct fc_layer2     fc2;         
+    struct fc_layer     fc2;         
     struct relu_layer   relu2;
-    struct fc_layer3     fc_out;    
+    struct fc_layer     fc_out;    
     struct output_layer output_buffer; 
 };
 
