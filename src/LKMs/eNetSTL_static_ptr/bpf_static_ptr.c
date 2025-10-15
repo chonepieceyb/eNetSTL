@@ -9,12 +9,37 @@
 
 #define MAX_PROXY_NUM 1
 
+
 static struct bpf_mem_alloc batch_ma;
 
 static struct eNetSTL_node_proxy node_proxys[MAX_PROXY_NUM] = {0};
 
 //HINT: a hole batch avoid runtime safety check, for all allocated batches, for example , for example, if proxy->batches[i] is not allocated, batches[i] = &hole_batch rather that NULL
-static struct __node_batch hole_batch; 
+static struct __node_batch hole_batch;
+
+static void enlarge_capacity_rcu_callback(struct rcu_head *rcu)
+{
+	struct eNetSTL_node_container *old_container = container_of(rcu, struct eNetSTL_node_container, rcu);
+	kfree(old_container);
+}
+
+static void destroy_proxy_rcu_callback(struct rcu_head *rcu)
+{
+	struct eNetSTL_node_container *container = container_of(rcu, struct eNetSTL_node_container, rcu);
+	int i;
+	int batch_count = container->batches_mask + 1;
+
+	// free all node batches using bpf_mem_cache_free
+	for (i = 0; i < batch_count; i++) {
+		if (container->batches[i] && container->batches[i] != &hole_batch) {
+			preempt_disable();
+			bpf_mem_cache_free(&batch_ma, container->batches[i]);
+			preempt_enable();
+		}
+	}
+
+	kfree(container);
+}
 
 //should be invoked with KF_SLEEPABLE
 struct eNetSTL_node_proxy* enetstl_create_node_proxy(void) {
@@ -51,8 +76,8 @@ struct eNetSTL_node_proxy* enetstl_create_node_proxy(void) {
 
         container->free_list_head = 0;
         container->batches_mask = batch_num - 1;
-        container->capacity = batch_num << NODE_BATCH_SIZE_SHIFT;
-        container->batches_unalloc_idx = 0;
+        container->capacity = (batch_num << NODE_BATCH_SIZE_SHIFT);
+        container->fd = proxy->fd;
 
         // 4. for each batch, alloc struct __node_batches using  bpf_mem_cache_alloc, check LKMs/bpf_ptr_structure_lib.c  and bpf_memalloc.h for example of using bpf_mem_cache_alloc
         for (i = 0; i < batch_num; i++) {
@@ -66,6 +91,7 @@ struct eNetSTL_node_proxy* enetstl_create_node_proxy(void) {
                         goto alloc_error;
                 }
         }
+        container->batches_unalloc_idx = batch_num;
 
         // 5. for all node init next_idx to initialize freelist
         for (i = 0; i < batch_num; i++) {
@@ -78,8 +104,10 @@ struct eNetSTL_node_proxy* enetstl_create_node_proxy(void) {
 
         // 6. if init fail, return NULL
         spin_lock(&proxy->lock);
-        rcu_assign_pointer(proxy->container, proxy); //old should be NULL here
+        rcu_assign_pointer(proxy->container, container); //old should be NULL here
         spin_unlock(&proxy->lock);
+
+        // No need for callback since we're not replacing any existing container
         return proxy;
 
 alloc_error:;
@@ -119,7 +147,8 @@ struct eNetSTL_node* enetstl_alloc_node(struct eNetSTL_node_container* container
         // 1. alloc a new node from the container, if success, set *idx to the index of the node, set *current_capacity to current capacity of the proxy, return the node pointer
         current_capacity = container->capacity;
 
-        if (container->batches_unalloc_idx >= (container->batches_mask + 1)) {
+        if (container->free_list_head == current_capacity &&
+                container->batches_unalloc_idx >= (container->batches_mask + 1)) {
                 // if capacity is full, return NULL
                 return NULL;
         }
@@ -159,46 +188,42 @@ void enetstl_free_node(struct eNetSTL_node_container *container, u64 idx) {
         container->free_list_head = idx;
 }
 
-int enetstl_enlarge_capacity(int fd) {
+/*for enlarge we should release old container first*/
+void enetstl_enlarge_capacity(struct eNetSTL_node_container *old_container) {
         struct eNetSTL_node_proxy *proxy;
-        struct eNetSTL_node_container *old_container, *new_container;
+        struct eNetSTL_node_container *new_container;
         u64 old_batch_num, new_batch_num;
         u64 i;
-        proxy = &node_proxys[fd & (MAX_PROXY_NUM - 1)];
-        rcu_read_lock();
-        old_container = rcu_dereference(proxy->container);
-        if (!old_container) {
-                rcu_read_unlock();
-                return -EINVAL;  //invalid fd
-        }
+        proxy = &node_proxys[old_container->fd & (MAX_PROXY_NUM - 1)];
         old_batch_num = READ_ONCE(old_container->batches_mask) + 1;
-        new_batch_num = old_batch_num * 2;  // double the capacity
         rcu_read_unlock();
-
+        
+        new_batch_num = old_batch_num * 2;  // double the capacity
         // 1. recreate a eNetSTL_node_proxy with new capacity
         new_container = kmalloc(sizeof(*new_container) + sizeof(struct __node_batch*) * new_batch_num, GFP_KERNEL);
         if (!new_container)
-                return -ENOMEM;
+                return;
         // init the new one 
         spin_lock(&proxy->lock);
         old_container = rcu_dereference_protected(proxy->container, lockdep_is_held(&proxy->lock));
         if (!old_container) {
                 spin_unlock(&proxy->lock);
                 kfree(new_container);
-                return -EAGAIN;  //invalid fd
+                return;  //invalid fd
         }
 
         if (old_batch_num != READ_ONCE(old_container->batches_mask) + 1) {
                 // the old proxy has been changed, we should not enlarge capacity
                 spin_unlock(&proxy->lock);
                 kfree(new_container);
-                return -EAGAIN;
+                return;
         }
 
         new_container->free_list_head = old_container->free_list_head;
         new_container->batches_mask = new_batch_num - 1;
         new_container->capacity = (new_batch_num << NODE_BATCH_SIZE_SHIFT);
         new_container->batches_unalloc_idx = old_container->batches_unalloc_idx;
+        new_container->fd = proxy->fd;
 
         // 2. copy old batches to new container (do not allocated struct __node_batches again, just copy the pointer)
         for (i = 0; i < old_batch_num; i++) {
@@ -213,15 +238,13 @@ int enetstl_enlarge_capacity(int fd) {
         // 4. use rcu to replace the old container with the new one, free the old one (just free the container structure, do not free the struct __node_batches, as they are used by the new container now)
         rcu_assign_pointer(proxy->container, new_container);
         spin_unlock(&proxy->lock);
-        synchronize_rcu();
-        kfree(old_container);
-        return 0;
 
+        // Use call_rcu instead of synchronize_rcu for non-blocking behavior
+        call_rcu(&old_container->rcu, enlarge_capacity_rcu_callback);
+        return;
 }
 
 void enetstl_destroy_node_proxy(struct eNetSTL_node_proxy* proxy) {
-        int i;
-        u64 batch_num;
         struct eNetSTL_node_container *old_container;
 
         if (!proxy)
@@ -236,20 +259,9 @@ void enetstl_destroy_node_proxy(struct eNetSTL_node_proxy* proxy) {
         rcu_assign_pointer(proxy->container, NULL);
         proxy->fd = -1; // mark as free
         spin_unlock(&proxy->lock);
-        synchronize_rcu();
-        // free all node batches
 
-        batch_num = old_container->batches_mask + 1;
-
-        // 1. free all nodes using bpf_mem_cache_free (check LKMs/bpf_ptr_structure_lib.c and bpf_memalloc.h for example of using bpf_mem_cache_free)
-        for (i = 0; i < batch_num; i++) {
-                if (old_container->batches[i] && old_container->batches[i] != &hole_batch) {
-                        bpf_mem_cache_free(&batch_ma, old_container->batches[i]);
-                }
-        }
-
-        // 2. free the proxy structure itself
-        kfree(old_container);
+        // Use call_rcu instead of synchronize_rcu for non-blocking behavior
+        call_rcu(&old_container->rcu, destroy_proxy_rcu_callback);
 }
 
 //call when the kernel module is loaded

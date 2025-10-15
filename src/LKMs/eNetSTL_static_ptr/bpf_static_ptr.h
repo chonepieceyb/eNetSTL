@@ -27,7 +27,7 @@ struct sl_entry {
 	skip_value_type_t value;
 	//int ref_cnt;
 	int height;
-	struct sl_entry *next[MAX_SKIPLIST_HEIGHT];
+	u64 next[MAX_SKIPLIST_HEIGHT];
 	//int hit_cnt;
 };
 
@@ -61,11 +61,13 @@ struct __node_batch {
 struct eNetSTL_node_container {
     u64 free_list_head; //HINT: idx to the head of free list
 	/* HINT: mask to identify valid batches, , batch_num =（batches_mask + 1）; capacity = batch_num << NODE_BATCH_SIZE_SHIFT */
-	u64 batches_mask; 
+	u64 batches_mask;
 	u64 capacity;
 
 	//HINT: index to the next unallocated batch, if batches_unalloc_idx == batch_num, means all batches are allocated
 	u64 batches_unalloc_idx;
+	int fd;  //for get proxy reserved
+	struct rcu_head rcu; // For RCU callback when container is replaced
     DECLARE_FLEX_ARRAY(struct __node_batch*, batches);
 };
 
@@ -99,10 +101,10 @@ static inline struct eNetSTL_node * __get_batch_idx(
 //the point is that it is not easy to implement a new data structure using module kfuncs (unlike bpf mpas)
 struct eNetSTL_node_proxy* enetstl_create_node_proxy(void);     //HINT: create a new or get an existing node proxy structure for given fd, should be called with KF_SLEEPABLE, and put into map
 struct eNetSTL_node_container* enetstl_get_nodes(int fd); 
-void enetstl_put_nodes(struct eNetSTL_node_container* proxy);
-struct eNetSTL_node* enetstl_alloc_node(struct eNetSTL_node_container* proxy, u64 *idx);  //HINT: alloc a new node from the node proxy, return the pointer and idx;
-void enetstl_free_node(struct eNetSTL_node_container* proxy, u64 idx); //HINT: free the node with given idx back to the node proxy
-int enetstl_enlarge_capacity(int fd); //HINT: enlarge the total capacity of the proxy, this func should be called with KF_SLEEPABLE
+void enetstl_put_nodes(struct eNetSTL_node_container* container);
+struct eNetSTL_node* enetstl_alloc_node(struct eNetSTL_node_container* container, u64 *idx);  //HINT: alloc a new node from the node proxy, return the pointer and idx;
+void enetstl_free_node(struct eNetSTL_node_container* container, u64 idx); //HINT: free the node with given idx back to the node proxy
+void enetstl_enlarge_capacity(struct eNetSTL_node_container *container); //HINT: enlarge the total capacity of the proxy, this func should be called with KF_SLEEPABLE
 void enetstl_destroy_node_proxy(struct eNetSTL_node_proxy* proxy);
 int node_proxys_init(void);
 void node_proxys_exit(void);
