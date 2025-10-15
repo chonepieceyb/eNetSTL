@@ -1,7 +1,7 @@
 #include "../../src/bpf_kern/SimdNN-BPF/common.h"
 
 // analyze the neural network structure
-int simdnn_analyze_and_infer(void *m, int *attr)
+int simdnn_analyze_and_infer(void *m, int model_size, int *attr, int attr_size)
 {
     /* 临时缓冲区 */
     int tmp_in[64] = {0};
@@ -28,8 +28,7 @@ int simdnn_analyze_and_infer(void *m, int *attr)
     {
         if (layer->next_layer_off == 0)
         {
-            //tmp_out 保存最终输出到modle->output_buffer
-            // No more layers 也是最终的输出层，保存结果
+            // TODO: tmp_out 保存最终输出到modle->output_buffer
             break;
         }
         if (layer->type == ENETSTL_FC_LAYER)
@@ -39,16 +38,16 @@ int simdnn_analyze_and_infer(void *m, int *attr)
             {
                 for (int j = 0; j < in; j++)
                 {
-                    // 这里进行矩阵乘法计算
-                    // tmp_in[j] * fc->weights[i][j]
-                    // 这里使用SIMD并行计算加速:tmp_out[i] += tmp_in[j] * fc->weights[i][j];
+                    /*                     TODO: 这里进行矩阵乘法计算
+                                        tmp_in[j] * fc->weights[i][j]
+                                        这里使用SIMD并行计算加速:tmp_out[i] += tmp_in[j] * fc->weights[i][j]; */
                 }
             }
         }
         else if (layer->type == ENETSTL_RELU_LAYER)
         {
             tmp_out = {0};
-            // Relu激活函数
+            // TODO: Relu激活函数
             continue;
         }
         else
@@ -69,9 +68,16 @@ int simdnn_analyze_and_infer(void *m, int *attr)
 /* kfunc for inference */
 __bpf_kfunc_start_defs();
 
-__bpf_kfunc int bpf_nm_inference(void *model, int model_size__sz, void *attr, int attr__sz)
+/* 模型推理函数
+   void *model:模型起始地址
+   int model_size__sz:模型大小
+   void *attr:输入特征起始地址
+   int attr__sz:输入特征大小
+*/
+__bpf_kfunc int bpf_nm_inference(void *model, int model_size__sz, void *attr, int attr_size__sz)
 {
-    return 0;
+    int ret = simdnn_analyze_and_infer(m, model_size__sz, attr, attr_size__sz);
+    return ret;
 }
 
 __bpf_kfunc_end_defs();
