@@ -6,12 +6,12 @@
 #include <asm/fpu/api.h>
 
 #if defined(__x86_64__) || defined(__i386__)
-  #include <immintrin.h> /* AVX2 intrinsics */
+  #include <immintrin.h> 
 #endif
 
 /* ===================== 工具函数 ===================== */
 
-/* ReLU：就地 */
+/* ReLU */
 static inline void relu_inplace_i32(int *v, int n)
 {
 	for (int i = 0; i < n; ++i)
