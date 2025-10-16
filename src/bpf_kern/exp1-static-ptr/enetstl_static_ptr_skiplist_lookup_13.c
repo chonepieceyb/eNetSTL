@@ -1,6 +1,6 @@
 #include "../common.h"
 #include "static_ptr.h"
-#include "static_ptr_skiplist.h"
+#include "static_ptr_skiplist_new.h"
 
 char _license[] SEC("license") = "GPL";
 
@@ -108,6 +108,11 @@ int xdp_main(struct xdp_md *ctx)
 
 	pkt_with_pad.key = (bpf_get_prandom_u32() % KEY_RANGE);
 
+	int key = 0;
+	struct skip_list_proxy_map_value *val = bpf_map_lookup_elem(&skiplist_map, &key);
+	if (val == NULL) {
+		return -1;
+	}
     struct eNetSTL_container *container = bpf_enetstl_get_nodes(proxy_fd);
 	if (container == NULL) {
 		log_error("[LOOKUP TEST] Failed to get node container");
