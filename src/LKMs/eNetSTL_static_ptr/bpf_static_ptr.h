@@ -35,7 +35,7 @@ typedef struct sl_entry enetstl_node_type;
 
 #define NODE_SIZE sizeof(struct sl_entry)
 
-#define NODE_BATCH_SIZE_SHIFT 8
+#define NODE_BATCH_SIZE_SHIFT 10
 #define NODE_BATCH_SIZE (1 << NODE_BATCH_SIZE_SHIFT)
 #define NODE_BATCH_MASK (NODE_BATCH_SIZE - 1)
 #define DEFAULT_BATCHES_NUM 4  //HINT: default batch num when creating a new proxy, should be power of 2
@@ -68,7 +68,7 @@ struct eNetSTL_node_container {
 	u64 batches_unalloc_idx;
 	int fd;  //for get proxy reserved
 	struct rcu_head rcu; // For RCU callback when container is replaced
-    DECLARE_FLEX_ARRAY(struct __node_batch*, batches);
+    DECLARE_FLEX_ARRAY(struct __node_batch, batches);  //memory for batches 
 };
 
 struct eNetSTL_node_proxy {
@@ -93,8 +93,9 @@ static inline struct eNetSTL_node * __get_batch_idx(
 	u64 idx, struct eNetSTL_node_container* container) {
 	u64 batch_idx = (idx >> NODE_BATCH_SIZE_SHIFT) & container->batches_mask;
 	u64 within_batch_idx = idx & NODE_BATCH_MASK;
-	struct __node_batch* batch = container->batches[batch_idx];
-	return &batch->nodes[within_batch_idx];
+	// struct __node_batch* batch = container->batches[batch_idx];
+	// return &batch->nodes[within_batch_idx];
+	return &container->batches[batch_idx].nodes[within_batch_idx];
 }
 
 //note: use fd is to avoid the overhead of bpf_kptr_xchg (use spinlock), however, current appraoch lack of isolation between different users 

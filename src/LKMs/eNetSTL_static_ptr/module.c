@@ -28,6 +28,7 @@ __bpf_kfunc struct eNetSTL_container* bpf_enetstl_get_nodes(int fd)
 
 __bpf_kfunc enetstl_node_type* bpf_enetstl_get_node(struct eNetSTL_container* container, u64 idx)
 {
+        //this method is not safe with use-after-free issue;
         return (enetstl_node_type*)__get_batch_idx(idx, (struct eNetSTL_node_container*)container);
 }
 //EXPORT_SYMBOL_GPL(bpf_enetstl_get_node);

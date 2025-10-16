@@ -6,6 +6,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/spinlock.h>
+#include <linux/vmalloc.h>
 
 #define MAX_PROXY_NUM 1
 
@@ -20,25 +21,27 @@ static struct __node_batch hole_batch;
 static void enlarge_capacity_rcu_callback(struct rcu_head *rcu)
 {
 	struct eNetSTL_node_container *old_container = container_of(rcu, struct eNetSTL_node_container, rcu);
-	kfree(old_container);
+	//kfree(old_container);
+        vfree(old_container);
 }
 
 static void destroy_proxy_rcu_callback(struct rcu_head *rcu)
 {
 	struct eNetSTL_node_container *container = container_of(rcu, struct eNetSTL_node_container, rcu);
-	int i;
-	int batch_count = container->batches_mask + 1;
+	// int i;
+	// int batch_count = container->batches_mask + 1;
 
-	// free all node batches using bpf_mem_cache_free
-	for (i = 0; i < batch_count; i++) {
-		if (container->batches[i] && container->batches[i] != &hole_batch) {
-			preempt_disable();
-			bpf_mem_cache_free(&batch_ma, container->batches[i]);
-			preempt_enable();
-		}
-	}
+	// // free all node batches using bpf_mem_cache_free
+	// for (i = 0; i < batch_count; i++) {
+	// 	if (container->batches[i] && container->batches[i] != &hole_batch) {
+	// 		preempt_disable();
+	// 		bpf_mem_cache_free(&batch_ma, container->batches[i]);
+	// 		preempt_enable();
+	// 	}
+	// }
 
-	kfree(container);
+	// kfree(container);
+        vfree(container);
 }
 
 //should be invoked with KF_SLEEPABLE
@@ -68,8 +71,8 @@ struct eNetSTL_node_proxy* enetstl_create_node_proxy(void) {
         if (slot == -1)
                 return NULL;
 
-        // 3. when init, alloc batches, alloc batches using kmalloc
-        container = kmalloc(sizeof(*container) + sizeof(struct __node_batch*) * batch_num, GFP_KERNEL);
+        container = (struct eNetSTL_node_container*) vmalloc(sizeof(*container) + sizeof(struct __node_batch) * batch_num);
+        //container = kmalloc(sizeof(*container) + sizeof(struct __node_batch*) * batch_num, GFP_KERNEL);
         if (!container) {
                 goto alloc_error;
         }
@@ -79,35 +82,34 @@ struct eNetSTL_node_proxy* enetstl_create_node_proxy(void) {
         container->capacity = (batch_num << NODE_BATCH_SIZE_SHIFT);
         container->fd = proxy->fd;
 
-        // 4. for each batch, alloc struct __node_batches using  bpf_mem_cache_alloc, check LKMs/bpf_ptr_structure_lib.c  and bpf_memalloc.h for example of using bpf_mem_cache_alloc
-        for (i = 0; i < batch_num; i++) {
-                container->batches[i] = bpf_mem_cache_alloc(&batch_ma);
-                if (!container->batches[i]) {
-                        // cleanup on failure
-                        while (--i >= 0) {
-                                bpf_mem_cache_free(&batch_ma, container->batches[i]);
-                        }
-                        kfree(container);
-                        goto alloc_error;
-                }
-        }
-        container->batches_unalloc_idx = batch_num;
+        // // 4. for each batch, alloc struct __node_batches using  bpf_mem_cache_alloc, check LKMs/bpf_ptr_structure_lib.c  and bpf_memalloc.h for example of using bpf_mem_cache_alloc
+        // for (i = 0; i < batch_num; i++) {
+        //         container->batches[i] = bpf_mem_cache_alloc(&batch_ma);
+        //         if (!container->batches[i]) {
+        //                 // cleanup on failure
+        //                 while (--i >= 0) {
+        //                         bpf_mem_cache_free(&batch_ma, container->batches[i]);
+        //                 }
+        //                 kfree(container);
+        //                 goto alloc_error;
+        //         }
+        // }
+        // container->batches_unalloc_idx = batch_num;
 
         // 5. for all node init next_idx to initialize freelist
         for (i = 0; i < batch_num; i++) {
                 u64 j;
                 for (j = 0; j < NODE_BATCH_SIZE; j++) {
                         u64 node_idx = (i << NODE_BATCH_SIZE_SHIFT) + j;
-                        container->batches[i]->nodes[j].next_idx = node_idx + 1;
+                        //container->batches[i]->nodes[j].next_idx = node_idx + 1;
+                        container->batches[i].nodes[j].next_idx = node_idx + 1;
                 }
         }
 
-        // 6. if init fail, return NULL
         spin_lock(&proxy->lock);
         rcu_assign_pointer(proxy->container, container); //old should be NULL here
         spin_unlock(&proxy->lock);
 
-        // No need for callback since we're not replacing any existing container
         return proxy;
 
 alloc_error:;
@@ -141,34 +143,37 @@ struct eNetSTL_node* enetstl_alloc_node(struct eNetSTL_node_container* container
         //How to implement a thread-safe version? may be we can use percpu node cache to reduce contention, for testing, we use a simple version without thread-safety concern
         //This function should be reimplement later (use percpu cache + spinlock)
         struct eNetSTL_node *node;
-        u64 node_idx, batch_idx;
+        u64 node_idx;
         u64 current_capacity;
 
         // 1. alloc a new node from the container, if success, set *idx to the index of the node, set *current_capacity to current capacity of the proxy, return the node pointer
         current_capacity = container->capacity;
 
-        if (container->free_list_head == current_capacity &&
-                container->batches_unalloc_idx >= (container->batches_mask + 1)) {
-                // if capacity is full, return NULL
-                return NULL;
+        // if (container->free_list_head == current_capacity &&
+        //         container->batches_unalloc_idx >= (container->batches_mask + 1)) {
+        //         // if capacity is full, return NULL
+        //         return NULL;
+        // }
+        if (container->free_list_head == current_capacity) {
+              return NULL;
         }
-        batch_idx = container->free_list_head >> NODE_BATCH_SIZE_SHIFT;
-        WARN_ONCE(batch_idx > container->batches_unalloc_idx, "batch_idx %llu > batches_unalloc_idx %llu\n", batch_idx, container->batches_unalloc_idx);
-        if (batch_idx >= container->batches_unalloc_idx) {
-                /* the node batch has not been allocated*/
-                struct __node_batch *new_batch = bpf_mem_cache_alloc(&batch_ma);
-                if (!new_batch)
-                        return NULL;
-                container->batches[batch_idx] = new_batch;
-                container->batches_unalloc_idx++;
-                // initialize nodes in new batch and add to free list
-                u64 i;
-                //container->free_list_head = (batch_idx << NODE_BATCH_SIZE_SHIFT); // point free_list_head to the first node in the new batch
-                for (i = 0; i < NODE_BATCH_SIZE; i++) {
-                        u64 current_node_idx = (batch_idx << NODE_BATCH_SIZE_SHIFT) + i;  
-                        new_batch->nodes[i].next_idx = current_node_idx + 1;
-                }
-        }
+        // batch_idx = container->free_list_head >> NODE_BATCH_SIZE_SHIFT;
+        // WARN_ONCE(batch_idx > container->batches_unalloc_idx, "batch_idx %llu > batches_unalloc_idx %llu\n", batch_idx, container->batches_unalloc_idx);
+        // if (batch_idx >= container->batches_unalloc_idx) {
+        //         /* the node batch has not been allocated*/
+        //         struct __node_batch *new_batch = bpf_mem_cache_alloc(&batch_ma);
+        //         if (!new_batch)
+        //                 return NULL;
+        //         container->batches[batch_idx] = new_batch;
+        //         container->batches_unalloc_idx++;
+        //         // initialize nodes in new batch and add to free list
+        //         u64 i;
+        //         //container->free_list_head = (batch_idx << NODE_BATCH_SIZE_SHIFT); // point free_list_head to the first node in the new batch
+        //         for (i = 0; i < NODE_BATCH_SIZE; i++) {
+        //                 u64 current_node_idx = (batch_idx << NODE_BATCH_SIZE_SHIFT) + i;  
+        //                 new_batch->nodes[i].next_idx = current_node_idx + 1;
+        //         }
+        // }
         // allocate node from free list
         node_idx = container->free_list_head;
         node = __get_batch_idx(node_idx, container);
@@ -180,7 +185,6 @@ struct eNetSTL_node* enetstl_alloc_node(struct eNetSTL_node_container* container
 }
 
 void enetstl_free_node(struct eNetSTL_node_container *container, u64 idx) {
-
         struct eNetSTL_node *node;
         node = __get_batch_idx(idx, container);
         // add node back to free list
@@ -200,7 +204,8 @@ void enetstl_enlarge_capacity(struct eNetSTL_node_container *old_container) {
         
         new_batch_num = old_batch_num * 2;  // double the capacity
         // 1. recreate a eNetSTL_node_proxy with new capacity
-        new_container = kmalloc(sizeof(*new_container) + sizeof(struct __node_batch*) * new_batch_num, GFP_KERNEL);
+        //new_container = kmalloc(sizeof(*new_container) + sizeof(struct __node_batch*) * new_batch_num, GFP_KERNEL);
+        new_container = (struct eNetSTL_node_container*) vmalloc(sizeof(*new_container) + sizeof(struct __node_batch) * new_batch_num);
         if (!new_container)
                 return;
         // init the new one 
@@ -208,14 +213,14 @@ void enetstl_enlarge_capacity(struct eNetSTL_node_container *old_container) {
         old_container = rcu_dereference_protected(proxy->container, lockdep_is_held(&proxy->lock));
         if (!old_container) {
                 spin_unlock(&proxy->lock);
-                kfree(new_container);
+                vfree(new_container);
                 return;  //invalid fd
         }
 
         if (old_batch_num != READ_ONCE(old_container->batches_mask) + 1) {
                 // the old proxy has been changed, we should not enlarge capacity
                 spin_unlock(&proxy->lock);
-                kfree(new_container);
+                vfree(new_container);
                 return;
         }
 
@@ -227,12 +232,18 @@ void enetstl_enlarge_capacity(struct eNetSTL_node_container *old_container) {
 
         // 2. copy old batches to new container (do not allocated struct __node_batches again, just copy the pointer)
         for (i = 0; i < old_batch_num; i++) {
-                new_container->batches[i] = old_container->batches[i];
+                memcpy(&new_container->batches[i], &old_container->batches[i], sizeof(struct __node_batch));
+                //new_container->batches[i] = old_container->batches[i];s
         }
 
         // 3. for new batches, set the pointer to hole batch, delay the actual allocation to when we need to alloc a node in the batch
         for (i = old_batch_num; i < new_batch_num; i++) {
-                new_container->batches[i] = &hole_batch;
+                for (int j = 0; j < NODE_BATCH_SIZE; j++) {
+                        u64 node_idx = (i << NODE_BATCH_SIZE_SHIFT) + j;
+                        new_container->batches[i].nodes[j].next_idx = node_idx + 1;
+                        // hole_batch.nodes[j].next_idx = node_idx + 1;
+                }
+                // new_container->batches[i] = &hole_batch;
         }
 
         // 4. use rcu to replace the old container with the new one, free the old one (just free the container structure, do not free the struct __node_batches, as they are used by the new container now)
@@ -267,17 +278,17 @@ void enetstl_destroy_node_proxy(struct eNetSTL_node_proxy* proxy) {
 //call when the kernel module is loaded
 int node_proxys_init(void)
 {
-        int ret;
-        preempt_disable();
-        ret = bpf_mem_alloc_init(&batch_ma, sizeof(struct __node_batch), false);
-        preempt_enable();
-        if (ret) {
-                pr_err("batch_ma init fail ret %d", ret);
-                return ret;
-        }
+        // int ret;
+        // preempt_disable();
+        // ret = bpf_mem_alloc_init(&batch_ma, sizeof(struct __node_batch), false);
+        // preempt_enable();
+        // if (ret) {
+        //         pr_err("batch_ma init fail ret %d", ret);
+        //         return ret;
+        // }
 
         // initialize hole_batch
-        memset(&hole_batch, 0, sizeof(hole_batch));
+        // memset(&hole_batch, 0, sizeof(hole_batch));
 
         // initialize node_proxys
         for (int i = 0; i < MAX_PROXY_NUM; i++) {
@@ -291,7 +302,7 @@ int node_proxys_init(void)
 
 void node_proxys_exit(void)
 {
-        preempt_disable();
-        bpf_mem_alloc_destroy(&batch_ma);
-        preempt_enable();
+        // preempt_disable();
+        // bpf_mem_alloc_destroy(&batch_ma);
+        // preempt_enable();
 }
