@@ -64,6 +64,17 @@ struct eNetSTL_proxy {
 	int fd;
 };
 
+
+struct jump_target {
+        u64 null_node_idx;  //if  curr_node_idx is null 
+        u64 null_off;
+        u64 left_node_idx;   // left child node index
+        u64 left_off; 
+        u64 right_node_idx;  // right child node index
+        u64 right_off;
+
+};
+
 //example void ptr_release_node(ptr_node *node) __ksym;
 struct eNetSTL_proxy* bpf_enetstl_create_node_proxy(void) __ksym;
 struct eNetSTL_container* bpf_enetstl_get_nodes(int fd) __ksym;
@@ -75,6 +86,9 @@ int bpf_enetstl_write_node(enetstl_node_type *node, size_t off, void *data__buf,
 int bpf_enetstl_read_node(enetstl_node_type *node, size_t off, void *data__buf, size_t size__sz) __ksym;
 void bpf_enetstl_destroy_node_proxy(struct eNetSTL_proxy* proxy) __ksym;
 enetstl_node_type* bpf_enetstl_get_node(struct eNetSTL_container* container, u64 idx) __ksym;
+int bpf_enetstl_node_route(
+        struct eNetSTL_container* container, u64 *curr_node_idx, 
+        void *target_key__buf, size_t size__sz, struct jump_target *target) __ksym;
 
 struct skip_list_proxy_map_value {
 	struct eNetSTL_proxy  __kptr *proxy;   

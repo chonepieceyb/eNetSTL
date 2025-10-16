@@ -1,6 +1,6 @@
 #include "../common.h"
 #include "static_ptr.h"
-#include "static_ptr_skiplist.h"
+#include "static_ptr_skiplist_new.h"
 
 char _license[] SEC("license") = "GPL";
 
