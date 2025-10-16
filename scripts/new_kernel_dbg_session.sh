@@ -23,17 +23,25 @@ function find_available_port() {
 }
 
 function echo_help() {
-    echo "Usage: $0 [-gdb] [-S] [-p SESSION_PREFIX]"
-    echo "  -gdb   Enable GDB server"
-    echo "  -S     Wait for GDB to attach before starting"
-    echo "  -p     Specify session prefix (default: kernel-testbed)"
-    echo "add -s to start gdb"
-    echo "add -S to hold on when enabling gdb"
-    echo "run ./create_LKM_link.sh"
-    echo "gdb vmlinux"
-    echo "target remote :\$GDB_PORT"
-    echo "lx-symbols to reload vmlinux and LKMs symbol"
+    echo "Usage: $0 [-gdb] [-S] [-p SESSION_PREFIX] [--gdb-port PORT] [--ssh-port PORT]"
+    echo "  -gdb               Enable GDB server"
+    echo "  -S                 Wait for GDB to attach before starting"
+    echo "  -p                 Specify session prefix (default: kernel-testbed)"
+    echo "  --gdb-port PORT    Specify GDB port (auto-selected if not provided)"
+    echo "  --ssh-port PORT    Specify SSH port (auto-selected if not provided)"
+    echo ""
+    echo "DEBUG USAGE:"
+    echo "  add -s to start gdb"
+    echo "  add -S to hold on when enabling gdb"
+    echo "  run ./create_LKM_link.sh"
+    echo "  gdb vmlinux"
+    echo "  target remote :\$GDB_PORT"
+    echo "  lx-symbols to reload vmlinux and LKMs symbol"
 }
+
+# Default ports (will be auto-selected if not provided)
+SPECIFIED_GDB_PORT=""
+SPECIFIED_SSH_PORT=""
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -50,6 +58,14 @@ while [[ $# -gt 0 ]]; do
             SESSION_PREFIX="$2"
             shift 2
             ;;
+        --gdb-port)
+            SPECIFIED_GDB_PORT="$2"
+            shift 2
+            ;;
+        --ssh-port)
+            SPECIFIED_SSH_PORT="$2"
+            shift 2
+            ;;
         -h|--help)
             echo_help
             exit 0
@@ -62,6 +78,17 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate port numbers if provided
+if [[ -n "$SPECIFIED_GDB_PORT" && ! "$SPECIFIED_GDB_PORT" =~ ^[0-9]+$ ]]; then
+    echo -e "$COLOR_RED [ERROR] Invalid GDB port: $SPECIFIED_GDB_PORT $COLOR_OFF"
+    exit 1
+fi
+
+if [[ -n "$SPECIFIED_SSH_PORT" && ! "$SPECIFIED_SSH_PORT" =~ ^[0-9]+$ ]]; then
+    echo -e "$COLOR_RED [ERROR] Invalid SSH port: $SPECIFIED_SSH_PORT $COLOR_OFF"
+    exit 1
+fi
+
 # Add timestamp to session_name
 timestamp=$(date +"%Y%m%d_%H%M%S")
 session_prefix="kernel-testbed"
@@ -70,9 +97,30 @@ if [ -n "$SESSION_PREFIX" ]; then
 fi
 session_name="$session_prefix-yangbin-$timestamp"
 
-# Select available ports
-GDB_PORT=$(find_available_port 1567 1600 "GDB") || exit 1
-SSH_PORT=$(find_available_port 3333 3400 "SSH") || exit 1
+# Use specified ports or find available ports
+if [[ -n "$SPECIFIED_GDB_PORT" ]]; then
+    if netstat -tuln 2>/dev/null | grep -q ":$SPECIFIED_GDB_PORT "; then
+        echo -e "$COLOR_RED [ERROR] GDB port $SPECIFIED_GDB_PORT is already in use $COLOR_OFF"
+        exit 1
+    fi
+    GDB_PORT=$SPECIFIED_GDB_PORT
+    echo -e "$COLOR_GREEN [INFO] Using specified GDB port: $GDB_PORT $COLOR_OFF"
+else
+    GDB_PORT=$(find_available_port 1567 1600 "GDB") || exit 1
+    echo -e "$COLOR_GREEN [INFO] Auto-selected GDB port: $GDB_PORT $COLOR_OFF"
+fi
+
+if [[ -n "$SPECIFIED_SSH_PORT" ]]; then
+    if netstat -tuln 2>/dev/null | grep -q ":$SPECIFIED_SSH_PORT "; then
+        echo -e "$COLOR_RED [ERROR] SSH port $SPECIFIED_SSH_PORT is already in use $COLOR_OFF"
+        exit 1
+    fi
+    SSH_PORT=$SPECIFIED_SSH_PORT
+    echo -e "$COLOR_GREEN [INFO] Using specified SSH port: $SSH_PORT $COLOR_OFF"
+else
+    SSH_PORT=$(find_available_port 3333 3400 "SSH") || exit 1
+    echo -e "$COLOR_GREEN [INFO] Auto-selected SSH port: $SSH_PORT $COLOR_OFF"
+fi
 
 # Kill any existing sessions with matching pattern
 echo -e "$COLOR_YELLOW [INFO] Cleaning up existing sessions... $COLOR_OFF"

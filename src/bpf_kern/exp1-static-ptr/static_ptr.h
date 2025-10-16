@@ -1,5 +1,6 @@
 #pragma once
 #include <linux/stddef.h>
+#include "../bpf_experimental.h"
 
 #define MAX_ENTRY 100000
 #define RAND_MAX 2147483647
@@ -69,7 +70,19 @@ struct eNetSTL_container* bpf_enetstl_get_nodes(int fd) __ksym;
 void bpf_enetstl_put_nodes(struct eNetSTL_container* container) __ksym;
 enetstl_node_type* bpf_enetstl_alloc_node(struct eNetSTL_container* container, u64 *idx) __ksym;
 void bpf_enetstl_free_node(struct eNetSTL_container* container, u64 idx) __ksym;
-int bpf_enetstl_enlarge_capacity(int fd) __ksym;
+void bpf_enetstl_enlarge_capacity(struct eNetSTL_container* container) __ksym;
 int bpf_enetstl_write_node(enetstl_node_type *node, size_t off, void *data__buf, size_t size__sz) __ksym;
+int bpf_enetstl_read_node(enetstl_node_type *node, size_t off, void *data__buf, size_t size__sz) __ksym;
 void bpf_enetstl_destroy_node_proxy(struct eNetSTL_proxy* proxy) __ksym;
 enetstl_node_type* bpf_enetstl_get_node(struct eNetSTL_container* container, u64 idx) __ksym;
+
+struct skip_list_proxy_map_value {
+	struct eNetSTL_proxy  __kptr *proxy;   
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, int);
+	__type(value, struct skip_list_proxy_map_value);
+	__uint(max_entries, 1);
+} skiplist_map SEC(".maps");

@@ -1,4 +1,4 @@
-OBJ_NAME := eNetSTL
+OBJ_NAME := eNetSTL_static_ptr
 GCC_VERSION ?= 11
 CLANG_VERSION ?= 14.0.0
 CC_SIMD_OPTS ?= -mavx2 -mbmi

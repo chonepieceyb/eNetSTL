@@ -1,6 +1,8 @@
 #pragma once
 #include "../vmlinux.h"
 #include "../common.h"
+#include <bpf/bpf_helpers.h>
+#include "../bpf_experimental.h"
 
 #define MAX_ENTRY 100000
 #define RAND_MAX 2147483647
@@ -11,23 +13,12 @@
 
 #include "static_ptr.h"
 
-struct map_value_type {
-	struct eNetSTL_proxy __kptr *proxy;   
-};
-
 int proxy_fd;
 
-struct {
-	__uint(type, BPF_MAP_TYPE_ARRAY);
-	__type(key, int);
-	__type(value, struct map_value_type);  
-	__uint(max_entries, 1);
-} skiplist_map SEC(".maps");
-
-static int store_proxy_into_map(struct eNetSTL_proxy *proxy) {
+static __always_inline int store_proxy_into_map(struct eNetSTL_proxy *proxy) {
 	int key = 0;
-	struct map_value_type *val = bpf_map_lookup_elem(&skiplist_map, &key);
-	if (!val) {
+	struct skip_list_proxy_map_value *val = bpf_map_lookup_elem(&skiplist_map, &key);
+	if (val == NULL) {
 		return -1;
 	}
 	struct eNetSTL_proxy *old_proxy = bpf_kptr_xchg(&val->proxy, proxy);
@@ -90,7 +81,8 @@ static inline int bpf_grand()
 static inline void init_skiplist_head(enetstl_node_type *head)
 {
 	log_debug("[SKIP LIST] init_skiplist_head: initializing head");
-	bpf_enetstl_write_node(head, offsetof(enetstl_node_type, height), &head->height, sizeof(head->height));
+	int height = MAX_SKIPLIST_HEIGHT;
+	bpf_enetstl_write_node(head, offsetof(enetstl_node_type, height), &height, sizeof(height));
 	log_debug("[SKIP LIST] init_skiplist_head: set head height to %d", head->height);
 	for (int i = 0; i < MAX_SKIPLIST_HEIGHT; i++) {
 		size_t off = offsetof(enetstl_node_type, next) + i * sizeof(u64);
@@ -122,7 +114,10 @@ static long lookup_callback(__u32 index, void *data)
 	ctx->cnt++;
 	log_debug("[SKIP LIST] lookup_elem: iter %u, level %d", ctx->cnt, ctx->level);
 	enetstl_node_type *curr = bpf_enetstl_get_node(ctx->container, ctx->curr_idx);
-	u64 next_node_idx = curr->next[ctx->level & (MAX_SKIPLIST_HEIGHT - 1)];
+	__u32 current_level = ctx->level;
+	size_t next_idx_off = offsetof(enetstl_node_type, next) + (current_level) * sizeof(u64);
+	u64 next_node_idx = 0;
+	bpf_enetstl_read_node(curr, next_idx_off, &next_node_idx, sizeof(next_node_idx));
 	if (next_node_idx == NULL_NODE_IDX) {
 		log_debug("[SKIP LIST] lookup_elem: next is NULL at level %d, dropping down", ctx->level);
 		--ctx->level;
@@ -157,7 +152,8 @@ static inline int init_new_entry(
 
 	int new_height = bpf_grand();
 	log_debug("[SKIP LIST] init_new_entry: new entry random height %d", new_height);
-	bpf_enetstl_write_node(entry, offsetof(enetstl_node_type, height), &new_height, sizeof(new_height));
+	size_t height_off = offsetof(enetstl_node_type, height);
+	bpf_enetstl_write_node(entry, height_off, &new_height, sizeof(new_height));
 	// entry->height = new_height;
 	log_debug("[SKIP LIST] init_new_entry: allocated new entry with height %d", entry->height);
 
@@ -205,7 +201,7 @@ struct update_search_ctx {
 	int found;
 };
 
-static long update_search_callback(struct eNetSTL_container *container, __u32 index, void *data)
+static long update_search_callback(__u32 index, void *data)
 {
 	struct update_search_ctx *ctx = (struct update_search_ctx *)data;
 	ctx->cnt++;
@@ -213,10 +209,14 @@ static long update_search_callback(struct eNetSTL_container *container, __u32 in
 	if (ctx->curr_idx == NULL_NODE_IDX || ctx->level < 0 || ctx->cnt >= MAX_SEARCH_DEPTH) {
 		return 1; // Stop iteration
 	}
-
-	ctx->prev[(ctx->level) & (MAX_SKIPLIST_HEIGHT - 1)] = ctx->curr_idx;
+	__u32 current_level = ctx->level;
+	asm_bound_check(current_level, MAX_SKIPLIST_HEIGHT);
+	ctx->prev[current_level] = ctx->curr_idx;
 	enetstl_node_type *curr = bpf_enetstl_get_node(ctx->container, ctx->curr_idx);
-	u64 next_node_idx = curr->next[ctx->level & (MAX_SKIPLIST_HEIGHT - 1)];
+	size_t next_idx_off = offsetof(enetstl_node_type, next) + (current_level) * sizeof(u64);
+	u64 next_node_idx = 0;
+	bpf_enetstl_read_node(curr, next_idx_off, &next_node_idx, sizeof(next_node_idx));
+	// u64 next_node_idx = curr->next[current_level];
 	if (next_node_idx == NULL_NODE_IDX) {
 		log_debug("[SKIP LIST] update_elem: next is NULL at level %d, dropping down", ctx->level);
 		--ctx->level;
@@ -272,17 +272,7 @@ static inline long skip_list_update_elem(
 	u64 new_entry_idx;
     enetstl_node_type *new_entry = bpf_enetstl_alloc_node(container, &new_entry_idx);
 	if (new_entry == NULL) {
-		/* try to enlarge capacity */
-		int res = bpf_enetstl_enlarge_capacity(proxy_fd);
-		if (res < 0) {
-			log_error("[SKIP LIST] update_elem: failed to enlarge capacity");
-			return -1;
-		}
-		new_entry = bpf_enetstl_alloc_node(container, &new_entry_idx);
-		if (new_entry == NULL) {
-			log_error("[SKIP LIST] bpf_alloc aflter enlarge capacity failed");
-			return -1;
-		}
+		return -1;
 	}
 
 	init_new_entry(new_entry, key, value);
