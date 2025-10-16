@@ -22,6 +22,7 @@ AVAILABLE_EXPS=(
     "exp8"
     "exp9"
     "exp-control-plane"
+    "utils"
 )
 
 function echo_help() {

@@ -1,7 +1,7 @@
 import os
 from common import *
 
-interface_name = "ens2f0"
+interface_name = "ens2f0np0"
 
 exp_repeat_count = 5
 

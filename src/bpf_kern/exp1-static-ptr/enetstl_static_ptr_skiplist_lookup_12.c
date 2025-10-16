@@ -108,7 +108,13 @@ int xdp_main(struct xdp_md *ctx)
 
 	pkt_with_pad.key = (bpf_get_prandom_u32() % KEY_RANGE);
 
-    struct eNetSTL_container *container = bpf_enetstl_get_nodes(proxy_fd);
+	int key = 0;
+	struct skip_list_proxy_map_value *val = bpf_map_lookup_elem(&skiplist_map, &key);
+	if (val == NULL) {
+		return -1;
+	}
+
+    	struct eNetSTL_container *container = bpf_enetstl_get_nodes(proxy_fd);
 	if (container == NULL) {
 		log_error("[LOOKUP TEST] Failed to get node container");
 		return -1;
@@ -130,6 +136,6 @@ int xdp_main(struct xdp_md *ctx)
 #endif
 	return XDP_DROP;
 error:;
-    bpf_enetstl_put_nodes(container);
+    	bpf_enetstl_put_nodes(container);
 	return XDP_DROP;
 }

@@ -172,7 +172,16 @@ bpf_prog_list: List[
     ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_20ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 20000"), lambda: clear_trex_session()),
     ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_50ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 50000"), lambda: clear_trex_session()),
     ("ebpf_cuckoo_hash_dp_user", "cp_cuckoo_hash_in_kernel_10000_100ms", ExpConfig(), lambda: run_cmd_within_new_trex_session("/root/enetstl/bin/ebpf_cuckoo_hash_inkernel_cp_user -c 0 -f 100000"), lambda: clear_trex_session()),
-    ("ebpf_arena_skiplist_lookup_12_user", "ebpf_arena_skiplist_lookup_12", ExpConfig(), lambda: load_lkm("exp1-arena/bpf_arena.ko"), lambda: unload_lkm("bpf_arena")),
+    ("ebpf_arena_skiplist_lookup_12_user", "ebpf_arena_skiplistnew_lookup_12", ExpConfig(), lambda: load_lkm("exp1-arena/bpf_arena.ko"), lambda: unload_lkm("bpf_arena")),
+    ("ebpf_arena_skiplist_lookup_13_user", "ebpf_arena_skiplistnew_lookup_13", ExpConfig(), lambda: load_lkm("exp1-arena/bpf_arena.ko"), lambda: unload_lkm("bpf_arena")),
+    ("ebpf_arena_skiplist_lookup_14_user", "ebpf_arena_skiplistnew_lookup_14", ExpConfig(), lambda: load_lkm("exp1-arena/bpf_arena.ko"), lambda: unload_lkm("bpf_arena")),
+    ("ebpf_arena_skiplist_lookup_15_user", "ebpf_arena_skiplistnew_lookup_15", ExpConfig(), lambda: load_lkm("exp1-arena/bpf_arena.ko"), lambda: unload_lkm("bpf_arena")),
+    ("ebpf_arena_skiplist_lookup_16_user", "ebpf_arena_skiplistnew_lookup_16", ExpConfig(), lambda: load_lkm("exp1-arena/bpf_arena.ko"), lambda: unload_lkm("bpf_arena")),
+    ("enetstl_static_ptr_skiplist_lookup_12_user", "enetstl_static_ptr_skiplistnew_lookup_12", ExpConfig(), lambda: load_lkm("eNetSTL_static_ptr/eNetSTL_static_ptr.ko"), lambda: unload_lkm("eNetSTL_static_ptr")),
+    ("enetstl_static_ptr_skiplist_lookup_13_user", "enetstl_static_ptr_skiplistnew_lookup_13", ExpConfig(), lambda: load_lkm("eNetSTL_static_ptr/eNetSTL_static_ptr.ko"), lambda: unload_lkm("eNetSTL_static_ptr")),
+    ("enetstl_static_ptr_skiplist_lookup_14_user", "enetstl_static_ptr_skiplistnew_lookup_14", ExpConfig(), lambda: load_lkm("eNetSTL_static_ptr/eNetSTL_static_ptr.ko"), lambda: unload_lkm("eNetSTL_static_ptr")),
+    ("enetstl_static_ptr_skiplist_lookup_15_user", "enetstl_static_ptr_skiplistnew_lookup_15", ExpConfig(), lambda: load_lkm("eNetSTL_static_ptr/eNetSTL_static_ptr.ko"), lambda: unload_lkm("eNetSTL_static_ptr")),
+    ("enetstl_static_ptr_skiplist_lookup_16_user", "enetstl_static_ptr_skiplistnew_lookup_16", ExpConfig(), lambda: load_lkm("eNetSTL_static_ptr/eNetSTL_static_ptr.ko"), lambda: unload_lkm("eNetSTL_static_ptr")),  
     ("empty_base_user", "empty_base", ExpConfig())
 ]
 
