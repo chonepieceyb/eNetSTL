@@ -19,14 +19,15 @@ fix errors according to ouput
 
 ### Step4: run the test
 1. copy the excutable files for testing to remote server
-2. run `sudo cat /sys/kernel/debug/tracing/trace_pipe` (timeout 1s is enough) for a shot time to clear the trace pipe. 
-   * if you got `cat: /sys/kernel/debug/tracing/trace_pipe: Device or resource busy` , find which process holds trace_pipe, directly kill it, and retry.
+2. run `sudo cat /sys/kernel/debug/tracing/trace_pipe` with a time out to clear the trace pipe. 
+   * if you got `cat /sys/kernel/debug/tracing/trace_pipe: Device or resource busy` , find which process holds trace_pipe, directly kill it, and retry.
 3. directly run it , for example `sudo ./execfile` 
 4. check if the eBPF programs are loaded successfully, if not fix loading issue first
  * you can check `project_dir/linux/testing/lib/bpf/libbpf.h` to check libbpf API and  `project_dir/linux/testing/lib/bpf/libbpf.c` for implementation
 5. if eBPF programs have loaded successfully, check if all test passes 
 6. if tests failed, run `sudo cat /sys/kernel/debug/tracing/trace_pipe` (with a timeout of 10s is enough) to get eBPF programs log and fix issues in eBPF programs or user-space programs
-    * if you got `cat: /sys/kernel/debug/tracing/trace_pipe: Device or resource busy` , find which process holds trace_pipe, directly kill it, and retry.
+    * if you got `cat /sys/kernel/debug/tracing/trace_pipe: Device or resource busy` , find which process holds trace_pipe, directly kill it, and retry.
     * if you got nothing, it means that eBPF programs do not run at all or eBPF programs log nothing
 7. for anly failure, goto  Step1: fix source files
 8. if run bash timeout, it likely the ssh issue, goto step3 and restart a new remote server using `scripts/new_kernel_dbg_session.sh` and clear ~/.ssh/known_hosts accrodingly
+9. !!IMPORTANT: `sudo cat /sys/kernel/debug/tracing/trace_pipe` is a blocking command, run it with a timeout, normally 10s is enough!
