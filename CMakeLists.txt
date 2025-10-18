@@ -139,23 +139,24 @@ add_custom_target(cmake_clean
 # ========================================
 # LKM (Loadable Kernel Module) Build
 # ========================================
-set(LKM_SRC_DIR /src/LKMs/SimdNN-BPF)
+set(LKM_SRC_DIR ${PROJECT_SOURCE_DIR}/src/LKMs/SimdNN-BPF)
 
 # Add custom target for building kernel modules
 add_custom_target(lkm_modules ALL
-    COMMAND  -E echo Building kernel modules...
-    COMMAND  -C  all
-    COMMAND  -E echo Kernel modules built successfully!
+    COMMAND ${CMAKE_COMMAND} -E echo Building kernel modules...
+    COMMAND make all
+    COMMAND ${CMAKE_COMMAND} -E echo Kernel modules built successfully!
     VERBATIM
-    WORKING_DIRECTORY 
+    WORKING_DIRECTORY ${LKM_SRC_DIR}
 )
 
 # Add custom target for cleaning kernel modules
 add_custom_target(lkm_clean
-    COMMAND  -E echo Cleaning kernel modules...
-    COMMAND  -C  clean
+    COMMAND ${CMAKE_COMMAND} -E echo Cleaning kernel modules...
+    COMMAND make clean
+
     VERBATIM
-    WORKING_DIRECTORY 
+    WORKING_DIRECTORY ${LKM_SRC_DIR}
 )
 
 # Make build_info depend on lkm_modules

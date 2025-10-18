@@ -90,7 +90,7 @@ static void usage(const char *prog)
 
 int main(int argc, char **argv)
 {
-    const char *ifname = "eth0";
+    const char *ifname = "ens33";
     int ifindex = 0;
     int err = 0;
 

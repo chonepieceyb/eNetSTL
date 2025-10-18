@@ -78,7 +78,6 @@ struct
 } stats_map SEC(".maps");
 
 /* --------- Kfunc --------- */
-extern int bpf_nm_inference(void *model, int model_size__sz, void *attr, int attr_size__sz);
 
 /* --------- 特征统计/提取/归一化 --------- */
 static __always_inline void update_flow_stats(struct flow *flow_key,
@@ -213,10 +212,8 @@ int xdp_simdnn_main(struct xdp_md *ctx)
 
     // TODO: 测试kfunc
     int ret = 0;
-    ret = bpf_nm_inference(m, sizeof(*m), attr, sizeof(*attr));
 
     {
-        log_error("inference failed: %d", ret);
         return XDP_PASS;
     }
 
