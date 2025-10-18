@@ -1,12 +1,12 @@
 // simdnn_kfunc.c
 // SPDX-License-Identifier: GPL-2.0
-#include "../../src/bpf_kern/SimdNN-BPF/common.h"
+#include "common.h"
 #include <linux/string.h>
 #include <linux/kernel.h>
 #include <asm/fpu/api.h>
 
 #if defined(__x86_64__) || defined(__i386__)
-  #include <immintrin.h> 
+  // #include <immintrin.h> 
 #endif
 
 /* ===================== 工具函数 ===================== */
@@ -176,7 +176,9 @@ int simdnn_analyze_and_infer(void *m, int model_size, int *attr, int attr_size)
 }
 
 /* ===================== kfunc for eBPF ===================== */
-__bpf_kfunc_start_defs();
+#include <linux/btf.h>
+#include <linux/bpf.h>
+
 
 /* 语义：
  *   model:          模型起始地址（BTF 类型经 verifier 约束后可安全传递）
@@ -198,4 +200,3 @@ __bpf_kfunc int bpf_nm_inference(void *model, int model_size__sz,
 	                                (int *)attr, attr_size__sz);
 }
 
-__bpf_kfunc_end_defs();

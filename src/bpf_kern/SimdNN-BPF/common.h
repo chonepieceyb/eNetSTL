@@ -1,8 +1,8 @@
 #ifndef SIMDNN_COMMON_H
 #define SIMDNN_COMMON_H
 
-#include <linux/types.h>
-#include "./mlp.bpf.h"
+#include "vmlinux.h"
+#include "./mlp_params.bpf.h"
 
 /* ---- Layer types ---- */
 #define ENETSTL_FC_LAYER       1

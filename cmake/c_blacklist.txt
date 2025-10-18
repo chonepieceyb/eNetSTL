@@ -1,15 +1,11 @@
 # C User-space Blacklist Configuration File
-# This file contains folders and files to exclude from C compilation
-# Each line should be a relative path from src/c
-# Lines starting with # are comments and ignored
-# Empty lines are ignored
-
-# Example: exclude specific experiment folders
-# exp9/
-# exp8/
-
-# Example: exclude specific user programs
-# exp4/unused_test_user.c
-# exp3/debug_user.c
-
-# Currently empty - all C files will be compiled
+# Exclude all experiments except SimdNN-BPF
+exp1-2/
+exp3/
+exp4/
+exp5/
+exp6/
+exp7/
+exp8/
+exp9/
+motivation-control-plane/

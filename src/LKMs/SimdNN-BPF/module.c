@@ -15,28 +15,23 @@ BTF_SET8_END(simdnn_kfunc_ids)
 
 static const struct btf_kfunc_id_set simdnn_kfunc_set = {
     .owner = THIS_MODULE,
-    .set = &simdnn_kfunc_ids,
+    .set   = &simdnn_kfunc_ids,
 };
 
 extern int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
                                      const struct btf_kfunc_id_set *kset);
 
-int simdnn_kfunc_register(void)
+static int  simdnn_kfunc_register(void)
 {
     return register_btf_kfunc_id_set(BPF_PROG_TYPE_XDP, &simdnn_kfunc_set);
 }
-
-int simdnn_lkm_register(void)
-{
-    pr_info("simdnn: lkm register (noop)\n");
-    return 0;
-}
-
-void simdnn_kfunc_unregister(void)
+static void simdnn_kfunc_unregister(void)
 {
     pr_info("simdnn: kfunc unregister\n");
 }
-void simdnn_lkm_unregister(void) { pr_info("simdnn: lkm unregister (noop)\n"); }
+
+int  simdnn_lkm_register(void);
+void simdnn_lkm_unregister(void);
 
 static int __init simdnn_module_init(void)
 {
@@ -45,16 +40,15 @@ static int __init simdnn_module_init(void)
     pr_info("simdnn: module init\n");
 
     ret = simdnn_kfunc_register();
-    if (ret)
-    {
+    if (ret) {
         pr_err("simdnn: kfunc register failed: %d\n", ret);
         return ret;
     }
 
     ret = simdnn_lkm_register();
-    if (ret)
-    {
+    if (ret) {
         pr_err("simdnn: lkm register failed: %d\n", ret);
+        simdnn_kfunc_unregister();
         return ret;
     }
 
@@ -64,8 +58,8 @@ static int __init simdnn_module_init(void)
 
 static void __exit simdnn_module_exit(void)
 {
-    simdnn_kfunc_register();
     simdnn_lkm_unregister();
+    simdnn_kfunc_unregister();
     pr_info("simdnn: module unloaded\n");
 }
 

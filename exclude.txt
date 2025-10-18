@@ -1,0 +1,6 @@
+claude_instructions/
+.claude/
+*.img
+*.iso
+iso/
+vmlinux.h

@@ -11,9 +11,9 @@
 #include <linux/if_link.h>
 #include <getopt.h>
 
-#include "../../bpf_kern/SimdNN-BPF/common.h" // 已间接包含 mlp_params.bpf.h
-#include "../common.h"
-#include "../bpf_skel/simdnn.skel.h"
+#include "common_user.h"
+#include "../bpf_skel/simdnn.bpf.skel.h"
+#include "../../bpf_kern/SimdNN-BPF/mlp_params.bpf.h"
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
@@ -31,13 +31,10 @@ static int setup_model_map(struct bpf_map *model_map)
     model.fc1.comm.next_layer_off = (int)offsetof(struct model, relu1);
     model.fc1.parm.in_features = N0;
     model.fc1.parm.out_features = N1;
-    model.fc1.size.in = N0;
-    model.fc1.size.out = N1;
     for (int i = 0; i < N1; i++)
     {
         for (int j = 0; j < N0; j++)
             model.fc1.weights[i][j] = layer_0_weight[i * N0 + j];
-        model.fc1.bias[i] = 0;
     }
 
     /* relu1 -> fc2 */
@@ -49,13 +46,10 @@ static int setup_model_map(struct bpf_map *model_map)
     model.fc2.comm.next_layer_off = (int)offsetof(struct model, relu2);
     model.fc2.parm.in_features = N1;
     model.fc2.parm.out_features = N2;
-    model.fc2.size.in = N1;
-    model.fc2.size.out = N2;
     for (int i = 0; i < N2; i++)
     {
         for (int j = 0; j < N1; j++)
             model.fc2.weights[i][j] = layer_1_weight[i * N1 + j];
-        model.fc2.bias[i] = 0;
     }
 
     /* relu2 -> fc_out -> output_buffer(终止) */
@@ -66,16 +60,12 @@ static int setup_model_map(struct bpf_map *model_map)
     model.fc_out.comm.next_layer_off = (int)offsetof(struct model, output_buffer);
     model.fc_out.parm.in_features = N2;
     model.fc_out.parm.out_features = N3;
-    model.fc_out.size.in = N2;
-    model.fc_out.size.out = N3;
     for (int i = 0; i < N3; i++)
     {
         for (int j = 0; j < N2; j++)
             model.fc_out.weights[i][j] = layer_2_weight[i * N2 + j];
-        model.fc_out.bias[i] = 0;
     }
 
-    model.output_buffer.comm.type = ENETSTL_OUTPUT_LAYER;
     model.output_buffer.comm.next_layer_off = 0;
 
     return bpf_map_update_elem(bpf_map__fd(model_map), &key, &model, BPF_ANY);
@@ -139,13 +129,13 @@ int main(int argc, char **argv)
     }
 
     // 打开并加载
-    struct simdnn *skel = simdnn__open();
+    struct simdnn_bpf *skel = simdnn_bpf__open();
     if (!skel)
     {
         fprintf(stderr, "Failed to open BPF skeleton\n");
         return 1;
     }
-    err = simdnn__load(skel);
+    err = simdnn_bpf__load(skel);
     if (err)
     {
         fprintf(stderr, "Failed to load BPF skeleton: %d\n", err);
@@ -190,6 +180,6 @@ int main(int argc, char **argv)
     printf("To detach later: sudo bpftool net detach xdp dev %s\n", ifname);
 
 cleanup:
-    simdnn__destroy(skel);
+    simdnn_bpf__destroy(skel);
     return err < 0 ? -err : err;
 }

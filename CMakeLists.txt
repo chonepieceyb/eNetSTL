@@ -136,3 +136,30 @@ add_custom_target(cmake_clean
     COMMAND ${CMAKE_MAKE_PROGRAM} clean
     VERBATIM
 )
+# ========================================
+# LKM (Loadable Kernel Module) Build
+# ========================================
+set(LKM_SRC_DIR /src/LKMs/SimdNN-BPF)
+
+# Add custom target for building kernel modules
+add_custom_target(lkm_modules ALL
+    COMMAND  -E echo Building kernel modules...
+    COMMAND  -C  all
+    COMMAND  -E echo Kernel modules built successfully!
+    VERBATIM
+    WORKING_DIRECTORY 
+)
+
+# Add custom target for cleaning kernel modules
+add_custom_target(lkm_clean
+    COMMAND  -E echo Cleaning kernel modules...
+    COMMAND  -C  clean
+    VERBATIM
+    WORKING_DIRECTORY 
+)
+
+# Make build_info depend on lkm_modules
+add_dependencies(build_info lkm_modules)
+
+# Make BPF skeleton generation depend on LKM modules (for BTF info)
+add_dependencies(bpf_skel lkm_modules)

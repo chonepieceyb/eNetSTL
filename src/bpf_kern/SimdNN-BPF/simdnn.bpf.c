@@ -2,13 +2,11 @@
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
-#include <linux/errno.h>
 
-#include "common.h" // 上面的头
+#include "common.h"
 
 char _license[] SEC("license") = "GPL";
 
-/* --------- log 宏 --------- */
 #ifndef LOG_LEVEL
 #define LOG_LEVEL 2
 #endif
@@ -37,9 +35,8 @@ char _license[] SEC("license") = "GPL";
 #define IPPROTO_TCP 6
 #define IPPROTO_UDP 17
 
-/* --------- Flow map（按你工程里的宏；若没有就自行定义） --------- */
+/* --------- Flow map --------- */
 #ifndef FLOW_MAP_DEFINE
-/* 兜底定义：LRU hash，按需替换为你现有的 FLOW_MAP_DEFINE */
 struct
 {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -81,7 +78,7 @@ struct
 } stats_map SEC(".maps");
 
 /* --------- Kfunc --------- */
-// bpf_nm_inference(void *model, int model_size_sz, void *attr, int attr_size_sz);
+extern int bpf_nm_inference(void *model, int model_size__sz, void *attr, int attr_size__sz);
 
 /* --------- 特征统计/提取/归一化 --------- */
 static __always_inline void update_flow_stats(struct flow *flow_key,
@@ -134,7 +131,7 @@ static __always_inline void normalize_features(int *attr)
         if (sc != 0)
         {
             long long t = ((long long)attr[i] - mean[i]);
-            attr[i] = (int)((t * (1LL << FIX_POINT)) / sc);
+            attr[i] = (int)((unsigned long long)(t * (1LL << FIX_POINT)) / (unsigned long long)sc);
         }
     }
 }
@@ -202,7 +199,6 @@ int xdp_simdnn_main(struct xdp_md *ctx)
     }
 
     /* 提+归一化特征（6 维，很小） */
-    int attr[6];
     extract_features(fa, attr);
     normalize_features(attr);
 
@@ -215,9 +211,10 @@ int xdp_simdnn_main(struct xdp_md *ctx)
         return XDP_PASS;
     }
 
-    // TODO
-    int ret = bpf_nm_inference(m, sizeof(*m), attr, sizeof(attr));
-    if (ret)
+    // TODO: 测试kfunc
+    int ret = 0;
+    ret = bpf_nm_inference(m, sizeof(*m), attr, sizeof(*attr));
+
     {
         log_error("inference failed: %d", ret);
         return XDP_PASS;
@@ -229,7 +226,8 @@ int xdp_simdnn_main(struct xdp_md *ctx)
     int pred = (y0 >= y1) ? 0 : 1;
 
     /* 统计计数 */
-    __u64 *st = bpf_map_lookup_elem(&stats_map, &idx0);
+    __u32 stats_key = 0;
+    __u64 *st = bpf_map_lookup_elem(&stats_map, &stats_key);
     if (st)
         __sync_fetch_and_add(st, 1);
 
