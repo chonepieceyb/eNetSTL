@@ -8,6 +8,7 @@
 /* ---- Layer types ---- */
 #define ENETSTL_FC_LAYER       1
 #define ENETSTL_RELU_LAYER     2
+#define ENETSTL_OUTPUT_LAYER   3
 
 /* ---- Common header ---- */
 struct layer_common {

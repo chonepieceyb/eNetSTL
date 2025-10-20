@@ -112,6 +112,7 @@ static int setup_model_map(struct bpf_map *model_map)
             model.fc_out.weights[i][j] = layer_2_weight[i * N2 + j];
     }
 
+    model.output_buffer.comm.type = ENETSTL_OUTPUT_LAYER;
     model.output_buffer.comm.next_layer_off = 0;
 
     return bpf_map_update_elem(bpf_map__fd(model_map), &key, &model, BPF_ANY);

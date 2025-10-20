@@ -179,8 +179,8 @@ int xdp_simdnn_main(struct xdp_md *ctx)
     bpf_map_update_elem(&flow_map, &key, fa, BPF_ANY);
 
     /* 收集到一定数量再推理（阈值按需调整） */
-    if (fa->num_packet < 10)
-        return XDP_PASS;
+    // if (fa->num_packet < 10)
+    //     return XDP_PASS;
 
     __u32 input_buffer_key = 0;
     int *attr = bpf_map_lookup_elem(&input_map, &input_buffer_key);

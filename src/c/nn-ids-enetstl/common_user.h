@@ -1,12 +1,13 @@
 #ifndef SIMDNN_COMMON_H
 #define SIMDNN_COMMON_H
 
-#include "vmlinux.h"
-#include "./mlp_params.bpf.h"
+#include "../../bpf_kern/SimdNN-BPF/mlp_params.bpf.h"
+#include <stdint.h>
 
 /* ---- Layer types ---- */
 #define ENETSTL_FC_LAYER       1
 #define ENETSTL_RELU_LAYER     2
+#define ENETSTL_OUTPUT_LAYER   3
 
 /* ---- Common header ---- */
 struct layer_common {
