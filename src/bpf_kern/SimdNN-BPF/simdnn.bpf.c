@@ -70,16 +70,6 @@ struct
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } input_map SEC(".maps");
 
-/* --------- Stats map --------- */
-struct
-{
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, __u32);
-    __type(value, __u64);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
-} stats_map SEC(".maps");
-
 /* --------- Kfunc --------- */
 
 /* --------- 特征统计/提取/归一化 --------- */
@@ -225,15 +215,6 @@ int xdp_simdnn_main(struct xdp_md *ctx)
     int y0 = m->output_buffer.buffer[0];
     int y1 = m->output_buffer.buffer[1];
     int pred = (y0 >= y1) ? 0 : 1;
-
-    /* 统计计数 */
-    __u32 stats_key = 0;
-    __u64 *st = bpf_map_lookup_elem(&stats_map, &stats_key);
-    if (st)
-        __sync_fetch_and_add(st, 1);
-
-    log_info("Flow %x:%d -> %x:%d classified as %d",
-             key.saddr, key.sport, key.daddr, key.dport, pred);
 
     /* 可选：重置该 flow 的统计以便下一次检测 */
     __builtin_memset(fa, 0, sizeof(*fa));
