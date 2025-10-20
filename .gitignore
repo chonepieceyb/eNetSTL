@@ -73,3 +73,15 @@ resources/
 *.gz
 log
 *vmlinux.h
+
+# claude
+claude_instructions/
+.claude/
+
+# linux kernel
+linux/
+
+# qemu
+*.img
+*.iso
+iso/
