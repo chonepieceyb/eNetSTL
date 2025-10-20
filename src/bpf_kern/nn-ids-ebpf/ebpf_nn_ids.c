@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2022 Hengqi Chen */
-#include <vmlinux.h>
-#include <bpf/bpf_endian.h>
-#include <bpf/bpf_helpers.h>
-#include <bpf/bpf_tracing.h>
+#include "../common.h"
 #include "params.bpf.h"
-#include "common.h"
+#include "common.bpf.h"
 #include "handler.bpf.h"
 #include "mlp.bpf.h"
 
@@ -17,6 +14,7 @@ struct
     __uint(max_entries, 1024);
     __type(key, u32);
     __type(value, u32);
+    __uint(pinning, 1);
 } progs SEC(".maps");
 
 static inline int flow_tuple(struct xdp_md *ctx, struct flow *f)
@@ -28,28 +26,33 @@ static inline int flow_tuple(struct xdp_md *ctx, struct flow *f)
 
     if (eth + 1 > (struct ethhdr *)data_end)
     {
+        log_error("Ethernet header out of bounds in flow_tuple");
         return -1;
     }
 
     if (eth->h_proto != bpf_htons(ETH_P_IP))
     {
+        log_error("Non-IPv4 packet in flow_tuple");
         return -1;
     }
 
     struct iphdr *ip = data + sizeof(struct ethhdr);
     if (ip + 1 > (struct iphdr *)data_end)
     {
+        log_error("IP header out of bounds in flow_tuple");
         return -1;
     }
 
     if (ip->protocol != IPPROTO_TCP)
     {
+        log_error("Non-TCP packet in flow_tuple %d", ip->protocol);
         return -1;
     }
 
     struct tcphdr *tcp = data + sizeof(struct ethhdr) + sizeof(struct iphdr);
     if (tcp + 1 > (struct tcphdr *)data_end)
     {
+        log_error("TCP header out of bounds in flow_tuple");
         return -1;
     }
 
@@ -61,14 +64,21 @@ static inline int flow_tuple(struct xdp_md *ctx, struct flow *f)
     return 0;
 }
 
+PACKET_COUNT_MAP_DEFINE
+
+__u64 g_start_timestamp = 0;
+
 SEC("xdp")
-int xdp_prog(struct xdp_md *ctx)
+int xdp_main(struct xdp_md *ctx)
 {
+    LATENCY_START_TIMESTAMP_DEFINE
+    g_start_timestamp = start_timestamp;
     struct flow f = {};
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        log_error("Failed to parse flow tuple in xdp_prog");
+        return XDP_DROP;
     }
 
     void *data = (void *)(long)ctx->data;
@@ -77,26 +87,29 @@ int xdp_prog(struct xdp_md *ctx)
     // 33.33.33.73 == 555819337
 
     // if ((bpf_ntohs(tcp->dest) == 5001))
-    if ((bpf_ntohl(f.saddr) == 555819337))
+    // if ((bpf_ntohl(f.saddr) == 555819337))
+    if (1)
     {
         struct iphdr *ip = data + sizeof(struct ethhdr);
         if (ip + 1 > (struct iphdr *)data_end)
         {
-            return XDP_PASS;
+            log_error("IP header out of bounds in xdp_prog");
+            return XDP_DROP;
         }
 
         struct tcphdr *tcp = data + sizeof(struct ethhdr) + sizeof(struct iphdr);
         if (tcp + 1 > (struct tcphdr *)data_end)
         {
-            return XDP_PASS;
+            log_error("TCP header out of bounds in xdp_prog");
+            return XDP_DROP;
         }
 
         u64 packet_length = bpf_ntohs(ip->tot_len) - ip->ihl * 4;
 
         update_flow_attribute(&f, tcp, packet_length);
 
-        if (tcp->fin || tcp->rst)
-        {
+        // if (tcp->fin || tcp->rst)
+        // {
             int32_t idx = 0;
             int32_t *idx_ptr = bpf_map_lookup_elem(&nn_idx, &idx);
             struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
@@ -105,11 +118,15 @@ int xdp_prog(struct xdp_md *ctx)
             {
                 attr_ptr->nn_idx = *idx_ptr;
                 bpf_tail_call(ctx, &progs, 0);
+                log_error("failed to tail call to preprocessing program");
+            } else {
+                 log_error("failed to find idx_ptr or attr_ptr in xdp_prog");
             }
-        }
+        // }
     }
 
-    return XDP_PASS;
+    log_error("Packet does not match criteria in xdp_prog");
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -119,12 +136,15 @@ int xdp_preprocessing(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        log_error("Failed to parse flow tuple in xdp_preprocessing");
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
-    if (!attr_ptr)
-        return XDP_PASS;
+    if (!attr_ptr) {
+        log_error("Flow attribute not found in flow_map for xdp_preprocessing");
+        return XDP_DROP;
+    }
 
     // bpf_printk("[%d->%d] %lld,%lld,%lld,%lld,%lld,%lld",
     //            bpf_ntohs(f.sport),
@@ -143,8 +163,10 @@ int xdp_preprocessing(struct xdp_md *ctx)
     // return XDP_PASS;
 
     struct Net *net = bpf_map_lookup_elem(&nn_parameters, &(attr_ptr->nn_idx));
-    if (!net)
-        return XDP_PASS;
+    if (!net) {
+        log_error("Neural network parameters not found for nn_idx %d in xdp_preprocessing", attr_ptr->nn_idx);
+        return XDP_DROP;
+    }
 
     int64_t x[6] = {attr_ptr->max_packet_length,
                     attr_ptr->max_duration,
@@ -166,7 +188,8 @@ int xdp_preprocessing(struct xdp_md *ctx)
 
     bpf_tail_call(ctx, &progs, 1);
 
-    return XDP_PASS;
+    log_error("Tail call failed in xdp_preprocessing");
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -176,16 +199,21 @@ int xdp_input_linear(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        log_error("Failed to parse flow tuple in xdp_input_linear");
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
-    if (!attr_ptr)
-        return XDP_PASS;
+    if (!attr_ptr) {
+        log_error("Flow attribute not found in flow_map for xdp_input_linear");
+        return XDP_DROP;
+    }
 
     struct Net *net = bpf_map_lookup_elem(&nn_parameters, &(attr_ptr->nn_idx));
-    if (!net)
-        return XDP_PASS;
+    if (!net) {
+        log_error("Neural network parameters not found for nn_idx %d in xdp_input_linear", attr_ptr->nn_idx);
+        return XDP_DROP;
+    }
 
     linear_layer(net->layer_0_weight, attr_ptr->hidden2, attr_ptr->hidden1, 32, 6);
 
@@ -199,7 +227,8 @@ int xdp_input_linear(struct xdp_md *ctx)
 
     bpf_tail_call(ctx, &progs, 2);
 
-    return XDP_PASS;
+    log_error("Tail call failed in xdp_input_linear");
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -209,12 +238,15 @@ int xdp_input_relu(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        log_error("Failed to parse flow tuple in xdp_input_relu");
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
-    if (!attr_ptr)
-        return XDP_PASS;
+    if (!attr_ptr) {
+        log_error("Flow attribute not found in flow_map for xdp_input_relu");
+        return XDP_DROP;
+    }
 
     relu(attr_ptr->hidden1, 32);
 
@@ -228,7 +260,8 @@ int xdp_input_relu(struct xdp_md *ctx)
 
     bpf_tail_call(ctx, &progs, 3);
 
-    return XDP_PASS;
+    log_error("Tail call failed in xdp_input_relu");
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -238,16 +271,21 @@ int xdp_hidden_linear(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        log_error("Failed to parse flow tuple in xdp_hidden_linear");
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
-    if (!attr_ptr)
-        return XDP_PASS;
+    if (!attr_ptr) {
+        log_error("Flow attribute not found in flow_map for xdp_hidden_linear");
+        return XDP_DROP;
+    }
 
     struct Net *net = bpf_map_lookup_elem(&nn_parameters, &(attr_ptr->nn_idx));
-    if (!net)
-        return XDP_PASS;
+    if (!net) {
+        log_error("Neural network parameters not found for nn_idx %d in xdp_hidden_linear", attr_ptr->nn_idx);
+        return XDP_DROP;
+    }
 
     linear_layer(net->layer_1_weight, attr_ptr->hidden1, attr_ptr->hidden2, 32, 32);
     // bpf_printk("%d %d %d %d %d %d",
@@ -260,7 +298,8 @@ int xdp_hidden_linear(struct xdp_md *ctx)
 
     bpf_tail_call(ctx, &progs, 4);
 
-    return XDP_PASS;
+    log_error("Tail call failed in xdp_hidden_linear");
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -270,12 +309,15 @@ int xdp_hidden_relu(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        log_error("Failed to parse flow tuple in xdp_hidden_relu");
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
-    if (!attr_ptr)
-        return XDP_PASS;
+    if (!attr_ptr) {
+        log_error("Flow attribute not found in flow_map for xdp_hidden_relu");
+        return XDP_DROP;
+    }
 
     relu(attr_ptr->hidden2, 32);
 
@@ -289,7 +331,8 @@ int xdp_hidden_relu(struct xdp_md *ctx)
 
     bpf_tail_call(ctx, &progs, 5);
 
-    return XDP_PASS;
+    log_error("Tail call failed in xdp_hidden_relu");
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -299,25 +342,41 @@ int xdp_output_linear(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        log_error("Failed to parse flow tuple in xdp_output_linear");
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
-    if (!attr_ptr)
-        return XDP_PASS;
+    if (!attr_ptr) {
+        log_error("Flow attribute not found in flow_map for xdp_output_linear");
+        return XDP_DROP;
+    }
 
     struct Net *net = bpf_map_lookup_elem(&nn_parameters, &(attr_ptr->nn_idx));
-    if (!net)
-        return XDP_PASS;
+    if (!net) {
+        log_error("Neural network parameters not found for nn_idx %d in xdp_output_linear", attr_ptr->nn_idx);
+        return XDP_DROP;
+    }
 
     linear_layer(net->layer_2_weight, attr_ptr->hidden2, attr_ptr->hidden1, 2, 32);
 
-    bpf_printk("avg feature extraction time: %lld, detection time: %lld, label: %d",
+    log_debug("avg feature extraction time: %lld, detection time: %lld, label: %d",
                attr_ptr->total_feature_extraction_time / attr_ptr->num_packet,
-               bpf_ktime_get_ns() - attr_ptr->detection_start_time,
+               __get_bpf_ktime() - attr_ptr->detection_start_time,
                (attr_ptr->hidden1[0] > attr_ptr->hidden1[1]) ? 0 : 1);
 
+#if LOG_LEVEL >= LOG_LEVEL_DEBUG
     return XDP_PASS;
+#else
+    u64 start_timestamp = g_start_timestamp;
+	PACKET_COUNT_MAP_UPDATE
+
+#ifdef LATENCY_EXP
+	SWAP_MAC_AND_RETURN_XDP_TX(ctx)
+#endif
+	return XDP_DROP;
+
+#endif 
 }
 
 char __license[] SEC("license") = "GPL";

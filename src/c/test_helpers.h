@@ -17,18 +17,35 @@
 struct ipv4_packet {
 	struct ethhdr eth;
 	struct iphdr iph;
-	struct tcphdr tcp;
-} __packed;
-extern struct ipv4_packet pkt_v4;
+	struct tcphdr tcph;
+} __attribute__((packed));
 
-struct ipv4_packet pkt_v4 = {
+// struct ipv4_packet pkt_v4 = {
+// 	.eth.h_proto = __bpf_constant_htons(ETH_P_IP),
+// 	.iph.ihl = 5,
+// 	.iph.protocol = IPPROTO_TCP,
+// 	.iph.tot_len = __bpf_constant_htons(MAGIC_BYTES),
+// 	.tcp.urg_ptr = 123,
+// 	.tcp.doff = 5,
+// };
+
+static struct ipv4_packet pkt_v4 = {
 	.eth.h_proto = __bpf_constant_htons(ETH_P_IP),
 	.iph.ihl = 5,
+	.iph.version = 4,
+	.iph.tos = 0,
+	.iph.tot_len = __bpf_constant_htons(40),  // Full packet size for XDP
+	.iph.id = __bpf_constant_htons(1234),
+	.iph.frag_off = 0,
+	.iph.ttl = 64,
 	.iph.protocol = IPPROTO_TCP,
-	.iph.tot_len = __bpf_constant_htons(MAGIC_BYTES),
-	.tcp.urg_ptr = 123,
-	.tcp.doff = 5,
+	.iph.check = 0,  // Will be calculated if needed
+	.iph.saddr = __bpf_constant_htonl(0x0a000001),  // 10.0.0.1
+	.iph.daddr = __bpf_constant_htonl(0x0a000002),  // 10.0.0.2
+	.tcph.source = __bpf_constant_htons(12345),     // 12345 in network byte order
+	.tcph.dest = __bpf_constant_htons(80),          // 80 in network byte order
 };
+
 
 static inline void set_prog_flags_test(struct bpf_program* prog) {
     	__u32 flags = bpf_program__flags(prog) | BPF_F_TEST_RND_HI32;

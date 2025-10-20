@@ -23,6 +23,7 @@ AVAILABLE_EXPS=(
     "exp9"
     "exp-control-plane"
     "utils"
+    "nn-ids-ebpf"
 )
 
 function echo_help() {
