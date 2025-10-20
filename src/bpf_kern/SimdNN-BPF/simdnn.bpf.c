@@ -5,6 +5,9 @@
 
 #include "common.h"
 
+/* kfunc declarations for neural network inference */
+extern int bpf_nm_inference(void *model, int model_size__sz, void *attr, int attr_size__sz) __ksym;
+
 char _license[] SEC("license") = "GPL";
 
 #ifndef LOG_LEVEL
@@ -135,7 +138,7 @@ static __always_inline void normalize_features(int *attr)
     }
 }
 
-/* --------- XDP 主程序（按需改成 TC hook） --------- */
+/* --------- XDP 主程序 --------- */
 SEC("xdp")
 int xdp_simdnn_main(struct xdp_md *ctx)
 {
@@ -212,8 +215,9 @@ int xdp_simdnn_main(struct xdp_md *ctx)
 
     // TODO: 测试kfunc
     int ret = 0;
-
-    {
+    ret = bpf_nm_inference(m, sizeof(*m), attr, sizeof(*attr));
+    if (ret < 0) {
+        log_error("inference failed: %d", ret);
         return XDP_PASS;
     }
 

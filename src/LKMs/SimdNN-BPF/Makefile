@@ -9,8 +9,8 @@ ccflags-y := -I../../../bpf_kern/SimdNN-BPF
 ccflags-y += -DBTF_ENABLED
 # Disable warnings that prevent compilation
 ccflags-y += -Wno-strict-prototypes -Wno-unknown-pragmas
-# Enable SIMD support
-ccflags-y += -O2 -march=native
+# Disable SIMD/AVX support for kernel compatibility
+ccflags-y += -O2 -U__AVX2__ -U__SSE2__ -U__SSE__
 
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
