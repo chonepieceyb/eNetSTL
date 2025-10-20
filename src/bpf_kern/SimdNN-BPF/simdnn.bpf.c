@@ -216,6 +216,11 @@ int xdp_simdnn_main(struct xdp_md *ctx)
     int y1 = m->output_buffer.buffer[1];
     int pred = (y0 >= y1) ? 0 : 1;
 
+    /* 计算检测时间并输出 */
+    __u64 detection_end_time = bpf_ktime_get_ns();
+    __u64 detection_time = detection_end_time - fa->detection_start_time;
+    log_info("Detection result: %d, detection time: %llu ns", pred, detection_time);
+
     /* 可选：重置该 flow 的统计以便下一次检测 */
     __builtin_memset(fa, 0, sizeof(*fa));
     bpf_map_update_elem(&flow_map, &key, fa, BPF_ANY);

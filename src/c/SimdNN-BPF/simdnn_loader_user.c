@@ -10,6 +10,7 @@
 #include <net/if.h>
 #include <linux/if_link.h>
 #include <getopt.h>
+#include <ifaddrs.h>
 
 #include "common_user.h"
 #include "../bpf_skel/simdnn.bpf.skel.h"
@@ -18,6 +19,51 @@
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
     return vfprintf(stderr, format, args);
+}
+
+// 动态获取第一个非回环网卡名称
+static char* get_first_non_loopback_interface()
+{
+    struct ifaddrs *ifaddrs_ptr, *ifa;
+    static char interface_name[IF_NAMESIZE] = {0};
+
+    if (getifaddrs(&ifaddrs_ptr) == -1) {
+        perror("getifaddrs");
+        return NULL;
+    }
+
+    for (ifa = ifaddrs_ptr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL) {
+            continue;
+        }
+
+        // 跳过回环接口
+        if (strcmp(ifa->ifa_name, "lo") == 0) {
+            continue;
+        }
+
+        // 检查接口是否处于活动状态
+        if (!(ifa->ifa_flags & IFF_UP)) {
+            continue;
+        }
+
+        // 检查是否是网络接口（有IP地址）
+        if (ifa->ifa_addr->sa_family == AF_INET ||
+            ifa->ifa_addr->sa_family == AF_INET6) {
+
+            // 检查接口是否支持XDP
+            unsigned int ifindex = if_nametoindex(ifa->ifa_name);
+            if (ifindex > 0) {
+                strncpy(interface_name, ifa->ifa_name, IF_NAMESIZE - 1);
+                interface_name[IF_NAMESIZE - 1] = '\0';
+                freeifaddrs(ifaddrs_ptr);
+                return interface_name;
+            }
+        }
+    }
+
+    freeifaddrs(ifaddrs_ptr);
+    return NULL;
 }
 
 /* 仅初始化从 fc1 开始的层；不触碰 input_buffer（由 kfunc 实参提供） */
@@ -90,7 +136,7 @@ static void usage(const char *prog)
 
 int main(int argc, char **argv)
 {
-    const char *ifname = "ens33";
+    const char *ifname = NULL;  // 初始为NULL，支持动态检测
     int ifindex = 0;
     int err = 0;
 
@@ -116,6 +162,19 @@ int main(int argc, char **argv)
         fprintf(stderr, "Unexpected argument: %s\n", argv[optind]);
         usage(argv[0]);
         return 1;
+    }
+
+    // 如果没有指定网卡，则动态检测第一个非回环网卡
+    if (ifname == NULL) {
+        ifname = get_first_non_loopback_interface();
+        if (ifname == NULL) {
+            fprintf(stderr, "Failed to find a suitable network interface (non-loopback, active)\n");
+            fprintf(stderr, "Please specify one manually using --dev <IFNAME>\n");
+            return 1;
+        }
+        printf("Auto-detected network interface: %s\n", ifname);
+    } else {
+        printf("Using specified network interface: %s\n", ifname);
     }
 
     libbpf_set_print(libbpf_print_fn);

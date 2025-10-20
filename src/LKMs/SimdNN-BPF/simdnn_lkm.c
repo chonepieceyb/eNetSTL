@@ -269,12 +269,16 @@ found:
 				if (g_model.output_buffer.buffer[i] > g_model.output_buffer.buffer[best])
 					best = i;
 
-			pr_debug("simdnn: %pI4:%u -> %pI4:%u  y0=%d y1=%d  pred=%d\n",
+			/* 计算检测时间并输出 */
+			u64 detection_end_time = ktime_get_ns();
+			u64 detection_time = detection_end_time - node->fa.detection_start_time;
+
+			pr_debug("simdnn: %pI4:%u -> %pI4:%u  y0=%d y1=%d  pred=%d  detection_time=%llu ns\n",
 			         &key.saddr, ntohs(key.sport),
 			         &key.daddr, ntohs(key.dport),
 			         g_model.output_buffer.buffer[0],
 			         (N3>1? g_model.output_buffer.buffer[1] : 0),
-			         best);
+			         best, detection_time);
 		}
 	}
 
