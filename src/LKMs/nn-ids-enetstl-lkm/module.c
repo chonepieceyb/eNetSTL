@@ -36,10 +36,31 @@ __bpf_kfunc int bpf_nm_inference(void *model, int model_size__sz,
                                     (int *)attr, attr_size__sz);
 }
 
+__bpf_kfunc void relu_nm_forward(void *v, int v_size__sz)
+{
+    kernel_fpu_begin();
+    relu_inplace_i32(v, v_size__sz / sizeof(int));
+    kernel_fpu_end();
+}
+
+__bpf_kfunc int fc_nm_forward(const struct fc_layer *fc_layer,
+                              void *x, int x_size__sz,
+                              void *y, int y_size__sz)
+{
+    kernel_fpu_begin();
+    int ret = fc_forward_i32((const struct fc_layer *)fc_layer,
+                             x, x_size__sz / sizeof(int),
+                             y, y_size__sz / sizeof(int));
+    kernel_fpu_end();
+    return ret;
+}
+
 __bpf_kfunc_end_defs();
 
 BTF_KFUNCS_START(simdnn_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_nm_inference)
+BTF_ID_FLAGS(func, relu_nm_forward)
+BTF_ID_FLAGS(func, fc_nm_forward)
 BTF_KFUNCS_END(simdnn_kfunc_ids)
 
 static const struct btf_kfunc_id_set simdnn_kfunc_set = {

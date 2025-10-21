@@ -14,11 +14,31 @@
 /* ===================== 工具函数 ===================== */
 
 /* ReLU */
-static inline void relu_inplace_i32(int *v, int n)
+
+void relu_inplace_i32(int *v, int n)
 {
-	for (int i = 0; i < n; ++i)
+
+#ifdef __AVX2__
+	int i = 0;
+	const __m256i z = _mm256_setzero_si256();
+	for (; i + 8 <= n; i += 8)
+	{
+		__m256i x = _mm256_loadu_si256((const __m256i *)(v + i));
+		__m256i y = _mm256_max_epi32(x, z); // ReLU
+		_mm256_storeu_si256((__m256i *)(v + i), y);
+	}
+	for (; i < n; ++i)
+	{
 		if (v[i] < 0)
 			v[i] = 0;
+	}
+#else
+	for (int i = 0; i < n; ++i)
+	{
+		if (v[i] < 0)
+			v[i] = 0;
+	}
+#endif
 }
 
 /* ---- AVX2: 4x i64 水平求和，不落内存 ---- */
@@ -34,7 +54,7 @@ static inline long long hsum_epi64_avx2(__m256i v)
 #endif
 
 /* FC: y = W * x，64 位安全乘加；AVX2: 双行并行 + 复用 x 加载 */
-static int fc_forward_i32(const struct fc_layer *fc,
+int fc_forward_i32(const struct fc_layer *fc,
 						  const int *x, int x_cap,
 						  int *y, int y_cap)
 {
@@ -92,17 +112,8 @@ static int fc_forward_i32(const struct fc_layer *fc,
 			acc1 += (long long)row1[j] * xv;
 		}
 
-		/* 饱和写回 */
-		if (acc0 > INT_MAX)
-			acc0 = INT_MAX;
-		else if (acc0 < INT_MIN)
-			acc0 = INT_MIN;
-		if (acc1 > INT_MAX)
-			acc1 = INT_MAX;
-		else if (acc1 < INT_MIN)
-			acc1 = INT_MIN;
-		y[o + 0] = (int)(acc0 >> 16);
-		y[o + 1] = (int)(acc1 >> 16);
+		y[o + 0] = acc0 >> 16;
+		y[o + 1] = acc1 >> 16;
 	}
 
 	/* ---- 剩余一行 ---- */
@@ -130,10 +141,6 @@ static int fc_forward_i32(const struct fc_layer *fc,
 		for (; j < in; ++j)
 			acc += (long long)row[j] * (long long)x[j];
 
-		if (acc > INT_MAX)
-			acc = INT_MAX;
-		else if (acc < INT_MIN)
-			acc = INT_MIN;
 		y[o] = (int)(acc >> 16);
 	}
 
@@ -147,10 +154,6 @@ static int fc_forward_i32(const struct fc_layer *fc,
 		long long acc = 0;
 		for (int j = 0; j < in; ++j)
 			acc += (long long)row[j] * (long long)x[j];
-		if (acc > INT_MAX)
-			acc = INT_MAX;
-		else if (acc < INT_MIN)
-			acc = INT_MIN;
 		y[o] = (int)(acc >> 16);
 	}
 	return out;
@@ -158,15 +161,17 @@ static int fc_forward_i32(const struct fc_layer *fc,
 #endif
 }
 
-static inline size_t get_layer_size(struct layer_common *comm) {
-	switch (comm->type) {
-		case ENETSTL_FC_LAYER:
+static inline size_t get_layer_size(struct layer_common *comm)
+{
+	switch (comm->type)
+	{
+	case ENETSTL_FC_LAYER:
 		return sizeof(struct fc_layer);
-		case ENETSTL_RELU_LAYER:
+	case ENETSTL_RELU_LAYER:
 		return sizeof(struct relu_layer);
-		case ENETSTL_OUTPUT_LAYER:
+	case ENETSTL_OUTPUT_LAYER:
 		return sizeof(struct output_layer);
-		default:
+	default:
 		return 0;
 	}
 }
@@ -185,13 +190,13 @@ int simdnn_analyze_and_infer(void *m, size_t model_size, void *attr, size_t attr
 	int buf2[64] = {0};
 	int *bufs[2] = {&buf1[0], &buf2[0]};
 
-	int *curr_in_buf = (int*)(bufs[iter_idx & 1]);
-	int *curr_out_buf = (int*)(bufs[(iter_idx + 1) & 1]);
-
+	int *curr_in_buf = (int *)(bufs[iter_idx & 1]);
+	int *curr_out_buf = (int *)(bufs[(iter_idx + 1) & 1]);
 
 	int err = 0;
-	if (attr_size > sizeof(buf1) || model_size <= sizeof(struct layer_common)) {
-		//attr too large
+	if (attr_size > sizeof(buf1) || model_size <= sizeof(struct layer_common))
+	{
+		// attr too large
 		return -EINVAL;
 	}
 	// if (in <= 0 || in > (int)ARRAY_SIZE(tmp_in))
@@ -200,15 +205,16 @@ int simdnn_analyze_and_infer(void *m, size_t model_size, void *attr, size_t attr
 	// 	return -EMSGSIZE;
 	memcpy(curr_in_buf, attr, attr_size);
 
-	struct layer_common *curr_layer = (struct layer_common*)m;
-	
+	struct layer_common *curr_layer = (struct layer_common *)m;
+
 	/* 进入 FPU/SIMD 临界区 */
 	kernel_fpu_begin();
 
 	while (1)
 	{
 		size_t layer_size = get_layer_size(curr_layer);
-		if ((void*)curr_layer + layer_size >  m + model_size) {
+		if ((void *)curr_layer + layer_size > m + model_size)
+		{
 			err = -EFAULT;
 			goto error;
 		}
@@ -223,16 +229,22 @@ int simdnn_analyze_and_infer(void *m, size_t model_size, void *attr, size_t attr
 				err = -EINVAL;
 				goto error;
 			}
-		} else if (curr_layer->type == ENETSTL_RELU_LAYER) {
-			struct relu_layer *rl = (struct relu_layer*)curr_layer;
+		}
+		else if (curr_layer->type == ENETSTL_RELU_LAYER)
+		{
+			struct relu_layer *rl = (struct relu_layer *)curr_layer;
 			relu_inplace_i32(curr_in_buf, min(sizeof(buf1), (size_t)(rl->feature_num)));
-		} else if (curr_layer->type == ENETSTL_OUTPUT_LAYER) {
+		}
+		else if (curr_layer->type == ENETSTL_OUTPUT_LAYER)
+		{
 			goto output;
-		} else {
+		}
+		else
+		{
 			err = -EOPNOTSUPP;
 			goto error;
 		}
-	
+
 		iter_idx += 1;
 		curr_in_buf = bufs[iter_idx & 1];
 		curr_out_buf = bufs[(iter_idx + 1) & 1];
@@ -242,7 +254,7 @@ int simdnn_analyze_and_infer(void *m, size_t model_size, void *attr, size_t attr
 
 output:;
 	kernel_fpu_end();
-	struct output_layer *out = (struct output_layer*)(curr_layer);
+	struct output_layer *out = (struct output_layer *)(curr_layer);
 	memcpy(&out->buffer, curr_out_buf, min(sizeof(buf1), sizeof(out->buffer)));
 	return iter_idx;
 error:;
