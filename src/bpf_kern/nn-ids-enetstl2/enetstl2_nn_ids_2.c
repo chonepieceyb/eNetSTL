@@ -5,12 +5,10 @@
 
 /* kfunc declarations for neural network inference */
 // extern int bpf_nm_inference(void *model, int model_size__sz, void *attr, int attr_size__sz) __ksym;
-extern void relu_nm_forward(void *v, int v_size__sz) __ksym; 
+extern void relu_nm_forward(void *v__buf, int v_size__sz) __ksym;
 extern int fc_nm_forward(const struct fc_layer *fc_layer,
-                              void *x, int x_size__sz,
-                              void *y, int y_size__sz) __ksym;
-
-
+						 void *x__buf, int x_size__sz,
+						 void *y__buf, int y_size__sz) __ksym;
 
 char _license[] SEC("license") = "GPL";
 
@@ -18,101 +16,99 @@ char _license[] SEC("license") = "GPL";
 #define IPPROTO_TCP 6
 #define IPPROTO_UDP 17
 
-struct model2 {
-    struct fc_layer     fc1;           
-    struct relu_layer   relu1;
-    struct fc_layer     fc2;         
-    struct relu_layer   relu2;
-    struct fc_layer     fc3;         
-    struct relu_layer   relu3;
-    struct fc_layer     fc_out;    
-    struct output_layer output_buffer; 
+struct model2
+{
+	struct fc_layer fc1;
+	struct relu_layer relu1;
+	struct fc_layer fc2;
+	struct relu_layer relu2;
+	struct fc_layer fc3;
+	struct relu_layer relu3;
+	struct fc_layer fc_out;
+	struct output_layer output_buffer;
 };
 
 typedef struct model2 nn_model;
-
 
 /* --------- Flow map --------- */
 #ifndef FLOW_MAP_DEFINE
 struct
 {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 8192);
-    __type(key, struct flow);
-    __type(value, struct flow_attribute);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 8192);
+	__type(key, struct flow);
+	__type(value, struct flow_attribute);
+	__uint(pinning, LIBBPF_PIN_BY_NAME);
 } flow_map SEC(".maps");
 #endif
 
 /* --------- Model map：value = struct model --------- */
 struct
 {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, __u32);
-    __type(value, nn_model);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, nn_model);
+	__uint(pinning, LIBBPF_PIN_BY_NAME);
 } model_map SEC(".maps");
-
 
 /* --------- Kfunc --------- */
 
 /* --------- 特征统计/提取/归一化 --------- */
 static __always_inline void update_flow_stats(struct flow *flow_key,
-                                              struct flow_attribute *fa,
-                                              __u64 now_ns, __u32 packet_len)
+											  struct flow_attribute *fa,
+											  __u64 now_ns, __u32 packet_len)
 {
-    fa->num_packet++;
-    if (fa->num_packet == 1)
-    {
-        fa->min_packet_length = packet_len;
-        fa->max_packet_length = packet_len;
-    }
-    else
-    {
-        if (packet_len < fa->min_packet_length)
-            fa->min_packet_length = packet_len;
-        if (packet_len > fa->max_packet_length)
-            fa->max_packet_length = packet_len;
-    }
-    if (fa->last_packet_time > 0)
-    {
-        __u64 dt = now_ns - fa->last_packet_time;
-        if (dt > (__u64)fa->max_duration)
-            fa->max_duration = dt;
-    }
-    fa->last_packet_time = now_ns;
-    fa->dst_port = flow_key->dport;
+	fa->num_packet++;
+	if (fa->num_packet == 1)
+	{
+		fa->min_packet_length = packet_len;
+		fa->max_packet_length = packet_len;
+	}
+	else
+	{
+		if (packet_len < fa->min_packet_length)
+			fa->min_packet_length = packet_len;
+		if (packet_len > fa->max_packet_length)
+			fa->max_packet_length = packet_len;
+	}
+	if (fa->last_packet_time > 0)
+	{
+		__u64 dt = now_ns - fa->last_packet_time;
+		if (dt > (__u64)fa->max_duration)
+			fa->max_duration = dt;
+	}
+	fa->last_packet_time = now_ns;
+	fa->dst_port = flow_key->dport;
 }
 
 static __always_inline void extract_features(struct flow_attribute *fa, int *attr)
 {
 #pragma clang loop unroll(full)
-    for (int i = 0; i < 6; i++)
-        attr[i] = 0;
+	for (int i = 0; i < 6; i++)
+		attr[i] = 0;
 
-    attr[0] = fa->num_packet;
-    attr[1] = fa->min_packet_length;
-    attr[2] = fa->max_packet_length;
-    attr[3] = fa->max_duration;
-    attr[4] = fa->dst_port;
-    attr[5] = fa->header_length;
+	attr[0] = fa->num_packet;
+	attr[1] = fa->min_packet_length;
+	attr[2] = fa->max_packet_length;
+	attr[3] = fa->max_duration;
+	attr[4] = fa->dst_port;
+	attr[5] = fa->header_length;
 }
 
 static __always_inline void normalize_features(int *attr)
 {
 #pragma clang loop unroll(full)
-    for (int i = 0; i < 6; i++)
-    {
-        long long sc = scale[i];
-        if (sc != 0)
-        {
-            long long t = ((long long)attr[i] - mean[i]);
-            attr[i] = (int)((unsigned long long)(t * (1LL << FIX_POINT)) / (unsigned long long)sc);
-        }
-    }
+	for (int i = 0; i < 6; i++)
+	{
+		long long sc = scale[i];
+		if (sc != 0)
+		{
+			long long t = ((long long)attr[i] - mean[i]);
+			attr[i] = (int)((unsigned long long)(t * (1LL << FIX_POINT)) / (unsigned long long)sc);
+		}
+	}
 }
-
 
 static __always_inline int nn_inference(int *attr, nn_model *model)
 {
@@ -123,41 +119,47 @@ static __always_inline int nn_inference(int *attr, nn_model *model)
 
 	/* input fc layer */
 	__builtin_memcpy(buf0, attr, sizeof(int) * 6);
-	ret = fc_nm_forward(&model->fc1, buf0, model->fc1.parm.in_features * (sizeof(int)),
-	                   buf1, model->fc1.parm.out_features *  (sizeof(int)));
-	if (ret < 0) {
+	ret = fc_nm_forward(&model->fc1, buf0, 6 * (sizeof(int)),
+						buf1, 32 * (sizeof(int)));
+	if (ret < 0)
+	{
 		log_error("fc1 forward failed: %d", ret);
 		return ret;
 	}
-	relu_nm_forward(buf1, model->fc1.parm.out_features * (sizeof(int)));
+	relu_nm_forward(buf1, 32 * (sizeof(int)));
 
 	/* hidden layer 1 */
 	__builtin_memset(buf0, 0, sizeof(buf0));
-	ret = fc_nm_forward(&model->fc2, buf1, model->fc2.parm.in_features * (sizeof(int)),
-	                   buf0, model->fc2.parm.out_features * (sizeof(int)));
-	if (ret < 0) {
+	ret = fc_nm_forward(&model->fc2, buf1, 32 * (sizeof(int)),
+						buf0, 32 * (sizeof(int)));
+	if (ret < 0)
+	{
 		log_error("fc2 forward failed: %d", ret);
 		return ret;
-	}		   
-	relu_nm_forward(buf0, model->fc2.parm.out_features * (sizeof(int)));
+	}
+	relu_nm_forward(buf0, 32 * (sizeof(int)));
 
 	/* hidden layer 2 */
 	__builtin_memset(buf1, 0, sizeof(buf1));
-	ret = fc_nm_forward(&model->fc3, buf0, model->fc3.parm.in_features * (sizeof(int)),
-	                   buf1, model->fc3.parm.out_features * (sizeof(int)));
-	if (ret < 0) {
+	ret = fc_nm_forward(&model->fc3, buf0, 32 * (sizeof(int)),
+						buf1, 32 * (sizeof(int)));
+	if (ret < 0)
+	{
 		log_error("fc3 forward failed: %d", ret);
 		return ret;
 	}
-	relu_nm_forward(buf1, model->fc3.parm.out_features * (sizeof(int)));
+	relu_nm_forward(buf1, 32 * (sizeof(int)));
 
 	/* output layer*/
-	ret = fc_nm_forward(&model->fc_out, buf1, model->fc_out.parm.in_features * (sizeof(int)),
-	                   &model->output_buffer ,  2 * (sizeof(int)));
-	if (ret < 0) {
+	ret = fc_nm_forward(&model->fc_out, buf1, 32 * (sizeof(int)),
+						&model->output_buffer, 2 * (sizeof(int)));
+	if (ret < 0)
+	{
 		log_error("fc_out forward failed: %d", ret);
 		return ret;
 	}
+
+	return 0;
 }
 
 PACKET_COUNT_MAP_DEFINE
@@ -172,29 +174,34 @@ int xdp_main(struct xdp_md *ctx)
 
 	/* L2 */
 	struct ethhdr *eth = data;
-	if ((void *)(eth + 1) > data_end) {
+	if ((void *)(eth + 1) > data_end)
+	{
 		log_error("Invalid ethernet header");
 		return XDP_DROP;
 	}
-	if (eth->h_proto != bpf_htons(ETH_P_IP)) {
+	if (eth->h_proto != bpf_htons(ETH_P_IP))
+	{
 		log_error("Non-IP packet detected");
 		return XDP_DROP;
 	}
 
 	/* L3 */
 	struct iphdr *ip = (void *)(eth + 1);
-	if ((void *)(ip + 1) > data_end) {
+	if ((void *)(ip + 1) > data_end)
+	{
 		log_error("Invalid IP header");
 		return XDP_DROP;
 	}
-	if (ip->protocol != IPPROTO_TCP) {
+	if (ip->protocol != IPPROTO_TCP)
+	{
 		log_error("Non-TCP packet detected");
 		return XDP_DROP;
 	}
 
 	/* L4 */
 	struct tcphdr *tcp = (void *)(ip + 1);
-	if ((void *)(tcp + 1) > data_end) {
+	if ((void *)(tcp + 1) > data_end)
+	{
 		log_error("Invalid TCP header");
 		return XDP_DROP;
 	}
@@ -219,16 +226,17 @@ int xdp_main(struct xdp_md *ctx)
 		struct flow_attribute new_fa = {0};
 		bpf_map_update_elem(&flow_map, &key, &new_fa, BPF_ANY);
 		fa = bpf_map_lookup_elem(&flow_map, &key);
-		if (!fa) {
-		log_error("flow_map update failed");
-		return XDP_DROP;
+		if (!fa)
+		{
+			log_error("flow_map update failed");
+			return XDP_DROP;
 		}
 	}
 	fa->last_packet_time = now_ns;
 	fa->header_length = sizeof(*eth) + sizeof(*ip) + sizeof(*tcp);
 	fa->detection_start_time = now_ns;
 	update_flow_stats(&key, fa, now_ns, pkt_len);
-	
+
 	int attr[6] = {0};
 
 	/* 提+归一化特征（6 维，很小） */
@@ -250,7 +258,8 @@ int xdp_main(struct xdp_md *ctx)
 	log_debug("output layer off %d", m->fc_out.comm.next_layer_off);
 	int ret = 0;
 	ret = nn_inference(attr, m);
-	if (ret < 0) {
+	if (ret < 0)
+	{
 		log_error("inference failed: %d", ret);
 		return XDP_DROP;
 	}
@@ -275,6 +284,6 @@ int xdp_main(struct xdp_md *ctx)
 #if LOG_LEVEL >= LOG_LEVEL_DEBUG
 	return XDP_PASS;
 #else
-    	return XDP_DROP;
-#endif 
+	return XDP_DROP;
+#endif
 }

@@ -21,10 +21,10 @@ __bpf_kfunc_start_defs();
  *   attr_size__sz:  输入特征大小（字节）
  * 返回：最终输出维度（>0），负值为错误码
  */
-__bpf_kfunc int bpf_nm_inference(void *model, int model_size__sz,
-                                 void *attr, int attr_size__sz)
+__bpf_kfunc int bpf_nm_inference(void *model__buf, int model_size__sz,
+                                 void *attr__buf, int attr_size__sz)
 {
-    if (!model || !attr)
+    if (!model__buf || !attr__buf)
         return -EINVAL;
     if (model_size__sz <= 0)
         return -EINVAL;
@@ -32,25 +32,25 @@ __bpf_kfunc int bpf_nm_inference(void *model, int model_size__sz,
         return -EINVAL;
 
     /* 只写回 model->output_buffer，让 BPF 端直接读取它 */
-    return simdnn_analyze_and_infer(model, model_size__sz,
-                                    (int *)attr, attr_size__sz);
+    return simdnn_analyze_and_infer(model__buf, model_size__sz,
+                                    (int *)attr__buf, attr_size__sz);
 }
 
-__bpf_kfunc void relu_nm_forward(void *v, int v_size__sz)
+__bpf_kfunc void relu_nm_forward(void *v__buf, int v_size__sz)
 {
     kernel_fpu_begin();
-    relu_inplace_i32(v, v_size__sz / sizeof(int));
+    relu_inplace_i32(v__buf, v_size__sz / sizeof(int));
     kernel_fpu_end();
 }
 
 __bpf_kfunc int fc_nm_forward(const struct fc_layer *fc_layer,
-                              void *x, int x_size__sz,
-                              void *y, int y_size__sz)
+                              void *x__buf, int x_size__sz,
+                              void *y__buf, int y_size__sz)
 {
     kernel_fpu_begin();
     int ret = fc_forward_i32((const struct fc_layer *)fc_layer,
-                             x, x_size__sz / sizeof(int),
-                             y, y_size__sz / sizeof(int));
+                             x__buf, x_size__sz / sizeof(int),
+                             y__buf, y_size__sz / sizeof(int));
     kernel_fpu_end();
     return ret;
 }

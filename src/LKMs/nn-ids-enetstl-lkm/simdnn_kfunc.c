@@ -144,7 +144,7 @@ int fc_forward_i32(const struct fc_layer *fc,
 		y[o] = (int)(acc >> 16);
 	}
 
-	return out;
+	return 0;
 
 #else /* --------- 无 AVX2：保持 64 位标量安全路径 --------- */
 
@@ -156,7 +156,7 @@ int fc_forward_i32(const struct fc_layer *fc,
 			acc += (long long)row[j] * (long long)x[j];
 		y[o] = (int)(acc >> 16);
 	}
-	return out;
+	return 0;
 
 #endif
 }
