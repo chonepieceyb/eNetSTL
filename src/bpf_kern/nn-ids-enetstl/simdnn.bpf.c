@@ -186,7 +186,6 @@ int xdp_simdnn_main(struct xdp_md *ctx)
         fa = &new_fa;
     }
     update_flow_stats(&key, fa, now_ns, pkt_len);
-    bpf_map_update_elem(&flow_map, &key, fa, BPF_ANY);
 
     /* 收集到一定数量再推理（阈值按需调整） */
     // if (fa->num_packet < 10)
