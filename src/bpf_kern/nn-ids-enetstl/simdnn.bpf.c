@@ -1,38 +1,12 @@
 // simdnn.bpf.c
-#include "vmlinux.h"
-#include <bpf/bpf_helpers.h>
-#include <bpf/bpf_endian.h>
 
+#include "../common.h"
 #include "common.h"
 
 /* kfunc declarations for neural network inference */
 extern int bpf_nm_inference(void *model, int model_size__sz, void *attr, int attr_size__sz) __ksym;
 
 char _license[] SEC("license") = "GPL";
-
-#ifndef LOG_LEVEL
-#define LOG_LEVEL 2
-#endif
-#if LOG_LEVEL >= 3
-#define log_debug(fmt, ...) bpf_printk("[DEBUG] " fmt, ##__VA_ARGS__)
-#else
-#define log_debug(fmt, ...)
-#endif
-#if LOG_LEVEL >= 2
-#define log_debug(fmt, ...) bpf_printk("[INFO] " fmt, ##__VA_ARGS__)
-#else
-#define log_debug(fmt, ...)
-#endif
-#if LOG_LEVEL >= 1
-#define log_warn(fmt, ...) bpf_printk("[WARN] " fmt, ##__VA_ARGS__)
-#else
-#define log_warn(fmt, ...)
-#endif
-#if LOG_LEVEL >= 0
-#define log_error(fmt, ...) bpf_printk("[ERROR] " fmt, ##__VA_ARGS__)
-#else
-#define log_error(fmt, ...)
-#endif
 
 #define ETH_P_IP 0x0800
 #define IPPROTO_TCP 6
@@ -128,115 +102,121 @@ static __always_inline void normalize_features(int *attr)
     }
 }
 
+PACKET_COUNT_MAP_DEFINE
+
 /* --------- XDP 主程序 --------- */
 SEC("xdp")
-int xdp_simdnn_main(struct xdp_md *ctx)
+int xdp_main(struct xdp_md *ctx)
 {
-    void *data = (void *)(long)ctx->data;
-    void *data_end = (void *)(long)ctx->data_end;
+	LATENCY_START_TIMESTAMP_DEFINE
+	void *data = (void *)(long)ctx->data;
+	void *data_end = (void *)(long)ctx->data_end;
 
-    /* L2 */
-    struct ethhdr *eth = data;
-    if ((void *)(eth + 1) > data_end) {
-        log_error("Invalid ethernet header");
-        return XDP_DROP;
-    }
-    if (eth->h_proto != bpf_htons(ETH_P_IP)) {
-        log_error("Non-IP packet detected");
-        return XDP_DROP;
-    }
+	/* L2 */
+	struct ethhdr *eth = data;
+	if ((void *)(eth + 1) > data_end) {
+		log_error("Invalid ethernet header");
+		return XDP_DROP;
+	}
+	if (eth->h_proto != bpf_htons(ETH_P_IP)) {
+		log_error("Non-IP packet detected");
+		return XDP_DROP;
+	}
 
-    /* L3 */
-    struct iphdr *ip = (void *)(eth + 1);
-    if ((void *)(ip + 1) > data_end) {
-        log_error("Invalid IP header");
-        return XDP_DROP;
-    }
-    if (ip->protocol != IPPROTO_TCP) {
-        log_error("Non-TCP packet detected");
-        return XDP_DROP;
-    }
+	/* L3 */
+	struct iphdr *ip = (void *)(eth + 1);
+	if ((void *)(ip + 1) > data_end) {
+		log_error("Invalid IP header");
+		return XDP_DROP;
+	}
+	if (ip->protocol != IPPROTO_TCP) {
+		log_error("Non-TCP packet detected");
+		return XDP_DROP;
+	}
 
-    /* L4 */
-    struct tcphdr *tcp = (void *)(ip + 1);
-    if ((void *)(tcp + 1) > data_end) {
-        log_error("Invalid TCP header");
-        return XDP_DROP;
-    }
+	/* L4 */
+	struct tcphdr *tcp = (void *)(ip + 1);
+	if ((void *)(tcp + 1) > data_end) {
+		log_error("Invalid TCP header");
+		return XDP_DROP;
+	}
 
-    /* flow key */
-    struct flow key = {
-        .saddr = ip->saddr,
-        .sport = tcp->source,
-        .daddr = ip->daddr,
-        .dport = tcp->dest,
-    };
+	/* flow key */
+	struct flow key = {
+		.saddr = ip->saddr,
+		.sport = tcp->source,
+		.daddr = ip->daddr,
+		.dport = tcp->dest,
+	};
 
-    /* 取/更新 flow 统计 */
-    struct flow_attribute *fa = bpf_map_lookup_elem(&flow_map, &key);
-    struct flow_attribute new_fa = {};
-    __u64 now_ns = bpf_ktime_get_ns();
-    __u32 pkt_len = (__u32)((long)data_end - (long)data);
+	/* 取/更新 flow 统计 */
+	struct flow_attribute *fa = bpf_map_lookup_elem(&flow_map, &key);
 
-    if (!fa)
-    {
-        new_fa.last_packet_time = now_ns;
-        new_fa.header_length = sizeof(*eth) + sizeof(*ip) + sizeof(*tcp);
-        new_fa.detection_start_time = now_ns;
-        fa = &new_fa;
-    }
-    update_flow_stats(&key, fa, now_ns, pkt_len);
-    bpf_map_update_elem(&flow_map, &key, fa, BPF_ANY);
+	//__u64 now_ns = bpf_ktime_get_ns();
+	__u64 now_ns = __get_bpf_ktime();
+	__u32 pkt_len = (__u32)((long)data_end - (long)data);
 
-    /* 收集到一定数量再推理（阈值按需调整） */
-    // if (fa->num_packet < 10)
-    //     return XDP_DROP;
+	if (!fa)
+	{
+		struct flow_attribute new_fa = {0};
+		bpf_map_update_elem(&flow_map, &key, &new_fa, BPF_ANY);
+		fa = bpf_map_lookup_elem(&flow_map, &key);
+		if (!fa) {
+		log_error("flow_map update failed");
+		return XDP_DROP;
+		}
+	}
+	fa->last_packet_time = now_ns;
+	fa->header_length = sizeof(*eth) + sizeof(*ip) + sizeof(*tcp);
+	fa->detection_start_time = now_ns;
+	update_flow_stats(&key, fa, now_ns, pkt_len);
+	
+	int attr[6] = {0};
 
-    __u32 input_buffer_key = 0;
-    int (*attr)[6] = bpf_map_lookup_elem(&input_map, &input_buffer_key);
-    if (!attr)
-    {
-        log_error("input_map lookup failed");
-        return XDP_DROP;
-    }
+	/* 提+归一化特征（6 维，很小） */
+	extract_features(fa, attr);
+	normalize_features(attr);
 
-    /* 提+归一化特征（6 维，很小） */
-    extract_features(fa, *attr);
-    normalize_features(*attr);
+	/* 模型实例（value: struct model） */
+	__u32 model_key = 0;
+	struct model *m = bpf_map_lookup_elem(&model_map, &model_key);
+	if (!m)
+	{
+		log_error("model_map empty");
+		return XDP_DROP;
+	}
 
-    /* 模型实例（value: struct model） */
-    __u32 model_key = 0;
-    struct model *m = bpf_map_lookup_elem(&model_map, &model_key);
-    if (!m)
-    {
-        log_error("model_map empty");
-        return XDP_DROP;
-    }
+	// TODO: 测试kfunc
+	log_debug("model size %llu", sizeof(*m));
+	log_debug("output layer type %d", m->fc_out.comm.type);
+	log_debug("output layer off %d", m->fc_out.comm.next_layer_off);
+	int ret = 0;
+	ret = bpf_nm_inference(m, sizeof(*m), attr, sizeof(attr));
+	if (ret < 0) {
+		log_error("inference failed: %d", ret);
+		return XDP_DROP;
+	}
 
-    // TODO: 测试kfunc
-    log_debug("model size %llu", sizeof(*m));
-    log_debug("output layer type %d", m->fc_out.comm.type);
-    log_debug("output layer off %d", m->fc_out.comm.next_layer_off);
-    int ret = 0;
-    ret = bpf_nm_inference(m, sizeof(*m), *attr, sizeof(*attr));
-    if (ret < 0) {
-        log_error("inference failed: %d", ret);
-        return XDP_DROP;
-    }
+	/* 读取输出（2 维），做 argmax */
+	int y0 = m->output_buffer.buffer[0];
+	int y1 = m->output_buffer.buffer[1];
+	int pred = (y0 >= y1) ? 0 : 1;
 
-    /* 读取输出（2 维），做 argmax */
-    int y0 = m->output_buffer.buffer[0];
-    int y1 = m->output_buffer.buffer[1];
-    int pred = (y0 >= y1) ? 0 : 1;
+	/* 计算检测时间并输出 */
+	// __u64 detection_end_time = bpf_ktime_get_ns();
+	__u64 detection_end_time = __get_bpf_ktime();
+	__u64 detection_time = detection_end_time - fa->detection_start_time;
+	log_debug("Detection result: %d, detection time: %llu ns", pred, detection_time);
 
-    /* 计算检测时间并输出 */
-    __u64 detection_end_time = bpf_ktime_get_ns();
-    __u64 detection_time = detection_end_time - fa->detection_start_time;
-    log_debug("Detection result: %d, detection time: %llu ns", pred, detection_time);
+	PACKET_COUNT_MAP_UPDATE
 
-    /* 可选：重置该 flow 的统计以便下一次检测 */
-    __builtin_memset(fa, 0, sizeof(*fa));
-    bpf_map_update_elem(&flow_map, &key, fa, BPF_ANY);
+#ifdef LATENCY_EXP
+	SWAP_MAC_AND_RETURN_XDP_TX(ctx)
+#endif
 
-    return XDP_PASS;
+#if LOG_LEVEL >= LOG_LEVEL_DEBUG
+	return XDP_PASS;
+#else
+    	return XDP_DROP;
+#endif 
 }

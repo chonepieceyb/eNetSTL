@@ -1,7 +1,7 @@
 #ifndef SIMDNN_COMMON_H
 #define SIMDNN_COMMON_H
 
-#include "vmlinux.h"
+#include "../vmlinux.h"
 #include "./mlp_params.bpf.h"
 
 /* ---- Layer types ---- */
