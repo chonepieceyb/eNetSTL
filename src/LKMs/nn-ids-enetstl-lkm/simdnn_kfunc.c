@@ -4,6 +4,7 @@
 #include <linux/string.h>
 #include <linux/kernel.h>
 #include <asm/fpu/api.h>
+#include "nn-ids-enetstl-lkm.h"
 
 #if defined(__x86_64__) || defined(__i386__)
 #include <asm/simd.h>
@@ -45,7 +46,7 @@ static int fc_forward_i32(const struct fc_layer *fc,
 	if (in > x_cap || out > y_cap)
 		return -EMSGSIZE;
 
-#if defined(__AVX2__) && !defined(__KERNEL__)
+#if defined(__AVX2__)
 	int o = 0;
 
 	/* ---- 主循环：两行一组，复用同一批 x 向量加载 ---- */
@@ -60,34 +61,23 @@ static int fc_forward_i32(const struct fc_layer *fc,
 
 		for (; j + 8 <= in; j += 8)
 		{
-			/* 只加载一次 x，复用到两行的乘法中 */
+			// 只加载一次 x
 			__m256i vx = _mm256_loadu_si256((const __m256i *)(x + j)); // 8x i32
+			__m256i vx_odd = _mm256_srli_epi64(vx, 32);
 
-			/* 行 o */
-			__m256i va0 = _mm256_loadu_si256((const __m256i *)(row0 + j)); // 8x i32
-			__m256i p0_32 = _mm256_mullo_epi32(va0, vx);				   // 8x i32
-			__m128i p0_lo = _mm256_castsi256_si128(p0_32);
-			__m128i p0_hi = _mm256_extracti128_si256(p0_32, 1);
-			__m256i p0_64l = _mm256_cvtepi32_epi64(p0_lo); // 4x i64
-			__m256i p0_64h = _mm256_cvtepi32_epi64(p0_hi); // 4x i64
-			vsum0 = _mm256_add_epi64(vsum0, p0_64l);
-			vsum0 = _mm256_add_epi64(vsum0, p0_64h);
+			// 行 o
+			__m256i va0 = _mm256_loadu_si256((const __m256i *)(row0 + j));		   // 8x i32
+			__m256i p0_even = _mm256_mul_epi32(va0, vx);						   // 0,2,4,6 : 32x32->64
+			__m256i p0_odd = _mm256_mul_epi32(_mm256_srli_epi64(va0, 32), vx_odd); // 1,3,5,7
+			vsum0 = _mm256_add_epi64(vsum0, p0_even);
+			vsum0 = _mm256_add_epi64(vsum0, p0_odd);
 
-			/* 行 o+1 */
-			__m256i va1 = _mm256_loadu_si256((const __m256i *)(row1 + j)); // 8x i32
-			__m256i p1_32 = _mm256_mullo_epi32(va1, vx);				   // 8x i32
-			__m128i p1_lo = _mm256_castsi256_si128(p1_32);
-			__m128i p1_hi = _mm256_extracti128_si256(p1_32, 1);
-			__m256i p1_64l = _mm256_cvtepi32_epi64(p1_lo);
-			__m256i p1_64h = _mm256_cvtepi32_epi64(p1_hi);
-			vsum1 = _mm256_add_epi64(vsum1, p1_64l);
-			vsum1 = _mm256_add_epi64(vsum1, p1_64h);
-
-			/* 可选预取（跨多 cache line 的长行才有意义）
-			   _mm_prefetch((const char*)(row0 + j + 64), _MM_HINT_T0);
-			   _mm_prefetch((const char*)(row1 + j + 64), _MM_HINT_T0);
-			   _mm_prefetch((const char*)(x    + j + 64), _MM_HINT_T0);
-			*/
+			// 行 o+1
+			__m256i va1 = _mm256_loadu_si256((const __m256i *)(row1 + j));
+			__m256i p1_even = _mm256_mul_epi32(va1, vx);
+			__m256i p1_odd = _mm256_mul_epi32(_mm256_srli_epi64(va1, 32), vx_odd);
+			vsum1 = _mm256_add_epi64(vsum1, p1_even);
+			vsum1 = _mm256_add_epi64(vsum1, p1_odd);
 		}
 
 		/* 寄存器水平归约 → 标量累加 */
@@ -111,8 +101,8 @@ static int fc_forward_i32(const struct fc_layer *fc,
 			acc1 = INT_MAX;
 		else if (acc1 < INT_MIN)
 			acc1 = INT_MIN;
-		y[o + 0] = (int)acc0;
-		y[o + 1] = (int)acc1;
+		y[o + 0] = (int)(acc0 >> 16);
+		y[o + 1] = (int)(acc1 >> 16);
 	}
 
 	/* ---- 剩余一行 ---- */
@@ -124,15 +114,16 @@ static int fc_forward_i32(const struct fc_layer *fc,
 
 		for (; j + 8 <= in; j += 8)
 		{
-			__m256i va = _mm256_loadu_si256((const __m256i *)(row + j));
-			__m256i vx = _mm256_loadu_si256((const __m256i *)(x + j));
-			__m256i p32 = _mm256_mullo_epi32(va, vx);
-			__m128i lo32 = _mm256_castsi256_si128(p32);
-			__m128i hi32 = _mm256_extracti128_si256(p32, 1);
-			__m256i lo64 = _mm256_cvtepi32_epi64(lo32);
-			__m256i hi64 = _mm256_cvtepi32_epi64(hi32);
-			vsum = _mm256_add_epi64(vsum, lo64);
-			vsum = _mm256_add_epi64(vsum, hi64);
+			// 只加载一次 x
+			__m256i vx = _mm256_loadu_si256((const __m256i *)(x + j)); // 8x i32
+			__m256i vx_odd = _mm256_srli_epi64(vx, 32);
+
+			// 行 o
+			__m256i va = _mm256_loadu_si256((const __m256i *)(row + j));		 // 8x i32
+			__m256i p_even = _mm256_mul_epi32(va, vx);							 // 0,2,4,6 : 32x32->64
+			__m256i p_odd = _mm256_mul_epi32(_mm256_srli_epi64(va, 32), vx_odd); // 1,3,5,7
+			vsum = _mm256_add_epi64(vsum, p_even);
+			vsum = _mm256_add_epi64(vsum, p_odd);
 		}
 
 		long long acc = hsum_epi64_avx2(vsum);
@@ -143,7 +134,7 @@ static int fc_forward_i32(const struct fc_layer *fc,
 			acc = INT_MAX;
 		else if (acc < INT_MIN)
 			acc = INT_MIN;
-		y[o] = (int)acc;
+		y[o] = (int)(acc >> 16);
 	}
 
 	return out;
@@ -160,7 +151,7 @@ static int fc_forward_i32(const struct fc_layer *fc,
 			acc = INT_MAX;
 		else if (acc < INT_MIN)
 			acc = INT_MIN;
-		y[o] = (int)acc;
+		y[o] = (int)(acc >> 16);
 	}
 	return out;
 
@@ -211,14 +202,62 @@ int simdnn_analyze_and_infer(void *m, int model_size, int *attr, int attr_size)
 
 	int cur_len = in;
 
+	const char *p_history;
+
 	while (1)
 	{
-		/* layer 必须位于模型 blob 内 */
-		if ((char *)layer < (char *)m ||
-			(char *)layer >= (char *)m + model_size)
+		const char *base = (const char *)m;
+		const char *p = (const char *)layer;
+		p_history = p;
+
+		size_t total = (size_t)model_size; /* 模型总字节数 */
+		size_t off = (size_t)offset;	   /* 本层起点 */
+		int nli = layer->next_layer_off;
+		size_t layer_size;
+
+		/* 基本地址先验：layer 起点必须在 blob 内 */
+		if (p < base || p >= base + total)
 		{
 			kernel_fpu_end();
 			return -EFAULT;
+		}
+
+		/* 由 next_layer_off(绝对偏移) 推算 layer_size */
+		if (nli < 0)
+		{
+			kernel_fpu_end();
+			return -EFAULT;
+		}
+		else if (nli == 0)
+		{
+			/* 最后一层：占用剩余 */
+			if (off > total)
+			{ /* 防御：offset 合法性 */
+				kernel_fpu_end();
+				return -EFAULT;
+			}
+			layer_size = total - off;
+		}
+		else
+		{
+			size_t nloff = (size_t)nli; /* 下一层绝对偏移 */
+			if (nloff < off || nloff > total)
+			{ /* 单调且不越界 */
+				kernel_fpu_end();
+				return -EFAULT;
+			}
+			layer_size = nloff - off;
+		}
+
+		/* 区间完全包含检查：[p, p+layer_size) ⊆ [base, base+total)。
+		   用“不相加式”判断避免 p+layer_size 溢出： */
+		{
+			size_t start_off = (size_t)(p - base); /* p>=base 已保证 */
+			if (!(start_off <= total && layer_size <= total - start_off))
+			{
+				kernel_fpu_end();
+				return -EFAULT;
+			}
 		}
 
 		if (layer->type == ENETSTL_FC_LAYER)
@@ -271,7 +310,7 @@ int simdnn_analyze_and_infer(void *m, int model_size, int *attr, int attr_size)
 			kernel_fpu_end();
 			return -EFAULT;
 		}
-		offset += layer->next_layer_off;
+		offset = layer->next_layer_off;
 		layer = (struct layer_common *)((char *)m + offset);
 	}
 
@@ -287,30 +326,4 @@ int simdnn_analyze_and_infer(void *m, int model_size, int *attr, int attr_size)
 	}
 
 	return cur_len;
-}
-
-/* ===================== kfunc for eBPF ===================== */
-#include <linux/btf.h>
-#include <linux/bpf.h>
-
-/* 语义：
- *   model:          模型起始地址（BTF 类型经 verifier 约束后可安全传递）
- *   model_size__sz: 模型大小（字节）
- *   attr:           输入特征首地址（以 int* 解释）
- *   attr_size__sz:  输入特征大小（字节）
- * 返回：最终输出维度（>0），负值为错误码
- */
-__bpf_kfunc int bpf_nm_inference(void *model, int model_size__sz,
-								 void *attr, int attr_size__sz)
-{
-	if (!model || !attr)
-		return -EINVAL;
-	if (model_size__sz <= 0)
-		return -EINVAL;
-	if (attr_size__sz <= 0 || (attr_size__sz % sizeof(int)) != 0)
-		return -EINVAL;
-
-	/* 只写回 model->output_buffer，让 BPF 端直接读取它 */
-	return simdnn_analyze_and_infer(model, model_size__sz,
-									(int *)attr, attr_size__sz);
 }
