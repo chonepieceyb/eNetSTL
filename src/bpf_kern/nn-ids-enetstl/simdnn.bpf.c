@@ -34,15 +34,6 @@ struct
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } model_map SEC(".maps");
 
-/* --------- Input map --------- */
-struct
-{
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, __u32);
-    __type(value, int[6]);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
-} input_map SEC(".maps");
 
 /* --------- Kfunc --------- */
 

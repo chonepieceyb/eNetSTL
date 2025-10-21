@@ -73,14 +73,6 @@ static int setup_maps_after_load(void *opaque_skel)
         perror("update model_map");
         return -1;
     }
-
-    // 2) input_map[0] 置零
-    int zeros[6] = {0};
-    if (bpf_map_update_elem(bpf_map__fd(skel->maps.input_map), &key0, zeros, BPF_ANY) < 0)
-    {
-        perror("update input_map");
-        return -1;
-    }
     return 0;
 }
 
