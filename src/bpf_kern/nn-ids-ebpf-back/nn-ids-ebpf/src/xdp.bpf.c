@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2022 Hengqi Chen */
-#include <vmlinux.h>
+#include "../vmlinux.h"
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
@@ -68,7 +68,7 @@ int xdp_prog(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        return XDP_DROP;
     }
 
     void *data = (void *)(long)ctx->data;
@@ -77,18 +77,19 @@ int xdp_prog(struct xdp_md *ctx)
     // 33.33.33.73 == 555819337
 
     // if ((bpf_ntohs(tcp->dest) == 5001))
-    if ((bpf_ntohl(f.saddr) == 555819337))
+    // if ((bpf_ntohl(f.saddr) == 555819337))
+    if (1)
     {
         struct iphdr *ip = data + sizeof(struct ethhdr);
         if (ip + 1 > (struct iphdr *)data_end)
         {
-            return XDP_PASS;
+            return XDP_DROP;
         }
 
         struct tcphdr *tcp = data + sizeof(struct ethhdr) + sizeof(struct iphdr);
         if (tcp + 1 > (struct tcphdr *)data_end)
         {
-            return XDP_PASS;
+            return XDP_DROP;
         }
 
         u64 packet_length = bpf_ntohs(ip->tot_len) - ip->ihl * 4;
@@ -109,7 +110,7 @@ int xdp_prog(struct xdp_md *ctx)
         }
     }
 
-    return XDP_PASS;
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -119,12 +120,12 @@ int xdp_preprocessing(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
     if (!attr_ptr)
-        return XDP_PASS;
+        return XDP_DROP;
 
     // bpf_printk("[%d->%d] %lld,%lld,%lld,%lld,%lld,%lld",
     //            bpf_ntohs(f.sport),
@@ -144,7 +145,7 @@ int xdp_preprocessing(struct xdp_md *ctx)
 
     struct Net *net = bpf_map_lookup_elem(&nn_parameters, &(attr_ptr->nn_idx));
     if (!net)
-        return XDP_PASS;
+        return XDP_DROP;
 
     int64_t x[6] = {attr_ptr->max_packet_length,
                     attr_ptr->max_duration,
@@ -166,7 +167,7 @@ int xdp_preprocessing(struct xdp_md *ctx)
 
     bpf_tail_call(ctx, &progs, 1);
 
-    return XDP_PASS;
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -176,16 +177,16 @@ int xdp_input_linear(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
     if (!attr_ptr)
-        return XDP_PASS;
+        return XDP_DROP;
 
     struct Net *net = bpf_map_lookup_elem(&nn_parameters, &(attr_ptr->nn_idx));
     if (!net)
-        return XDP_PASS;
+        return XDP_DROP;
 
     linear_layer(net->layer_0_weight, attr_ptr->hidden2, attr_ptr->hidden1, 32, 6);
 
@@ -199,7 +200,7 @@ int xdp_input_linear(struct xdp_md *ctx)
 
     bpf_tail_call(ctx, &progs, 2);
 
-    return XDP_PASS;
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -209,12 +210,12 @@ int xdp_input_relu(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
     if (!attr_ptr)
-        return XDP_PASS;
+        return XDP_DROP;
 
     relu(attr_ptr->hidden1, 32);
 
@@ -228,7 +229,7 @@ int xdp_input_relu(struct xdp_md *ctx)
 
     bpf_tail_call(ctx, &progs, 3);
 
-    return XDP_PASS;
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -238,16 +239,16 @@ int xdp_hidden_linear(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
     if (!attr_ptr)
-        return XDP_PASS;
+        return XDP_DROP;
 
     struct Net *net = bpf_map_lookup_elem(&nn_parameters, &(attr_ptr->nn_idx));
     if (!net)
-        return XDP_PASS;
+        return XDP_DROP;
 
     linear_layer(net->layer_1_weight, attr_ptr->hidden1, attr_ptr->hidden2, 32, 32);
     // bpf_printk("%d %d %d %d %d %d",
@@ -260,7 +261,7 @@ int xdp_hidden_linear(struct xdp_md *ctx)
 
     bpf_tail_call(ctx, &progs, 4);
 
-    return XDP_PASS;
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -270,12 +271,12 @@ int xdp_hidden_relu(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
     if (!attr_ptr)
-        return XDP_PASS;
+        return XDP_DROP;
 
     relu(attr_ptr->hidden2, 32);
 
@@ -289,7 +290,7 @@ int xdp_hidden_relu(struct xdp_md *ctx)
 
     bpf_tail_call(ctx, &progs, 5);
 
-    return XDP_PASS;
+    return XDP_DROP;
 }
 
 SEC("xdp")
@@ -299,20 +300,20 @@ int xdp_output_linear(struct xdp_md *ctx)
 
     if (flow_tuple(ctx, &f) < 0)
     {
-        return XDP_PASS;
+        return XDP_DROP;
     }
 
     struct flow_attribute *attr_ptr = (struct flow_attribute *)bpf_map_lookup_elem(&flow_map, &f);
     if (!attr_ptr)
-        return XDP_PASS;
+        return XDP_DROP;
 
     struct Net *net = bpf_map_lookup_elem(&nn_parameters, &(attr_ptr->nn_idx));
     if (!net)
-        return XDP_PASS;
+        return XDP_DROP;
 
     linear_layer(net->layer_2_weight, attr_ptr->hidden2, attr_ptr->hidden1, 2, 32);
 
-    bpf_printk("avg feature extraction time: %lld, detection time: %lld, label: %d",
+    log_debug("avg feature extraction time: %lld, detection time: %lld, label: %d",
                attr_ptr->total_feature_extraction_time / attr_ptr->num_packet,
                bpf_ktime_get_ns() - attr_ptr->detection_start_time,
                (attr_ptr->hidden1[0] > attr_ptr->hidden1[1]) ? 0 : 1);

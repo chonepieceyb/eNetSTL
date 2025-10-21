@@ -182,6 +182,8 @@ bpf_prog_list: List[
     ("enetstl_static_ptr_skiplist_lookup_14_user", "enetstl_static_ptr_skiplistnew_lookup_14", ExpConfig(), lambda: load_lkm("eNetSTL_static_ptr/eNetSTL_static_ptr.ko"), lambda: unload_lkm("eNetSTL_static_ptr")),
     ("enetstl_static_ptr_skiplist_lookup_15_user", "enetstl_static_ptr_skiplistnew_lookup_15", ExpConfig(), lambda: load_lkm("eNetSTL_static_ptr/eNetSTL_static_ptr.ko"), lambda: unload_lkm("eNetSTL_static_ptr")),
     ("enetstl_static_ptr_skiplist_lookup_16_user", "enetstl_static_ptr_skiplistnew_lookup_16", ExpConfig(), lambda: load_lkm("eNetSTL_static_ptr/eNetSTL_static_ptr.ko"), lambda: unload_lkm("eNetSTL_static_ptr")),  
+    ("ebpf_nn_ids_base_user", "ebpf_nn_ids_base", ExpConfig()),
+    ("ebpf_nn_ids_1_user", "ebpf_nn_ids_1", ExpConfig()),
     ("empty_base_user", "empty_base", ExpConfig())
 ]
 

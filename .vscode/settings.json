@@ -1,5 +1,5 @@
 {
-    "cmake.sourceDirectory": "/mnt/disk1/wangxinshu/projects/eNetSTL",
+    "cmake.sourceDirectory": "/mnt/disk1/yangbin/CODING/WorkSpace/eNetSTL",
     "files.associations": {
         "array": "c",
         "string": "c",
@@ -12,5 +12,12 @@
         "bpf_helpers.h": "c",
         "simdnn.bpf.skel.h": "c",
         "common_user.h": "c"
+    },
+    "terminal.integrated.defaultProfile.linux": "zsh",
+    "terminal.integrated.profiles.linux": {
+        "zsh": {
+            "path": "/usr/bin/zsh",
+            "icon": "terminal-bash"
+        }
     }
 }
