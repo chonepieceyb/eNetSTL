@@ -184,7 +184,15 @@ bpf_prog_list: List[
     ("enetstl_static_ptr_skiplist_lookup_16_user", "enetstl_static_ptr_skiplistnew_lookup_16", ExpConfig(), lambda: load_lkm("eNetSTL_static_ptr/eNetSTL_static_ptr.ko"), lambda: unload_lkm("eNetSTL_static_ptr")),  
     ("ebpf_nn_ids_base_user", "ebpf_nn_ids_base", ExpConfig()),
     ("ebpf_nn_ids_1_user", "ebpf_nn_ids_1", ExpConfig()),
-    ("enetstl_nn_ids_1_user", "enetstl_nn_ids_1", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),  
+    ("ebpf_nn_ids_2_user", "ebpf_nn_ids_2", ExpConfig()),
+    ("ebpf_nn_ids_3_user", "ebpf_nn_ids_3", ExpConfig()),
+    ("ebpf_nn_ids_4_user", "ebpf_nn_ids_4", ExpConfig()),
+    ("ebpf_nn_ids_5_user", "ebpf_nn_ids_5", ExpConfig()),
+    ("enetstl_nn_ids_1_user", "enetstl_nn_ids_1", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
+    ("enetstl_nn_ids_2_user", "enetstl_nn_ids_2", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
+    ("enetstl_nn_ids_3_user", "enetstl_nn_ids_3", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
+    ("enetstl_nn_ids_4_user", "enetstl_nn_ids_4", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
+    ("enetstl_nn_ids_5_user", "enetstl_nn_ids_5", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
     ("empty_base_user", "empty_base", ExpConfig())
 ]
 

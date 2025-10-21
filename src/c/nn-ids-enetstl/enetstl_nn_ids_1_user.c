@@ -4,7 +4,7 @@
 #include <linux/ip.h>
 #include <netinet/tcp.h>
 #include <bpf/bpf_endian.h>
-#include "../bpf_skel/simdnn.bpf.skel.h"                  // skeleton（包含 xdp_simdnn_main 和各 maps）
+#include "../bpf_skel/enetstl_nn_ids_1.skel.h"                  // skeleton（包含 xdp_simdnn_main 和各 maps）
 #include "../../bpf_kern/nn-ids-enetstl/mlp_params.bpf.h" // N0..N3 和 layer_* 权重（与内核侧一致）
 #include "common_user.h"                                  // layer_common、layer_fc、layer_relu、model
 
@@ -23,7 +23,7 @@ static int empty_callback_after_attach(void *skel)
 
 static int callback_after_load(void *__skel)
 {
-	struct simdnn_bpf *skel = __skel;
+	struct enetstl_nn_ids_1 *skel = __skel;
 	__u32 key0 = 0;
 	struct model model = (struct model){0};
 
@@ -84,7 +84,7 @@ static int callback_after_load(void *__skel)
 
 int main(int argc, char **argv)
 {
-    BPF_XDP_SKEL_LOADER_WITH_CALLBACKS(simdnn_bpf, XDP_IF, xdp_main, 
+    BPF_XDP_SKEL_LOADER_WITH_CALLBACKS(enetstl_nn_ids_1, XDP_IF, xdp_main, 
 		callback_before_load,
                 callback_after_load,
 		empty_callback_after_attach, 

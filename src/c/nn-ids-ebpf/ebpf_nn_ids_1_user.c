@@ -4,7 +4,7 @@
 #include <linux/ip.h>
 #include <netinet/tcp.h>
 #include <bpf/bpf_endian.h>
-#include "../bpf_skel/ebpf_nn_ids.skel.h"
+#include "../bpf_skel/ebpf_nn_ids_1.skel.h"
 
 struct bpf_progs_desc
 {
@@ -39,7 +39,7 @@ static int empty_callback_after_attach(void *skel)
 
 static int callback_after_load(void *__skel)
 {
-	struct ebpf_nn_ids *skel = (struct ebpf_nn_ids *)__skel;
+	struct ebpf_nn_ids_1 *skel = (struct ebpf_nn_ids_1 *)__skel;
 	//initialize the skip list
         
 	int map_progs_fd = bpf_object__find_map_fd_by_name(skel->obj, "progs");
@@ -98,7 +98,7 @@ static int callback_after_load(void *__skel)
 
 int main(int argc, char **argv)
 {
-    BPF_XDP_SKEL_LOADER_WITH_CALLBACKS(ebpf_nn_ids, XDP_IF, xdp_main, 
+    BPF_XDP_SKEL_LOADER_WITH_CALLBACKS(ebpf_nn_ids_1, XDP_IF, xdp_main, 
 		callback_before_load,
                 callback_after_load,
 		empty_callback_after_attach, 

@@ -69,5 +69,4 @@ struct model {
     struct fc_layer     fc_out;    
     struct output_layer output_buffer; 
 };
-
 #endif /* SIMDNN_COMMON_H */
