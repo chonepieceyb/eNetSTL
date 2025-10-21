@@ -1,7 +1,7 @@
 #ifndef SIMDNN_COMMON_H
 #define SIMDNN_COMMON_H
 
-#include "../../bpf_kern/SimdNN-BPF/mlp_params.bpf.h"
+#include "../../bpf_kern/nn-ids-enetstl/mlp_params.bpf.h"
 #include <stdint.h>
 
 /* ---- Layer types ---- */
@@ -30,6 +30,7 @@ struct fc_layer {
 
 struct relu_layer {
     struct layer_common comm;
+    int feature_num;
 };
 
 struct output_layer {

@@ -30,6 +30,7 @@ struct fc_layer {
 
 struct relu_layer {
     struct layer_common comm;
+    int feature_num;
 };
 
 struct output_layer {

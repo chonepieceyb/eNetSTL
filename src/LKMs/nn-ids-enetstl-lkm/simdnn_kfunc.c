@@ -158,6 +158,19 @@ static int fc_forward_i32(const struct fc_layer *fc,
 #endif
 }
 
+static inline size_t get_layer_size(struct layer_common *comm) {
+	switch (comm->type) {
+		case ENETSTL_FC_LAYER:
+		return sizeof(struct fc_layer);
+		case ENETSTL_RELU_LAYER:
+		return sizeof(struct relu_layer);
+		case ENETSTL_OUTPUT_LAYER:
+		return sizeof(struct output_layer);
+		default:
+		return 0;
+	}
+}
+
 /* ===================== 主流程（层遍历） ===================== */
 /* m:           模型/网络 blob 起始地址（struct model*）
  * model_size:  模型 blob 字节大小（越界保护）
@@ -165,165 +178,74 @@ static int fc_forward_i32(const struct fc_layer *fc,
  * attr_size:   输入缓冲字节数
  * 返回：最终输出维度（>0）或负错
  */
-int simdnn_analyze_and_infer(void *m, int model_size, int *attr, int attr_size)
+int simdnn_analyze_and_infer(void *m, size_t model_size, void *attr, size_t attr_size)
 {
-	if (!m || !attr)
+	int iter_idx = 0;
+	int buf1[64] = {0};
+	int buf2[64] = {0};
+	int *bufs[2] = {&buf1[0], &buf2[0]};
+
+	int *curr_in_buf = (int*)(bufs[iter_idx & 1]);
+	int *curr_out_buf = (int*)(bufs[(iter_idx + 1) & 1]);
+
+
+	int err = 0;
+	if (attr_size > sizeof(buf1) || model_size <= sizeof(struct layer_common)) {
+		//attr too large
 		return -EINVAL;
-	if (model_size <= 0)
-		return -EINVAL;
-	if (attr_size <= 0 || (attr_size % sizeof(int)) != 0)
-		return -EINVAL;
+	}
+	// if (in <= 0 || in > (int)ARRAY_SIZE(tmp_in))
+	// 	return -EMSGSIZE;
+	// if (attr_words < in)
+	// 	return -EMSGSIZE;
+	memcpy(curr_in_buf, attr, attr_size);
 
-	int tmp_in[64] = {0}; /* 与权重上限 64 对齐 */
-	int tmp_out[64] = {0};
-	int attr_words = attr_size / (int)sizeof(int);
-
-	int offset = 0;
-	struct layer_common *layer =
-		(struct layer_common *)((char *)m + offset);
-
-	/* 第一层必须是 FC */
-	if (layer->type != ENETSTL_FC_LAYER)
-		return -EINVAL;
-
-	/* 准备首层输入：从 attr 拷贝 in_features 个元素 */
-	struct fc_layer *fc = (struct fc_layer *)layer;
-	int in = fc->parm.in_features;
-	int out = fc->parm.out_features;
-
-	if (in <= 0 || in > (int)ARRAY_SIZE(tmp_in))
-		return -EMSGSIZE;
-	if (attr_words < in)
-		return -EMSGSIZE;
-	memcpy(tmp_in, attr, in * sizeof(tmp_in[0]));
-
+	struct layer_common *curr_layer = (struct layer_common*)m;
+	
 	/* 进入 FPU/SIMD 临界区 */
 	kernel_fpu_begin();
 
-	int cur_len = in;
-
-	const char *p_history;
-
 	while (1)
 	{
-		const char *base = (const char *)m;
-		const char *p = (const char *)layer;
-		p_history = p;
-
-		size_t total = (size_t)model_size; /* 模型总字节数 */
-		size_t off = (size_t)offset;	   /* 本层起点 */
-		int nli = layer->next_layer_off;
-		size_t layer_size;
-
-		/* 基本地址先验：layer 起点必须在 blob 内 */
-		if (p < base || p >= base + total)
-		{
-			kernel_fpu_end();
-			return -EFAULT;
+		size_t layer_size = get_layer_size(curr_layer);
+		if ((void*)curr_layer + layer_size >  m + model_size) {
+			err = -EFAULT;
+			goto error;
 		}
-
-		/* 由 next_layer_off(绝对偏移) 推算 layer_size */
-		if (nli < 0)
+		if (curr_layer->type == ENETSTL_FC_LAYER)
 		{
-			kernel_fpu_end();
-			return -EFAULT;
-		}
-		else if (nli == 0)
-		{
-			/* 最后一层：占用剩余 */
-			if (off > total)
-			{ /* 防御：offset 合法性 */
-				kernel_fpu_end();
-				return -EFAULT;
-			}
-			layer_size = total - off;
-		}
-		else
-		{
-			size_t nloff = (size_t)nli; /* 下一层绝对偏移 */
-			if (nloff < off || nloff > total)
-			{ /* 单调且不越界 */
-				kernel_fpu_end();
-				return -EFAULT;
-			}
-			layer_size = nloff - off;
-		}
-
-		/* 区间完全包含检查：[p, p+layer_size) ⊆ [base, base+total)。
-		   用“不相加式”判断避免 p+layer_size 溢出： */
-		{
-			size_t start_off = (size_t)(p - base); /* p>=base 已保证 */
-			if (!(start_off <= total && layer_size <= total - start_off))
-			{
-				kernel_fpu_end();
-				return -EFAULT;
-			}
-		}
-
-		if (layer->type == ENETSTL_FC_LAYER)
-		{
-			fc = (struct fc_layer *)layer;
-			in = fc->parm.in_features;
-			out = fc->parm.out_features;
-
-			if (cur_len != in || out > (int)ARRAY_SIZE(tmp_out))
-			{
-				kernel_fpu_end();
-				return -EINVAL;
-			}
-
-			memset(tmp_out, 0, sizeof(tmp_out));
+			struct fc_layer *fc = (struct fc_layer *)curr_layer;
 			int ret = fc_forward_i32(fc,
-									 tmp_in, ARRAY_SIZE(tmp_in),
-									 tmp_out, ARRAY_SIZE(tmp_out));
+									 curr_in_buf, ARRAY_SIZE(buf1),
+									 curr_out_buf, ARRAY_SIZE(buf1));
 			if (ret < 0)
 			{
-				kernel_fpu_end();
-				return ret;
+				err = -EINVAL;
+				goto error;
 			}
-			cur_len = ret; /* = out */
-			memcpy(tmp_in, tmp_out, cur_len * sizeof(tmp_in[0]));
+		} else if (curr_layer->type == ENETSTL_RELU_LAYER) {
+			struct relu_layer *rl = (struct relu_layer*)curr_layer;
+			relu_inplace_i32(curr_in_buf, min(sizeof(buf1), (size_t)(rl->feature_num)));
+		} else if (curr_layer->type == ENETSTL_OUTPUT_LAYER) {
+			goto output;
+		} else {
+			err = -EOPNOTSUPP;
+			goto error;
 		}
-		else if (layer->type == ENETSTL_RELU_LAYER)
-		{
-			if (cur_len <= 0 || cur_len > (int)ARRAY_SIZE(tmp_in))
-			{
-				kernel_fpu_end();
-				return -EINVAL;
-			}
-			relu_inplace_i32(tmp_in, cur_len);
-		}
-		else
-		{
-			kernel_fpu_end();
-			return -EOPNOTSUPP; /* 只支持 FC/RELU */
-		}
-
-		/* 0 => 没有下一层，退出 */
-		if (layer->next_layer_off == 0)
-			break;
-
-		/* 推进到下一层并检查越界 */
-		if (layer->next_layer_off < 0 ||
-			offset + layer->next_layer_off >= model_size)
-		{
-			kernel_fpu_end();
-			return -EFAULT;
-		}
-		offset = layer->next_layer_off;
-		layer = (struct layer_common *)((char *)m + offset);
+	
+		iter_idx += 1;
+		curr_in_buf = bufs[iter_idx & 1];
+		curr_out_buf = bufs[(iter_idx + 1) & 1];
+		memset(curr_out_buf, 0, sizeof(buf1));
+		curr_layer = (struct layer_common *)(m + curr_layer->next_layer_off);
 	}
 
+output:;
 	kernel_fpu_end();
-
-	/* 仅把最终结果写入 model->output_buffer.buffer，供 BPF 端读取 */
-	{
-		struct model *mdl = (struct model *)m;
-		size_t max_out = ARRAY_SIZE(mdl->output_buffer.buffer); /* N3 in common.h */
-		size_t to_copy = min_t(size_t, (size_t)cur_len, max_out);
-		if (to_copy > 0)
-			memcpy(mdl->output_buffer.buffer, tmp_in, to_copy * sizeof(int));
-	}
-
-	return cur_len;
+	struct output_layer *out = (struct output_layer*)(curr_layer);
+	memcpy(&out->buffer, curr_out_buf, min(sizeof(buf1), sizeof(out->buffer)));
+	return iter_idx;
+error:;
+	kernel_fpu_end();
+	return err;
 }

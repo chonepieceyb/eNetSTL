@@ -14,7 +14,7 @@
 
 #include "common_user.h"
 #include "../bpf_skel/simdnn.bpf.skel.h"
-#include "../../bpf_kern/SimdNN-BPF/mlp_params.bpf.h"
+#include "../../bpf_kern/nn-ids-enetstl/mlp_params.bpf.h"
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {

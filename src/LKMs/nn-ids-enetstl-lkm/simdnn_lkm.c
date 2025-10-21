@@ -306,41 +306,6 @@ found:
 	spin_unlock(&bucket_locks[bkt]);
 }
 
-/* ------------ Netfilter 钩子 ------------ */
-static unsigned int nf_prerouting_hook(void *priv,
-									   struct sk_buff *skb,
-									   const struct nf_hook_state *state)
-{
-	handle_packet(skb);
-	return NF_ACCEPT;
-}
-
-int simdnn_lkm_register(void)
-{
-	/* 构建模型（一次） */
-	build_model(&g_model);
-
-	/* 初始化桶锁 */
-	for (u32 i = 0; i < (1u << FLOW_HT_BITS); ++i)
-		spin_lock_init(&bucket_locks[i]);
-
-	/* 注册 IPv4 PRE_ROUTING 钩子 */
-	memset(&nfops, 0, sizeof(nfops));
-	nfops.hook = nf_prerouting_hook;
-	nfops.pf = PF_INET;
-	nfops.hooknum = NF_INET_PRE_ROUTING;
-	nfops.priority = NF_IP_PRI_FIRST;
-
-	if (nf_register_net_hook(&init_net, &nfops))
-	{
-		pr_err("simdnn: nf_register_net_hook failed\n");
-		return -EINVAL;
-	}
-
-	pr_info("simdnn: lkm registered (pure kernel path)\n");
-	return 0;
-}
-
 void simdnn_lkm_unregister(void)
 {
 	struct flow_node *node;

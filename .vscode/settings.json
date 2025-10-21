@@ -1,0 +1,16 @@
+{
+    "cmake.sourceDirectory": "/mnt/disk1/wangxinshu/projects/eNetSTL",
+    "files.associations": {
+        "array": "c",
+        "string": "c",
+        "string_view": "c",
+        "common.h": "c",
+        "errno.h": "c",
+        "udp.h": "c",
+        "mlp.bpf.h": "c",
+        "mlp_params.bpf.h": "c",
+        "bpf_helpers.h": "c",
+        "simdnn.bpf.skel.h": "c",
+        "common_user.h": "c"
+    }
+}
