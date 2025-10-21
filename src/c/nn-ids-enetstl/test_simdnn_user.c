@@ -117,10 +117,10 @@ int main(void)
     pkt.iph.tot_len = __bpf_constant_htons(sizeof(struct iphdr) + sizeof(struct tcphdr));
     pkt.iph.saddr = htonl(0x0a000001); // 10.0.0.1
     pkt.iph.daddr = htonl(0x0a000002); // 10.0.0.2
-    pkt.tcp.source = __bpf_constant_htons(12345);
-    pkt.tcp.dest = __bpf_constant_htons(8080);
-    pkt.tcp.fin = 0;
-    pkt.tcp.rst = 0;
+    pkt.tcph.source = __bpf_constant_htons(12345);
+    pkt.tcph.dest = __bpf_constant_htons(8080);
+    pkt.tcph.fin = 0;
+    pkt.tcph.rst = 0;
 
 #ifndef REPEAT
 #define REPEAT 1
@@ -130,7 +130,7 @@ int main(void)
         "test_xdp_simdnn_infer",
         simdnn_bpf,
         pkt,
-        xdp_simdnn_main,
+        xdp_main,
         REPEAT,                 // 判断阈值
         setup_maps_before_load, // before_load
         setup_maps_after_load,  // after_load：初始化 model_map / input_map

@@ -1,1 +1,0 @@
-patator ssh_login host=33.33.33.220 user=FILE0 0=user.txt password=FILE1 1=password.txt -x ignore:mesg='Authentication failed.'

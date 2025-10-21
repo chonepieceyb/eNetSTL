@@ -4,7 +4,7 @@ simdnn-objs := module.o simdnn_kfunc.o
 ifeq ($(LLVM),1)
 ccflags-y += -I/usr/lib/llvm-$(shell echo $(CLANG_VERSION) | cut -d. -f1)/lib/clang/$(CLANG_VERSION)/include $(CC_SIMD_OPTS)
 else
-ccflags-y += -I/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VERSION)/include $(CC_SIMD_OPTS) -g
+ccflags-y += -I/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VERSION)/include $(CC_SIMD_OPTS)
 endif
 
 # 仅对 simdnn_kfunc.o 生效

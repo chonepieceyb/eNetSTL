@@ -227,7 +227,7 @@ int main(int argc, char **argv)
         goto cleanup;
     }
 
-    err = bpf_xdp_attach(ifindex, bpf_program__fd(skel->progs.xdp_simdnn_main),
+    err = bpf_xdp_attach(ifindex, bpf_program__fd(skel->progs.xdp_main),
                          XDP_FLAGS_UPDATE_IF_NOEXIST, NULL);
     if (err)
     {

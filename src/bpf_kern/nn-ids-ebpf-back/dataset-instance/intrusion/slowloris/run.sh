@@ -1,1 +1,0 @@
-slowhttptest -H -c 1024 -r 64 -u http://33.33.33.220 
