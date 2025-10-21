@@ -15,7 +15,7 @@
 
 /* ReLU */
 
-static inline void relu_inplace_i32(int *v, int n)
+void relu_inplace_i32(int *v, int n)
 {
 
 #ifdef __AVX2__
@@ -54,7 +54,7 @@ static inline long long hsum_epi64_avx2(__m256i v)
 #endif
 
 /* FC: y = W * x，64 位安全乘加；AVX2: 双行并行 + 复用 x 加载 */
-static int fc_forward_i32(const struct fc_layer *fc,
+int fc_forward_i32(const struct fc_layer *fc,
 						  const int *x, int x_cap,
 						  int *y, int y_cap)
 {

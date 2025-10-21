@@ -11,6 +11,7 @@
         "mlp_params.bpf.h": "c",
         "bpf_helpers.h": "c",
         "simdnn.bpf.skel.h": "c",
-        "common_user.h": "c"
+        "common_user.h": "c",
+        "nn-ids-enetstl-lkm.h": "c"
     }
 }
