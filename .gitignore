@@ -73,3 +73,19 @@ resources/
 *.gz
 log
 *vmlinux.h
+cmake/
+src/python/exp_config.py
+
+# claude
+claude_instructions/
+.claude/
+
+# linux kernel
+linux/
+
+.vscode/
+
+# qemu
+*.img
+*.iso
+iso/

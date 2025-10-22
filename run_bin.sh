@@ -147,6 +147,7 @@ if [ "$USE_DOCKER" = true ]; then
         --runtime=runc \
         -w /root/enetstl \
         --privileged \
+        --network=host \
         ${DOCKER_IMAGE} \
         /bin/bash -c "cd /root/enetstl && ./run_bin.sh ${EXECUTABLE}${EXEC_ARGS_STR}"
 

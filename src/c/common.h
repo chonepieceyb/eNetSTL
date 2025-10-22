@@ -35,7 +35,7 @@ static int __default_callback_before_load(void *skel)
 	res = 0;                                                             \
 	ifindex = if_nametoindex((_ifname));                                 \
 	if (ifindex == 0) {                                                  \
-		printf("failed to get ifindex %s\n", strerror(errno));       \
+		printf("failed to get ifindex %s for interface %s\n", strerror(errno), _ifname);       \
 		return -1;                                                   \
 	}                                                                    \
 	skel = __skel##__open();                                             \

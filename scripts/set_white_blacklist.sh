@@ -23,6 +23,10 @@ AVAILABLE_EXPS=(
     "exp9"
     "exp-control-plane"
     "utils"
+    "nn-ids-enetstl"
+    "nn-ids-ebpf"
+    "nn-ids-enetstl2"
+    "nn-ids-lkm"
 )
 
 function echo_help() {

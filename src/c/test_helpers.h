@@ -14,72 +14,94 @@
 
 #define MAGIC_BYTES 123
 
-struct ipv4_packet {
+struct ipv4_packet
+{
 	struct ethhdr eth;
 	struct iphdr iph;
-	struct tcphdr tcp;
-} __packed;
-extern struct ipv4_packet pkt_v4;
+	struct tcphdr tcph;
+} __attribute__((packed));
 
-struct ipv4_packet pkt_v4 = {
+// struct ipv4_packet pkt_v4 = {
+// 	.eth.h_proto = __bpf_constant_htons(ETH_P_IP),
+// 	.iph.ihl = 5,
+// 	.iph.protocol = IPPROTO_TCP,
+// 	.iph.tot_len = __bpf_constant_htons(MAGIC_BYTES),
+// 	.tcp.urg_ptr = 123,
+// 	.tcp.doff = 5,
+// };
+
+static struct ipv4_packet pkt_v4 = {
 	.eth.h_proto = __bpf_constant_htons(ETH_P_IP),
 	.iph.ihl = 5,
+	.iph.version = 4,
+	.iph.tos = 0,
+	.iph.tot_len = __bpf_constant_htons(40),  // Full packet size for XDP
+	.iph.id = __bpf_constant_htons(1234),
+	.iph.frag_off = 0,
+	.iph.ttl = 64,
 	.iph.protocol = IPPROTO_TCP,
-	.iph.tot_len = __bpf_constant_htons(MAGIC_BYTES),
-	.tcp.urg_ptr = 123,
-	.tcp.doff = 5,
+	.iph.check = 0,  // Will be calculated if needed
+	.iph.saddr = __bpf_constant_htonl(0x0a000001),  // 10.0.0.1
+	.iph.daddr = __bpf_constant_htonl(0x0a000002),  // 10.0.0.2
+	.tcph.source = __bpf_constant_htons(12345),     // 12345 in network byte order
+	.tcph.dest = __bpf_constant_htons(80),          // 80 in network byte order
 };
+extern struct ipv4_packet pkt_v4;
 
 static inline void set_prog_flags_test(struct bpf_program* prog) {
-    	__u32 flags = bpf_program__flags(prog) | BPF_F_TEST_RND_HI32;
-		bpf_program__set_flags(prog, flags);
+	__u32 flags = bpf_program__flags(prog) | BPF_F_TEST_RND_HI32;
+	bpf_program__set_flags(prog, flags);
 }
 
-#define CHECK_FAIL(condition) ({					\
-	int __ret = !!(condition);					\
-	int __save_errno = errno;					\
-	if (__ret) {							\
-		fprintf(stdout, "%s:FAIL:%d\n", __func__, __LINE__);	\
-	}								\
-	errno = __save_errno;						\
-	__ret;								\
+#define CHECK_FAIL(condition) ({                             \
+	int __ret = !!(condition);                               \
+	int __save_errno = errno;                                \
+	if (__ret)                                               \
+	{                                                        \
+		fprintf(stdout, "%s:FAIL:%d\n", __func__, __LINE__); \
+	}                                                        \
+	errno = __save_errno;                                    \
+	__ret;                                                   \
 })
 
-#define _CHECK(condition, tag, duration, format...) ({			\
-	int __ret = !!(condition);					\
-	int __save_errno = errno;					\
-	if (__ret) {							\
-		fprintf(stdout, "%s:FAIL:%s ", __func__, tag);		\
-		fprintf(stdout, ##format);				\
-	} else {							\
-		fprintf(stdout, "%s:PASS:%s %d nsec\n",			\
-		       __func__, tag, duration);			\
-	}								\
-	errno = __save_errno;						\
-	__ret;								\
+#define _CHECK(condition, tag, duration, format...) ({ \
+	int __ret = !!(condition);                         \
+	int __save_errno = errno;                          \
+	if (__ret)                                         \
+	{                                                  \
+		fprintf(stdout, "%s:FAIL:%s ", __func__, tag); \
+		fprintf(stdout, ##format);                     \
+	}                                                  \
+	else                                               \
+	{                                                  \
+		fprintf(stdout, "%s:PASS:%s %d nsec\n",        \
+				__func__, tag, duration);              \
+	}                                                  \
+	errno = __save_errno;                              \
+	__ret;                                             \
 })
 
 #define CHECK(condition, tag, format...) \
 	_CHECK(condition, tag, duration, format)
-	
-#define ASSERT_EQ(actual, expected, name) ({				\
-	static int duration = 0;					\
-	typeof(actual) ___act = (actual);				\
-	typeof(expected) ___exp = (expected);				\
-	bool ___ok = ___act == ___exp;					\
-	CHECK(!___ok, (name),						\
-	      "unexpected %s: actual %lld != expected %lld\n",		\
-	      (name), (long long)(___act), (long long)(___exp));	\
-	___ok;								\
+
+#define ASSERT_EQ(actual, expected, name) ({                 \
+	static int duration = 0;                                 \
+	typeof(actual) ___act = (actual);                        \
+	typeof(expected) ___exp = (expected);                    \
+	bool ___ok = ___act == ___exp;                           \
+	CHECK(!___ok, (name),                                    \
+		  "unexpected %s: actual %lld != expected %lld\n",   \
+		  (name), (long long)(___act), (long long)(___exp)); \
+	___ok;                                                   \
 })
 
-#define ASSERT_OK(res, name) ({						\
-	static int duration = 0;					\
-	long long ___res = (res);					\
-	bool ___ok = ___res == 0;					\
-	CHECK(!___ok, (name), "unexpected error: %lld (errno %d)\n",	\
-	      ___res, errno);						\
-	___ok;								\
+#define ASSERT_OK(res, name) ({                                  \
+	static int duration = 0;                                     \
+	long long ___res = (res);                                    \
+	bool ___ok = ___res == 0;                                    \
+	CHECK(!___ok, (name), "unexpected error: %lld (errno %d)\n", \
+		  ___res, errno);                                        \
+	___ok;                                                       \
 })
 
 static int __default_test_callback_after_load(void *skel)
@@ -97,84 +119,91 @@ static int __default_test_callback_after_run(void *skel, int run_result, int pro
 	return 0;
 }
 
-//TODO: refactoring, extract 
-#define BPF_PROG_TEST_RUNNER_WITH_CALLBACK(_name, __skel, pkt, _prog, _repeat, \
-					   _callback_before_load,              \
-					   _callback_after_load,                \
-					   _callback_after_run, expected_res)   \
-	char buf[128];                                                         \
-	LIBBPF_OPTS(bpf_test_run_opts, topts, .data_in = &pkt,                 \
-		    .data_size_in = sizeof(pkt), .data_out = buf,              \
-		    .data_size_out = sizeof(buf), .repeat = _repeat, );        \
-	struct __skel *skel = NULL;                                            \
-	struct bpf_program *prog;                                              \
-	int res = 0, prog_fd;                                                  \
-	skel = __skel##__open();                                               \
-	if (skel == NULL) {                                                    \
-		fprintf(stdout, "faild to open and load %s\n", #__skel);       \
-		return -1;                                                        \
-	}                                                                      \
-	if (_callback_before_load && (res = _callback_before_load(skel)) != 0) { \
-		fprintf(stdout, "failed to invoke callback before load: %d\n", \
-			res);                                                  \
-		goto clean;                                                    \
-	}                                                                      \
-	prog = skel->progs._prog;                                              \
-	set_prog_flags_test(prog);                                             \
-	res = __skel##__load(skel);                                            \
-	if (CHECK_FAIL(res)) {                                                 \
-		goto clean;                                                    \
-	}                                                                      \
-	if (_callback_after_load && (res = _callback_after_load(skel)) != 0) { \
-		fprintf(stdout, "failed to invoke callback after load: %d\n",  \
-			res);                                                  \
-		goto clean;                                                    \
-	}                                                                      \
-	if (bpf_prog_test_run_opts(bpf_program__fd(prog), &topts) != 0) {           \
-		fprintf(stdout, "failed to run BPF program: %d\n", errno);   \
-		goto clean;                                                    \
-	}                                                                      \
-	if (CHECK_FAIL(topts.retval != expected_res)) {                       \
+// TODO: refactoring, extract
+#define BPF_PROG_TEST_RUNNER_WITH_CALLBACK(_name, __skel, pkt, _prog, _repeat,                         \
+										   _callback_before_load,                                      \
+										   _callback_after_load,                                       \
+										   _callback_after_run, expected_res)                          \
+	char buf[128];                                                                                     \
+	LIBBPF_OPTS(bpf_test_run_opts, topts, .data_in = &pkt,                                             \
+				.data_size_in = sizeof(pkt), .data_out = buf,                                          \
+				.data_size_out = sizeof(buf), .repeat = _repeat, );                                    \
+	struct __skel *skel = NULL;                                                                        \
+	struct bpf_program *prog;                                                                          \
+	int res = 0, prog_fd;                                                                              \
+	skel = __skel##__open();                                                                           \
+	if (skel == NULL)                                                                                  \
+	{                                                                                                  \
+		fprintf(stdout, "faild to open and load %s\n", #__skel);                                       \
+		return -1;                                                                                     \
+	}                                                                                                  \
+	if (_callback_before_load && (res = _callback_before_load(skel)) != 0)                             \
+	{                                                                                                  \
+		fprintf(stdout, "failed to invoke callback before load: %d\n",                                 \
+				res);                                                                                  \
+		goto clean;                                                                                    \
+	}                                                                                                  \
+	prog = skel->progs._prog;                                                                          \
+	set_prog_flags_test(prog);                                                                         \
+	res = __skel##__load(skel);                                                                        \
+	if (CHECK_FAIL(res))                                                                               \
+	{                                                                                                  \
+		goto clean;                                                                                    \
+	}                                                                                                  \
+	if (_callback_after_load && (res = _callback_after_load(skel)) != 0)                               \
+	{                                                                                                  \
+		fprintf(stdout, "failed to invoke callback after load: %d\n",                                  \
+				res);                                                                                  \
+		goto clean;                                                                                    \
+	}                                                                                                  \
+	if (bpf_prog_test_run_opts(bpf_program__fd(prog), &topts) != 0)                                    \
+	{                                                                                                  \
+		fprintf(stdout, "failed to run BPF program: %d\n", errno);                                     \
+		goto clean;                                                                                    \
+	}                                                                                                  \
+	if (CHECK_FAIL(topts.retval != expected_res))                                                      \
+	{                                                                                                  \
 		fprintf(stdout, "%s:FAIL:bpf program return value: unexpected %s: actual %d != expected %d\n", \
-			__func__, "topts.retval", topts.retval, expected_res); \
-		res = -1;                                                     \
-		goto clean;                                                    \
-	}                                                                      \
-	if (_callback_after_run && (res = _callback_after_run(skel, res, topts.retval)) != 0) { \
-		fprintf(stdout, "failed to invoke callback after run: %d\n",   \
-			res);                                                  \
-		goto clean;                                                    \
-	}                                                                      \
-clean:;                                                                        \
-	__skel##__destroy(skel);                                               \
+				__func__, "topts.retval", topts.retval, expected_res);                                 \
+		res = -1;                                                                                      \
+		goto clean;                                                                                    \
+	}                                                                                                  \
+	if (_callback_after_run && (res = _callback_after_run(skel, res, topts.retval)) != 0)              \
+	{                                                                                                  \
+		fprintf(stdout, "failed to invoke callback after run: %d\n",                                   \
+				res);                                                                                  \
+		goto clean;                                                                                    \
+	}                                                                                                  \
+	clean:;                                                                                            \
+	__skel##__destroy(skel);                                                                           \
 	return res;
 
 #define BPF_PROG_TEST_RUNNER(_name, __skel, pkt, _prog, _repeat, expected_res) \
-	BPF_PROG_TEST_RUNNER_WITH_CALLBACK(                                    \
-		_name, __skel, pkt, _prog, _repeat,                            \
-		__default_test_callback_before_load,                           \
-		__default_test_callback_after_load,                             \
+	BPF_PROG_TEST_RUNNER_WITH_CALLBACK(                                        \
+		_name, __skel, pkt, _prog, _repeat,                                    \
+		__default_test_callback_before_load,                                   \
+		__default_test_callback_after_load,                                    \
 		__default_test_callback_after_run, expected_res)
 
 #define BPF_PROG_TEST_RUNNER_BEFORE_AFTER_ONLY(_name, __skel, pkt, _prog, _repeat, expected_res) \
-	BPF_PROG_TEST_RUNNER_WITH_CALLBACK(                                    \
-		_name, __skel, pkt, _prog, _repeat,                            \
-		__default_test_callback_before_load,                           \
-		__default_test_callback_after_load,                             \
+	BPF_PROG_TEST_RUNNER_WITH_CALLBACK(                                                          \
+		_name, __skel, pkt, _prog, _repeat,                                                      \
+		__default_test_callback_before_load,                                                     \
+		__default_test_callback_after_load,                                                      \
 		NULL, expected_res)
 
 #define BPF_PROG_TEST_RUNNER_BEFORE_ONLY(_name, __skel, pkt, _prog, _repeat, expected_res) \
-	BPF_PROG_TEST_RUNNER_WITH_CALLBACK(                                    \
-		_name, __skel, pkt, _prog, _repeat,                            \
-		__default_test_callback_before_load,                           \
-		NULL,                                                           \
+	BPF_PROG_TEST_RUNNER_WITH_CALLBACK(                                                    \
+		_name, __skel, pkt, _prog, _repeat,                                                \
+		__default_test_callback_before_load,                                               \
+		NULL,                                                                              \
 		NULL, expected_res)
 
 #define BPF_PROG_TEST_RUNNER_NO_CALLBACKS(_name, __skel, pkt, _prog, _repeat, expected_res) \
-	BPF_PROG_TEST_RUNNER_WITH_CALLBACK(                                    \
-		_name, __skel, pkt, _prog, _repeat,                            \
-		NULL,                                                           \
-		NULL,                                                           \
+	BPF_PROG_TEST_RUNNER_WITH_CALLBACK(                                                     \
+		_name, __skel, pkt, _prog, _repeat,                                                 \
+		NULL,                                                                               \
+		NULL,                                                                               \
 		NULL, expected_res)
 
-#endif 
+#endif
