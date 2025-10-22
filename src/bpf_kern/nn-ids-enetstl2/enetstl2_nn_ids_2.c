@@ -9,6 +9,9 @@ extern void relu_nm_forward(void *v__buf, int v_size__sz) __ksym;
 extern int fc_nm_forward(const struct fc_layer *fc_layer,
 						 void *x__buf, int x_size__sz,
 						 void *y__buf, int y_size__sz) __ksym;
+extern int fc_relu_nm_forward(const struct fc_layer *fc_layer,
+                              void *x__buf, int x_size__sz,
+                              void *y__buf, int y_size__sz) __ksym;
 
 char _license[] SEC("license") = "GPL";
 
@@ -119,36 +122,36 @@ static __always_inline int nn_inference(int *attr, nn_model *model)
 
 	/* input fc layer */
 	__builtin_memcpy(buf0, attr, sizeof(int) * 6);
-	ret = fc_nm_forward(&model->fc1, buf0, 6 * (sizeof(int)),
+	ret = fc_relu_nm_forward(&model->fc1, buf0, 6 * (sizeof(int)),
 						buf1, 32 * (sizeof(int)));
 	if (ret < 0)
 	{
 		log_error("fc1 forward failed: %d", ret);
 		return ret;
 	}
-	relu_nm_forward(buf1, 32 * (sizeof(int)));
+	// relu_nm_forward(buf1, 32 * (sizeof(int)));
 
 	/* hidden layer 1 */
 	__builtin_memset(buf0, 0, sizeof(buf0));
-	ret = fc_nm_forward(&model->fc2, buf1, 32 * (sizeof(int)),
+	ret = fc_relu_nm_forward(&model->fc2, buf1, 32 * (sizeof(int)),
 						buf0, 32 * (sizeof(int)));
 	if (ret < 0)
 	{
 		log_error("fc2 forward failed: %d", ret);
 		return ret;
 	}
-	relu_nm_forward(buf0, 32 * (sizeof(int)));
+	//relu_nm_forward(buf0, 32 * (sizeof(int)));
 
 	/* hidden layer 2 */
 	__builtin_memset(buf1, 0, sizeof(buf1));
-	ret = fc_nm_forward(&model->fc3, buf0, 32 * (sizeof(int)),
+	ret = fc_relu_nm_forward(&model->fc3, buf0, 32 * (sizeof(int)),
 						buf1, 32 * (sizeof(int)));
 	if (ret < 0)
 	{
 		log_error("fc3 forward failed: %d", ret);
 		return ret;
 	}
-	relu_nm_forward(buf1, 32 * (sizeof(int)));
+	//relu_nm_forward(buf1, 32 * (sizeof(int)));
 
 	/* output layer*/
 	ret = fc_nm_forward(&model->fc_out, buf1, 32 * (sizeof(int)),

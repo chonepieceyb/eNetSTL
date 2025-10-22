@@ -4,7 +4,7 @@
 #include "common.h"
 
 /* kfunc declarations for neural network inference */
-extern int bpf_nm_inference(void *model, int model_size__sz, void *attr, int attr_size__sz) __ksym;
+extern int bpf_nm_inference(void *model__buf, int model_size__sz, void *attr, int attr_size__sz) __ksym;
 
 char _license[] SEC("license") = "GPL";
 

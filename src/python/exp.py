@@ -193,6 +193,18 @@ bpf_prog_list: List[
     ("enetstl_nn_ids_3_user", "enetstl_nn_ids_3", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
     ("enetstl_nn_ids_4_user", "enetstl_nn_ids_4", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
     ("enetstl_nn_ids_5_user", "enetstl_nn_ids_5", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
+    ("enetstl2_nn_ids_1_user", "enetstl2_nn_ids_1", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
+    ("enetstl2_nn_ids_2_user", "enetstl2_nn_ids_2", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
+    ("enetstl2_nn_ids_3_user", "enetstl2_nn_ids_3", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
+    ("enetstl2_nn_ids_4_user", "enetstl2_nn_ids_4", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
+    ("enetstl2_nn_ids_5_user", "enetstl2_nn_ids_5", ExpConfig(), lambda: load_lkm("nn-ids-enetstl-lkm/simdnn.ko"), lambda: unload_lkm("simdnn")),
+    ("lkm_nn_ids_1_user", "lkm_nn_ids_1", ExpConfig(), lambda: load_lkm("nn-ids-lkm/simdnn-lkm.ko"), lambda: unload_lkm("simdnn-lkm")),
+    ("lkm_nn_ids_2_user", "lkm_nn_ids_2", ExpConfig(), lambda: load_lkm("nn-ids-lkm/simdnn-lkm.ko"), lambda: unload_lkm("simdnn-lkm")),
+    ("lkm_nn_ids_3_user", "lkm_nn_ids_3", ExpConfig(), lambda: load_lkm("nn-ids-lkm/simdnn-lkm.ko"), lambda: unload_lkm("simdnn-lkm")),
+    ("lkm_nn_ids_4_user", "lkm_nn_ids_4", ExpConfig(), lambda: load_lkm("nn-ids-lkm/simdnn-lkm.ko"), lambda: unload_lkm("simdnn-lkm")),
+    ("lkm_nn_ids_5_user", "lkm_nn_ids_5", ExpConfig(), lambda: load_lkm("nn-ids-lkm/simdnn-lkm.ko"), lambda: unload_lkm("simdnn-lkm")),
+    ("ebpf_nn_lb_user", "ebpf_nn_lb", ExpConfig()),
+    ("lkm_nn_lb_user", "lkm_nn_lb", ExpConfig(), lambda: load_lkm("nn-ids-lkm/simdnn-lkm.ko"), lambda: unload_lkm("simdnn-lkm")),
     ("empty_base_user", "empty_base", ExpConfig())
 ]
 

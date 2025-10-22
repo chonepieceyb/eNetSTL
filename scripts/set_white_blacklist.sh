@@ -26,6 +26,7 @@ AVAILABLE_EXPS=(
     "nn-ids-enetstl"
     "nn-ids-ebpf"
     "nn-ids-enetstl2"
+    "nn-ids-lkm"
 )
 
 function echo_help() {

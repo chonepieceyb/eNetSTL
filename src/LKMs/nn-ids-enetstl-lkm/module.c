@@ -55,12 +55,29 @@ __bpf_kfunc int fc_nm_forward(const struct fc_layer *fc_layer,
     return ret;
 }
 
+__bpf_kfunc int fc_relu_nm_forward(const struct fc_layer *fc_layer,
+                              void *x__buf, int x_size__sz,
+                              void *y__buf, int y_size__sz)
+{
+    kernel_fpu_begin();
+    int ret = fc_forward_i32((const struct fc_layer *)fc_layer,
+                             x__buf, x_size__sz / sizeof(int),
+                             y__buf, y_size__sz / sizeof(int));
+    if (ret >= 0) {
+        relu_inplace_i32(y__buf, y_size__sz / sizeof(int));
+    }
+    kernel_fpu_end();
+    return ret;
+}
+
+
 __bpf_kfunc_end_defs();
 
 BTF_KFUNCS_START(simdnn_kfunc_ids)
 BTF_ID_FLAGS(func, bpf_nm_inference)
 BTF_ID_FLAGS(func, relu_nm_forward)
 BTF_ID_FLAGS(func, fc_nm_forward)
+BTF_ID_FLAGS(func, fc_relu_nm_forward)
 BTF_KFUNCS_END(simdnn_kfunc_ids)
 
 static const struct btf_kfunc_id_set simdnn_kfunc_set = {
