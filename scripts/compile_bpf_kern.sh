@@ -1,5 +1,5 @@
 #!/bin/bash
-source $(cd "$(dirname "$0")"; pwd)"/"common.sh 
+source $(cd "$(dirname "$0")"; pwd)/common.sh 
 
 set -e 
 

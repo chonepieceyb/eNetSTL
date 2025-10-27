@@ -1,40 +1,49 @@
 #!/bin/bash
 
-source $(cd "$(dirname "$0")"; pwd)"/"common.sh
+# This script now uses testbed_config.sh for configuration management
+
+
+source $(cd "$(dirname "$0")"; pwd)/common.sh
+
+# Load testbed configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CONFIG_FILE="${KERNDBG_CONFIG_PATH:-$PROJECT_ROOT/configs/kernel_testbed.conf}"
+if [ -f "$CONFIG_FILE" ]; then
+    # Export the KERNDBG variables directly from config file
+    source <(grep "^KERNDBG_" "$CONFIG_FILE")
+else
+    echo "[ERROR] Configuration file not found: $CONFIG_FILE"
+    exit 1
+fi
+
+#TODO fix this scripts: now the new_kernel_dbg_session.sh and copy_files_to_vm.sh do not need CLI args, simplify this scripts
 
 set -e
 
-# Default ports (will be auto-selected if not provided)
-DEFAULT_GDB_PORT=""
-DEFAULT_SSH_PORT=""
-
 function echo_help() {
     echo "Usage: $0 [OPTIONS]"
-    echo "Prepare kernel debug environment with custom ports"
+    echo "Prepare kernel debug environment"
+    echo ""
+    echo "This script uses configuration from kernel_testbed.conf"
     echo ""
     echo "OPTIONS:"
-    echo "  --gdb-port PORT      Specify GDB port (auto-selected if not provided)"
-    echo "  --ssh-port PORT      Specify SSH port (auto-selected if not provided)"
     echo "  -h, --help           Show this help message"
     echo ""
+    echo "CONFIGURATION:"
+    echo "  Ports and settings are loaded from kernel_testbed.conf:"
+    echo "  - GDB Port: \$KERNDBG_GDB_PORT"
+    echo "  - SSH Port: \$KERNDBG_SSH_PORT"
+    echo "  - Linux Source: \$KERNDBG_LINUX_SRC_DIR"
+    echo ""
     echo "EXAMPLES:"
-    echo "  $0                                           # Auto-select ports"
-    echo "  $0 --gdb-port 1568 --ssh-port 3334         # Use specific ports"
-    echo "  $0 --gdb-port 1568                          # Auto-select SSH port only"
-    echo "  $0 --ssh-port 3334                          # Auto-select GDB port only"
+    echo "  $0                  # Prepare with configuration settings"
+    echo "  $0 --help           # Show this help message"
 }
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --gdb-port)
-            DEFAULT_GDB_PORT="$2"
-            shift 2
-            ;;
-        --ssh-port)
-            DEFAULT_SSH_PORT="$2"
-            shift 2
-            ;;
         -h|--help)
             echo_help
             exit 0
@@ -47,34 +56,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate port numbers if provided
-if [[ -n "$DEFAULT_GDB_PORT" && ! "$DEFAULT_GDB_PORT" =~ ^[0-9]+$ ]]; then
-    echo -e "$COLOR_RED [ERROR] Invalid GDB port: $DEFAULT_GDB_PORT $COLOR_OFF"
-    exit 1
-fi
-
-if [[ -n "$DEFAULT_SSH_PORT" && ! "$DEFAULT_SSH_PORT" =~ ^[0-9]+$ ]]; then
-    echo -e "$COLOR_RED [ERROR] Invalid SSH port: $DEFAULT_SSH_PORT $COLOR_OFF"
-    exit 1
-fi
+# Load configuration (don't display - will be shown by the session script)
+source "$SCRIPT_DIR/testbed_config.sh" && read_config "$CONFIG_PATH" >/dev/null 2>&1 && export_config_vars
 
 echo -e "$COLOR_GREEN [INFO] Starting kernel preparation... $COLOR_OFF"
 
-# Build arguments for new_kernel_dbg_session.sh
-SESSION_ARGS="-gdb"
-if [[ -n "$DEFAULT_GDB_PORT" ]]; then
-    SESSION_ARGS="$SESSION_ARGS --gdb-port $DEFAULT_GDB_PORT"
-fi
-if [[ -n "$DEFAULT_SSH_PORT" ]]; then
-    SESSION_ARGS="$SESSION_ARGS --ssh-port $DEFAULT_SSH_PORT"
-fi
-
 # 1. Start new kernel debug session and check if successful
 echo -e "$COLOR_YELLOW [INFO] Starting new kernel debug session... $COLOR_OFF"
-echo -e "$COLOR_BLUE [DEBUG] Session args: $SESSION_ARGS $COLOR_OFF"
 
-# Run with timeout to prevent hanging
-SESSION_OUTPUT=$(timeout 30 ${SCRIPT_DIR}/new_kernel_dbg_session.sh $SESSION_ARGS 2>&1)
+# Call the new_kernel_dbg_session.sh script in quiet mode
+SESSION_OUTPUT=$(QUIET_MODE=1 timeout 30 "$SCRIPT_DIR/new_kernel_dbg_session.sh" 2>&1)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 124 ]; then
@@ -88,43 +79,29 @@ elif [ $EXIT_CODE -ne 0 ]; then
 fi
 
 echo -e "$COLOR_GREEN [SUCCESS] New kernel debug session started successfully! $COLOR_OFF"
-echo -e "$COLOR_BLUE [DEBUG] Session output: $SESSION_OUTPUT $COLOR_OFF"
 
-# Extract SSH port from session output using more robust parsing
-SSH_PORT=$(echo "$SESSION_OUTPUT" | grep -o "SSH port: [0-9]*" | head -1 | sed 's/SSH port: //')
-if [ -z "$SSH_PORT" ]; then
-    echo -e "$COLOR_RED [ERROR] Could not extract SSH port from debug session output $COLOR_OFF"
+# Extract session information from output
+SESSION_INFO=$(echo "$SESSION_OUTPUT" | grep -E "^(SESSION_NAME|SSH_PORT|GDB_PORT|VM_USER|VM_HOST)=")
+if [ -z "$SESSION_INFO" ]; then
+    echo -e "$COLOR_RED [ERROR] Could not extract session information from debug session output $COLOR_OFF"
     echo -e "$COLOR_RED [ERROR] Session output: $SESSION_OUTPUT $COLOR_OFF"
     exit 1
 fi
 
-# Extract GDB port from session output
-GDB_PORT=$(echo "$SESSION_OUTPUT" | grep -o "GDB port: [0-9]*" | head -1 | sed 's/GDB port: //')
-if [ -z "$GDB_PORT" ]; then
-    echo -e "$COLOR_RED [ERROR] Could not extract GDB port from debug session output $COLOR_OFF"
-    echo -e "$COLOR_RED [ERROR] Session output: $SESSION_OUTPUT $COLOR_OFF"
-    exit 1
-fi
-
-echo -e "$COLOR_BLUE [DEBUG] Extracted SSH port: '$SSH_PORT' $COLOR_OFF"
-echo -e "$COLOR_BLUE [DEBUG] Extracted GDB port: '$GDB_PORT' $COLOR_OFF"
-
-# Extract session name from session output using more robust parsing
-SESSION_NAME=$(echo "$SESSION_OUTPUT" | grep -o "Session name: [^[:space:]]*" | sed 's/Session name: //')
-if [ -z "$SESSION_NAME" ]; then
-    echo -e "$COLOR_RED [ERROR] Could not extract session name from debug session output $COLOR_OFF"
-    echo -e "$COLOR_RED [ERROR] Session output: $SESSION_OUTPUT $COLOR_OFF"
-    exit 1
-fi
+# Parse session information
+eval "$SESSION_INFO"
 
 echo -e "$COLOR_GREEN [INFO] Kernel debug session started successfully $COLOR_OFF"
 echo -e "$COLOR_GREEN [INFO] Session name: $SESSION_NAME $COLOR_OFF"
 echo -e "$COLOR_GREEN [INFO] SSH port: $SSH_PORT $COLOR_OFF"
 echo -e "$COLOR_GREEN [INFO] GDB port: $GDB_PORT $COLOR_OFF"
 
-# 2. Copy files to VM using separate script
-echo -e "$COLOR_YELLOW [INFO] Calling copy_files_to_vm.sh with SSH port $SSH_PORT... $COLOR_OFF"
-${SCRIPT_DIR}/copy_files_to_vm.sh -p $SSH_PORT
+# 2. Copy files to VM using function directly
+echo -e "$COLOR_YELLOW [INFO] Copying files to VM... $COLOR_OFF"
+
+# Source the copy script and call its function directly
+source "$SCRIPT_DIR/copy_files_to_vm.sh"
+copy_files_to_vm_main
 
 if [ $? -ne 0 ]; then
     echo -e "$COLOR_RED [ERROR] Failed to copy files to VM $COLOR_OFF"
