@@ -11,7 +11,7 @@ function echo_help() {
     echo "git am --resolved"
 }
 
-source $(cd "$(dirname "$0")"; pwd)"/"common.sh 
+source $(cd "$(dirname "$0")"; pwd)/common.sh 
 if [ $# -lt 1 ]
 then 
     echo "usage: ./apply_patch_git.sh patch_dir" 

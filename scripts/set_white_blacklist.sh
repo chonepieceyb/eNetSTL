@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source $(cd "$(dirname "$0")"; pwd)"/"common.sh
+source $(cd "$(dirname "$0")"; pwd)/common.sh
 
 # Configuration
 CMAKE_DIR="${PROJECT_DIR}cmake"
@@ -9,25 +9,71 @@ C_BLACKLIST="${CMAKE_DIR}/c_blacklist.txt"
 BPF_WHITELIST="${CMAKE_DIR}/bpf_whitelist.txt"
 C_WHITELIST="${CMAKE_DIR}/c_whitelist.txt"
 
-# Available experiments
-AVAILABLE_EXPS=(
-    "exp1-2"
-    "exp1-arena"
-    "exp1-static-ptr"
-    "exp3"
-    "exp4"
-    "exp5"
-    "exp6"
-    "exp7"
-    "exp8"
-    "exp9"
-    "exp-control-plane"
-    "utils"
-    "nn-ids-enetstl"
-    "nn-ids-ebpf"
-    "nn-ids-enetstl2"
-    "nn-ids-lkm"
-)
+# Function to discover experiments by scanning subdirectories
+discover_experiments() {
+    echo -e "$COLOR_BLUE [INFO] Discovering experiments by scanning src/c and src/bpf... $COLOR_OFF"
+
+    local c_exps=()
+    local bpf_exps=()
+    local all_exps=()
+    local warnings=()
+
+    # Scan src/c subdirectories
+    if [ -d "${PROJECT_DIR}src/c" ]; then
+        for dir in "${PROJECT_DIR}src/c"/*; do
+            if [ -d "$dir" ]; then
+                exp_name=$(basename "$dir")
+                if [ "$exp_name" != "test_helpers" ] && [ "$exp_name" != "bpf_skel" ]; then
+                    c_exps+=("$exp_name")
+                    all_exps+=("$exp_name")
+                fi
+            fi
+        done
+    fi
+
+    # Scan src/bpf_kern subdirectories
+    if [ -d "${PROJECT_DIR}src/bpf_kern" ]; then
+        for dir in "${PROJECT_DIR}src/bpf_kern"/*; do
+            if [ -d "$dir" ]; then
+                exp_name=$(basename "$dir")
+                bpf_exps+=("$exp_name")
+
+                # Check if this BPF experiment has corresponding C experiment
+                if [[ ! " ${c_exps[@]} " =~ " ${exp_name} " ]]; then
+                    warnings+=("BPF experiment '$exp_name' found without corresponding C experiment")
+                fi
+
+                # Add to all_exps if not already present
+                if [[ ! " ${all_exps[@]} " =~ " ${exp_name} " ]]; then
+                    all_exps+=("$exp_name")
+                fi
+            fi
+        done
+    fi
+
+    # Check for C experiments without corresponding BPF experiments
+    for exp in "${c_exps[@]}"; do
+        if [[ ! " ${bpf_exps[@]} " =~ " ${exp} " ]]; then
+            warnings+=("C experiment '$exp' found without corresponding BPF experiment")
+        fi
+    done
+
+    # Display warnings
+    if [ ${#warnings[@]} -gt 0 ]; then
+        echo -e "$COLOR_YELLOW [WARNING] Found ${#warnings[@]} experiment pairing issues: $COLOR_OFF"
+        for warning in "${warnings[@]}"; do
+            echo -e "$COLOR_YELLOW   - $warning $COLOR_OFF"
+        done
+    fi
+
+    echo -e "$COLOR_GREEN [INFO] Discovered ${#all_exps[@]} experiments: ${all_exps[*]} $COLOR_OFF"
+
+    # Set the AVAILABLE_EXPS array
+    AVAILABLE_EXPS=("${all_exps[@]}")
+}
+
+# Available experiments (will be populated by discover_experiments)
+AVAILABLE_EXPS=()
 
 function echo_help() {
     echo "Usage: $0 [OPTIONS] <experiment1> [experiment2] [experiment3] ..."
@@ -188,6 +234,8 @@ function list_lists() {
 
 # Parse command line arguments
 MODE=""
+# Discover available experiments by scanning subdirectories
+discover_experiments
 EXPERIMENTS=()
 
 while [[ $# -gt 0 ]]; do

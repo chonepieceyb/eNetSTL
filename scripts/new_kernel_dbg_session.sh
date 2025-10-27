@@ -1,71 +1,46 @@
 #!/bin/bash
-source $(cd "$(dirname "$0")"; pwd)"/"common.sh""
 
-ENABLE_GDB=false
-WAIT_GDB=false
+# New Kernel Debug Session Script for eNetSTL
+# This script creates new kernel debugging tmux sessions with configuration support
 
-function find_available_port() {
-    local start_port=$1
-    local end_port=$2
-    local service=$3
-    local port=$start_port
+source $(cd "$(dirname "$0")"; pwd)/common.sh
 
-    while [ $port -le $end_port ]; do
-        if ! netstat -tuln 2>/dev/null | grep -q ":$port "; then
-            echo $port
-            return 0
-        fi
-        port=$((port + 1))
-    done
-
-    echo -e "$COLOR_RED [ERROR] No available $service port found in range $start_port-$end_port $COLOR_OFF" >&2
-    return 1
-}
+# Load testbed configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CONFIG_FILE="${KERNDBG_CONFIG_PATH:-$PROJECT_ROOT/configs/kernel_testbed.conf}"
+if [ -f "$CONFIG_FILE" ]; then
+    # Export the KERNDBG variables directly from config file
+    source <(grep "^KERNDBG_" "$CONFIG_FILE")
+else
+    echo "[ERROR] Configuration file not found: $CONFIG_FILE"
+    exit 1
+fi
 
 function echo_help() {
-    echo "Usage: $0 [-gdb] [-S] [-p SESSION_PREFIX] [--gdb-port PORT] [--ssh-port PORT]"
-    echo "  -gdb               Enable GDB server"
-    echo "  -S                 Wait for GDB to attach before starting"
-    echo "  -p                 Specify session prefix (default: kernel-testbed)"
-    echo "  --gdb-port PORT    Specify GDB port (auto-selected if not provided)"
-    echo "  --ssh-port PORT    Specify SSH port (auto-selected if not provided)"
-    echo ""
-    echo "DEBUG USAGE:"
-    echo "  add -s to start gdb"
-    echo "  add -S to hold on when enabling gdb"
-    echo "  run ./create_LKM_link.sh"
-    echo "  gdb vmlinux"
-    echo "  target remote :\$GDB_PORT"
-    echo "  lx-symbols to reload vmlinux and LKMs symbol"
+    printf "Usage: %s [OPTIONS]\n" "$0"
+    printf "\n"
+    printf "Create new kernel debugging tmux session using configuration settings.\n"
+    printf "\n"
+    printf "OPTIONS:\n"
+    echo '  -h, --help         Show this help message'
+    printf "\n"
+    printf "CONFIGURATION:\n"
+    printf "  This script uses settings from kernel_testbed.conf:\n"
+    echo '  - Session Prefix: $KERNDBG_TMUX_SESSION_PREFIX'
+    echo '  - GDB Port: $KERNDBG_GDB_PORT'
+    echo '  - SSH Port: $KERNDBG_SSH_PORT'
+    echo '  - GDB Enable: $KERNDBG_GDB_ENABLE_AT_START'
+    printf "\n"
+    printf "DEBUG USAGE:\n"
+    echo '  gdb vmlinux'
+    echo '  target remote :$KERNDBG_GDB_PORT'
+    echo '  lx-symbols to reload vmlinux and LKMs symbol'
 }
-
-# Default ports (will be auto-selected if not provided)
-SPECIFIED_GDB_PORT=""
-SPECIFIED_SSH_PORT=""
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -gdb)
-            ENABLE_GDB=true
-            shift
-            ;;
-        -S)
-            WAIT_GDB=true
-            shift
-            ;;
-        -p)
-            SESSION_PREFIX="$2"
-            shift 2
-            ;;
-        --gdb-port)
-            SPECIFIED_GDB_PORT="$2"
-            shift 2
-            ;;
-        --ssh-port)
-            SPECIFIED_SSH_PORT="$2"
-            shift 2
-            ;;
         -h|--help)
             echo_help
             exit 0
@@ -78,86 +53,101 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate port numbers if provided
-if [[ -n "$SPECIFIED_GDB_PORT" && ! "$SPECIFIED_GDB_PORT" =~ ^[0-9]+$ ]]; then
-    echo -e "$COLOR_RED [ERROR] Invalid GDB port: $SPECIFIED_GDB_PORT $COLOR_OFF"
-    exit 1
-fi
+# Main function for creating new kernel debug session
+create_kernel_debug_session() {
+    local session_name="$1"
 
-if [[ -n "$SPECIFIED_SSH_PORT" && ! "$SPECIFIED_SSH_PORT" =~ ^[0-9]+$ ]]; then
-    echo -e "$COLOR_RED [ERROR] Invalid SSH port: $SPECIFIED_SSH_PORT $COLOR_OFF"
-    exit 1
-fi
+    # Pass selected ports and arguments to the debug script
+    sudo tmux new-session -d -s $session_name "${SCRIPT_DIR}/debug_kernel_testbed.sh"
 
-# Add timestamp to session_name
-timestamp=$(date +"%Y%m%d_%H%M%S")
-session_prefix="kernel-testbed"
-if [ -n "$SESSION_PREFIX" ]; then
-    session_prefix="$SESSION_PREFIX"
-fi
-session_name="$session_prefix-yangbin-$timestamp"
-
-# Use specified ports or find available ports
-if [[ -n "$SPECIFIED_GDB_PORT" ]]; then
-    if netstat -tuln 2>/dev/null | grep -q ":$SPECIFIED_GDB_PORT "; then
-        echo -e "$COLOR_RED [ERROR] GDB port $SPECIFIED_GDB_PORT is already in use $COLOR_OFF"
-        exit 1
+    # Check if tmux session is alive after starting
+    sleep 2
+    if ! sudo tmux has-session -t $session_name 2>/dev/null; then
+        echo -e "${COLOR_RED}[ERROR] Failed to start tmux session: $session_name${COLOR_OFF}"
+        echo -e "${COLOR_RED}[ERROR] The session may have crashed or failed to initialize${COLOR_OFF}"
+        return 1
     fi
-    GDB_PORT=$SPECIFIED_GDB_PORT
-    echo -e "$COLOR_GREEN [INFO] Using specified GDB port: $GDB_PORT $COLOR_OFF"
-else
-    GDB_PORT=$(find_available_port 1567 1600 "GDB") || exit 1
-    echo -e "$COLOR_GREEN [INFO] Auto-selected GDB port: $GDB_PORT $COLOR_OFF"
-fi
 
-if [[ -n "$SPECIFIED_SSH_PORT" ]]; then
-    if netstat -tuln 2>/dev/null | grep -q ":$SPECIFIED_SSH_PORT "; then
-        echo -e "$COLOR_RED [ERROR] SSH port $SPECIFIED_SSH_PORT is already in use $COLOR_OFF"
-        exit 1
+    # Return session information for caller to display
+    echo "SESSION_NAME=$session_name"
+    echo "SSH_PORT=$KERNDBG_SSH_PORT"
+    echo "GDB_PORT=$KERNDBG_GDB_PORT"
+    echo "VM_USER=$KERNDBG_VM_USER"
+    echo "VM_HOST=127.0.0.1"
+
+    return 0
+}
+
+# Function for displaying session information
+display_session_info() {
+    local session_name="$1"
+    local ssh_port="${2:-$KERNDBG_SSH_PORT}"
+    local vm_user="${3:-$KERNDBG_VM_USER}"
+
+    echo -e "${COLOR_GREEN}[INFO] Session name: $session_name${COLOR_OFF}"
+    echo -e "${COLOR_GREEN}[INFO] Session is running successfully${COLOR_OFF}"
+    echo -e "${COLOR_GREEN}[INFO] run sudo tmux attach -t $session_name  to attach to the testing session${COLOR_OFF}"
+    echo -e "${COLOR_GREEN}[INFO] run sudo tmux kill-session -t $session_name > /dev/null 2>&1  to kill testing session${COLOR_OFF}"
+    echo -e "${COLOR_GREEN}[INFO] or run ssh -p $ssh_port $vm_user@127.0.0.1${COLOR_OFF}"
+}
+
+# Script execution logic
+main_session() {
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                echo_help
+                return 0
+                ;;
+            *)
+                echo -e "$COLOR_RED [ERROR] Unknown option: $1 $COLOR_OFF"
+                echo_help
+                return 1
+                ;;
+        esac
+    done
+
+    # Load configuration
+    source "$SCRIPT_DIR/testbed_config.sh" && read_config "$CONFIG_FILE" >/dev/null 2>&1 && export_config_vars
+
+    # Generate session name
+    timestamp=$(date +"%Y%m%d_%H%M%S")
+    session_prefix="$KERNDBG_TMUX_SESSION_PREFIX"
+    session_name="$session_prefix-$timestamp"
+
+    # Kill any existing sessions if configured to do so
+    if [ "$KERNDBG_FORCE_CLEAN_SESSION" = "true" ]; then
+        echo -e "$COLOR_YELLOW [INFO] Force cleaning up existing sessions... $COLOR_OFF"
+        "${SCRIPT_DIR}/kill_kernel_dbg_session.sh" --force "$session_prefix" >/dev/null 2>&1
     fi
-    SSH_PORT=$SPECIFIED_SSH_PORT
-    echo -e "$COLOR_GREEN [INFO] Using specified SSH port: $SSH_PORT $COLOR_OFF"
-else
-    SSH_PORT=$(find_available_port 3333 3400 "SSH") || exit 1
-    echo -e "$COLOR_GREEN [INFO] Auto-selected SSH port: $SSH_PORT $COLOR_OFF"
+
+    # Create session and get info
+    local session_info
+    session_info=$(create_kernel_debug_session "$session_name")
+    local exit_code=$?
+
+    if [ $exit_code -ne 0 ]; then
+        return $exit_code
+    fi
+
+    # Only display configuration and help in interactive mode
+    if [ "${QUIET_MODE:-0}" != "1" ]; then
+        echo_kerndbg_config
+
+        # Parse session info and display
+        eval "$session_info"
+        display_session_info "$SESSION_NAME" "$SSH_PORT" "$VM_USER"
+
+        echo ""
+        echo_help
+    else
+        # In quiet mode, output structured data for parsing
+        echo "$session_info"
+    fi
+}
+
+# Script execution - call main function if script is run directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main_session "$@"
 fi
-
-# Kill any existing sessions with matching pattern
-echo -e "$COLOR_YELLOW [INFO] Cleaning up existing sessions... $COLOR_OFF"
-sudo tmux list-sessions 2>/dev/null | grep -E "$session_prefix-yangbin-|kernel-testbed-yb-|kernel-testbed-" | while read -r session; do
-    session_to_kill=$(echo "$session" | cut -d: -f1)
-    echo -e "$COLOR_YELLOW [INFO] Killing session: $session_to_kill $COLOR_OFF"
-    sudo tmux kill-session -t "$session_to_kill" > /dev/null 2>&1
-done
-
-set -e
-
-# Build command arguments for debug script
-DEBUG_ARGS=""
-if [ "$ENABLE_GDB" = true ]; then
-    DEBUG_ARGS="$DEBUG_ARGS -gdb"
-fi
-if [ "$WAIT_GDB" = true ]; then
-    DEBUG_ARGS="$DEBUG_ARGS -S"
-fi
-
-# Pass selected ports and arguments to the debug script
-sudo tmux new-session -d -s $session_name "GDB_PORT=$GDB_PORT SSH_PORT=$SSH_PORT ${SCRIPT_DIR}/debug_kernel_testbed.sh $DEBUG_ARGS"
-
-# Check if tmux session is alive after starting
-sleep 2
-if ! sudo tmux has-session -t $session_name 2>/dev/null; then
-    echo -e "$COLOR_RED [ERROR] Failed to start tmux session: $session_name $COLOR_OFF"
-    echo -e "$COLOR_RED [ERROR] The session may have crashed or failed to initialize $COLOR_OFF"
-    exit 1
-fi
-
-# Display selected port information
-echo -e "$COLOR_GREEN [INFO] GDB port: $GDB_PORT $COLOR_OFF"
-echo -e "$COLOR_GREEN [INFO] SSH port: $SSH_PORT $COLOR_OFF"
-echo -e "$COLOR_GREEN [INFO] Session name: $session_name $COLOR_OFF"
-echo -e "$COLOR_GREEN [INFO] Session is running successfully $COLOR_OFF"
-echo -e "$COLOR_GREEN [INFO] run sudo tmux attach -t $session_name  to attach to the testing session $COLOR_OFF"
-echo -e "$COLOR_GREEN [INFO] run sudo tmux kill-session -t $session_name > /dev/null 2>&1  to kill testing session $COLOR_OFF"
-echo -e "$COLOR_GREEN [INFO] or run ssh -p $SSH_PORT user@127.0.0.1 $COLOR_OFF"
-echo_help

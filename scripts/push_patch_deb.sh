@@ -1,7 +1,7 @@
 #!/bin/zsh 
 
 
-source $(cd "$(dirname "$0")"; pwd)"/"common.sh 
+source $(cd "$(dirname "$0")"; pwd)/common.sh 
 source ~/.zshrc
 
 if [ $# -lt 1 ]

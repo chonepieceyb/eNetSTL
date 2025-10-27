@@ -23,6 +23,7 @@ import subprocess
 import os
 from exp_config import *
 
+
 sys.path.insert(0, '/root/trex/v3.03/external_libs')
 sys.path.insert(0, '/root/trex/v3.03/automation/trex_control_plane/interactive')
 sys.path.insert(0, '/root/trex/v3.03/automation/trex_control_plane/interactive/trex/examples/stl')
@@ -31,11 +32,16 @@ from trex.stl.api import *
 from trex.utils.text_opts import format_text
 
 class ExpConfig:
-    def __init__(self, *, lat_pps = '1000', bg_no_pps = '0', bg_high_pps = '20000000'):
-        #use for test lat_max_pps
-        self.lat_pps = lat_pps
-        self.bg_no_pps = bg_no_pps
-        self.bg_high_pps = bg_high_pps
+    """Compatibility wrapper for experiment configuration using the new ExperimentConfig system."""
+
+    def __init__(self, *, lat_pps=None, bg_no_pps=None, bg_high_pps=None):
+        # Initialize with provided values or defaults from ExperimentConfig
+        exp_config = config  # Use the global config instance from exp_config
+
+        # Use provided parameters or fall back to the global config
+        self.lat_pps = lat_pps if lat_pps is not None else exp_config.lat_pps
+        self.bg_no_pps = bg_no_pps if bg_no_pps is not None else exp_config.bg_no_pps
+        self.bg_high_pps = bg_high_pps if bg_high_pps is not None else exp_config.bg_high_pps
 
 # List of eBPF programs or (eBPF program, setup hook, teardown hook)s
 bpf_prog_list: List[

@@ -1,6 +1,6 @@
 #!/bin/bash
 # 使用方法：调用该脚本需传入数字参数i，对应加载运行PROG数组中的第i个程序
-source $(cd "$(dirname "$0")"; pwd)"/"common.sh
+source $(cd "$(dirname "$0")"; pwd)/common.sh
 EXTERN_KERN_MODULES="extern_kern_modules/"
 # 写要加载的模块和程序
 MODULE=("sketch_lib" "bpf_custom_map_demo")

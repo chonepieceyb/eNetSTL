@@ -74,7 +74,6 @@ resources/
 log
 *vmlinux.h
 cmake/
-src/python/exp_config.py
 
 # claude
 claude_instructions/

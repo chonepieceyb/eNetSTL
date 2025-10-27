@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source $(cd "$(dirname "$0")"; pwd)"/"common.sh
+source $(cd "$(dirname "$0")"; pwd)/common.sh
 
 if [ $# -lt 1 ]
 then
